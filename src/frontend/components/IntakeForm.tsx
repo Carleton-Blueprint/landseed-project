@@ -40,9 +40,32 @@ export function IntakeForm() {
     defaultValues,
   });
 
-  function onSubmit(values: IntakeFormValues) {
-    // Small job: submit to API when ready
-    console.log("Intake submitted", values);
+  async function onSubmit(values: IntakeFormValues) {
+      // Small job: submit to API when ready
+      try {
+        const response = await fetch('/api/intake', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(values),
+        });
+
+        if (!response.ok) {
+          // Handle HTTP errors (4xx, 5xx)
+          const error = await response.json();
+          console.error('Error:', error);
+          return;
+        }
+
+        const data = await response.json();
+        console.log("Intake submitted successfully", data);
+        console.log("Submitted values:", values);
+      
+    } catch (error) {
+        // Handle network errors
+        console.error('Network error:', error);
+    }
   }
 
   return (
