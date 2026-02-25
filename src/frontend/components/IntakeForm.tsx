@@ -60,8 +60,7 @@ export function IntakeForm() {
 
         const data = await response.json();
         console.log("Intake submitted successfully", data);
-        console.log("Submitted values:", values);
-      
+              
     } catch (error) {
         // Handle network errors
         console.error('Network error:', error);
