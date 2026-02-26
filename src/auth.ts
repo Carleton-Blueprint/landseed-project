@@ -39,11 +39,22 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.name?.trim()) return null;
+
+        if (!credentials?.email?.trim()) return null;
+
+        // Query the database for the user
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email?.trim() }
+        });
+        
+        // If user not found, deny access
+        if (!user) return null;
+
         return {
-          id: `cred-${Date.now()}`,
-          name: credentials.name.trim(),
-          email: credentials.email?.trim() || null,
-          image: null,
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          image: user.image || null,
         };
       },
     }),
