@@ -38,24 +38,29 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         phone: { label: "Phone", type: "text" },
       },
       async authorize(credentials) {
-        if (!credentials?.name?.trim()) return null;
+          try {
+            if (!credentials?.name?.trim()) return null;
 
-        if (!credentials?.email?.trim()) return null;
+            if (!credentials?.email?.trim()) return null;
 
-        // Query the database for the user
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email?.trim() }
-        });
-        
-        // If user not found, deny access
-        if (!user) return null;
+            // Query the database for the user
+            const user = await prisma.user.findUnique({
+              where: { email: credentials.email?.trim() }
+            });
+            
+            // If user not found, deny access
+            if (!user) return null;
 
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          image: user.image || null,
-        };
+            return {
+              id: user.id,
+              name: user.name,
+              email: user.email,
+              image: user.image || null,
+            };
+        } catch (error) {
+          console.error("Error in authorize:", error);
+          return null;
+        }
       },
     }),
   ],
