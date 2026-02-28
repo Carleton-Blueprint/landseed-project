@@ -14,13 +14,12 @@ const provinces = ["AB","BC","MB","NB","NL","NS","NT","NU","ON","PE","QC","SK","
 
 const intakeSchema = z.object({
   name: z.string().min(1, "Name is required").max(120, "Name is too long"),
-  email: z.string().email("Enter a valid email").optional().or(z.literal("")),
+  email: z.string().min(1, "Email is required").email("Enter a valid email"),
   phone: z
     .string()
+    .min(1, "Phone is required")
     .regex(/^[\d\s\-+()]*$/, "Phone can only contain digits and + - ( )")
-    .max(24, "Phone number is too long")
-    .optional()
-    .or(z.literal("")),
+    .max(24, "Phone number is too long"),
 
     // Service address
     addressLine1: z.string().min(1, "Street address is required").max(200),
@@ -142,12 +141,13 @@ export function IntakeForm() {
 
           <div>
             <label htmlFor="intake-email" className="mb-1 block text-sm font-medium">
-              Email
+              Email <span className="text-destructive" aria-hidden="true">*</span>
             </label>
             <Input
               id="intake-email"
               type="email"
               autoComplete="email"
+              aria-required="true"
               aria-invalid={Boolean(errors.email)}
               aria-describedby={errors.email ? "intake-email-error" : undefined}
               placeholder="you@example.com"
@@ -163,12 +163,13 @@ export function IntakeForm() {
 
           <div>
             <label htmlFor="intake-phone" className="mb-1 block text-sm font-medium">
-              Phone
+              Phone <span className="text-destructive" aria-hidden="true">*</span>
             </label>
             <Input
               id="intake-phone"
               type="tel"
               autoComplete="tel"
+              aria-required="true"
               aria-invalid={Boolean(errors.phone)}
               aria-describedby={errors.phone ? "intake-phone-error" : undefined}
               placeholder="+1 (555) 000-0000"
