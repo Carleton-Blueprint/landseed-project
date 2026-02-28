@@ -10,10 +10,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/frontend/components/ui/button";
 import { Input } from "@/frontend/components/ui/input";
+import { signIn } from "next-auth/react";
 
 const intakeSchema = z.object({
   name: z.string().min(1, "Name is required").max(120, "Name is too long"),
-  email: z.string().email("Enter a valid email").optional().or(z.literal("")),
+  email: z.string().min(1, "Email is required").email("Enter a valid email"),
   phone: z
     .string()
     .regex(/^[\d\s\-+()]*$/, "Phone can only contain digits and + - ( )")
@@ -40,9 +41,44 @@ export function IntakeForm() {
     defaultValues,
   });
 
-  function onSubmit(values: IntakeFormValues) {
-    // Small job: submit to API when ready
-    console.log("Intake submitted", values);
+  async function onSubmit(values: IntakeFormValues) {
+      // Small job: submit to API when ready
+      try {
+        const response = await fetch('/api/intake', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(values),
+        });
+
+        if (!response.ok) {
+          // Handle HTTP errors (4xx, 5xx)
+          const error = await response.json();
+          console.error('Error:', error);
+          return;
+        }
+
+        const data = await response.json();
+        console.log('User created:', data);
+
+        // Sign the User in
+        const result = await signIn('credentials', {
+          email: values.email,
+          name: values.name,
+          phone: values.phone,
+          redirect: false,  // Handle later
+        });
+
+        if (result?.ok) {
+          console.log('Signed in successfully!');
+          // Optionally redirect: window.location.href = '/dashboard';
+        }
+              
+    } catch (error) {
+        // Handle network errors
+        console.error('Network error:', error);
+    }
   }
 
   return (
@@ -76,7 +112,7 @@ export function IntakeForm() {
 
       <div>
         <label htmlFor="intake-email" className="mb-1 block text-sm font-medium">
-          Email
+          Email <span className="text-destructive" aria-hidden="true">*</span>
         </label>
         <Input
           id="intake-email"
