@@ -4,7 +4,6 @@ import React from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Button } from "@/frontend/components/ui/button";
 
 const schema = z.object({
     mobilityAssistance: z.enum(["yes", "no"], {
@@ -165,10 +164,14 @@ export function GuidedIntakeForm({ onSubmitSuccess }: { onSubmitSuccess?: (value
                 </div>
             </div>
 
-            <div className="mt-4 text-right">
-                <Button type="submit" disabled={isSubmitting}>
+            <div className="mt-4 pt-4 border-t text-right">
+                <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+                >
                     {isSubmitting ? "Sending..." : "Submit Form"}
-                </Button>
+                </button>
             </div>
         </form>
     );
