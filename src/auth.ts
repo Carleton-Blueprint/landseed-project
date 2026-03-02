@@ -12,19 +12,16 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        // Persist the user id and basic profile info in the JWT
-        // so we can read it in the session callback and on the client.
-        // Casting to any avoids adapter/provider-specific type narrowing issues.
-        const u = user as unknown as Record<string, unknown>;
+        const u = user as { id: string; name?: string | null; email?: string | null; image?: string | null };
         token.id = u.id;
-        token.name = u.name as string;
-        token.email = u.email as string;
+        token.name = u.name;
+        token.email = u.email;
       }
       return token;
     },
     async session({ session, token }) {
-      if (session.user) {
-        (session.user as unknown as Record<string, unknown>).id = token.id as string;
+      if (session.user && token.id) {
+        (session.user as { id?: string }).id = token.id as string;
       }
       return session;
     },
@@ -38,16 +35,26 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         phone: { label: "Phone", type: "text" },
       },
       async authorize(credentials) {
-        const name = credentials?.name as string | undefined;
-        const email = credentials?.email as string | undefined;
+        try {
+          const name = typeof credentials?.name === "string" ? credentials.name.trim() : "";
+          const email = typeof credentials?.email === "string" ? credentials.email.trim() : "";
+          if (!name || !email) return null;
 
-        if (!name?.trim()) return null;
-        return {
-          id: `cred-${Date.now()}`,
-          name: name.trim(),
-          email: email?.trim() || null,
-          image: null,
-        };
+          const user = await prisma.user.findUnique({
+            where: { email },
+          });
+          if (!user) return null;
+
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image || null,
+          };
+        } catch (error) {
+          console.error("Error in authorize:", error);
+          return null;
+        }
       },
     }),
   ],
