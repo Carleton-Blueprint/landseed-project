@@ -115,9 +115,18 @@ export function IntakeForm() {
         });
 
         if (!response.ok) {
-          // Handle HTTP errors (4xx, 5xx)
-          const error = await response.json();
-          console.error('Error:', error);
+          let errorMessage = `Request failed (${response.status})`;
+          try {
+            const body = await response.json();
+            if (body?.error && typeof body.error === "string") {
+              errorMessage = body.error;
+            } else if (body && Object.keys(body).length > 0) {
+              errorMessage = JSON.stringify(body);
+            }
+          } catch {
+            /* response body wasn't JSON */
+          }
+          console.error("Intake error:", errorMessage);
           return;
         }
 

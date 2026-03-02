@@ -24,10 +24,24 @@ export async function POST(request: Request) {
       user: user 
     });
 
-  } catch (error) {
-    console.error('Database error:', error);
+  } catch (error: unknown) {
+    console.error("Database error:", error);
+
+    // Prisma unique constraint (e.g. duplicate email)
+    const prismaError = error as { code?: string; meta?: { target?: string[] } };
+    if (prismaError?.code === "P2002") {
+      const target = prismaError.meta?.target?.[0] ?? "field";
+      return NextResponse.json(
+        { success: false, error: `A user with this ${target} already exists.` },
+        { status: 409 }
+      );
+    }
+
     return NextResponse.json(
-      { success: false, error: 'Failed to create user' },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to create user",
+      },
       { status: 500 }
     );
   }
