@@ -1,6 +1,6 @@
 /**
  * Jest config for unit tests: uses next/jest for compatibility, jsdom environment, and path aliases
- * matching tsconfig (@/*, lib/*). Test files: **/*.test.[jt]s?(x) and __tests__/**/*.
+ * matching tsconfig (alias @/ and lib/). Test files: *.test.ts(x) and __tests__.
  */
 import type { Config } from "jest";
 import nextJest from "next/jest.js";
