@@ -5,12 +5,14 @@
  */
 "use client";
 
+import React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/frontend/components/ui/button";
 import { Input } from "@/frontend/components/ui/input";
 import { signIn } from "next-auth/react";
+import { PhotoUploadInterface } from "./PhotoUploadInterface";
 
 const provinces = ["AB","BC","MB","NB","NL","NS","NT","NU","ON","PE","QC","SK","YT",] as const;
 
@@ -104,6 +106,9 @@ export function IntakeForm() {
 
   const ownershipStatus = watch("ownershipStatus");
 
+  // Photo upload state
+  const [uploadedPhotos, setUploadedPhotos] = React.useState<File[]>([]);
+
   async function onSubmit(values: IntakeFormValues) {
     try {
       const response = await fetch("/api/intake", {
@@ -143,6 +148,51 @@ export function IntakeForm() {
 
         if (result?.ok) {
           console.log('Signed in successfully!');
+          
+          // Create a Project for every user
+          try {
+            const projectResponse = await fetch('/api/project', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                address: `${values.addressLine1}, ${values.city}, ${values.province} ${values.postalCode}`,
+              }),
+            });
+            
+            if (!projectResponse.ok) {
+              console.error('Failed to create project');
+              return;
+            }
+            
+            const { project } = await projectResponse.json();
+            console.log('Project created:', project.id);
+            
+            // If user uploaded photos, upload them
+            if (uploadedPhotos.length > 0) {
+              for (const file of uploadedPhotos) {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('projectId', project.id);
+                
+                const uploadResponse = await fetch('/api/upload', {
+                  method: 'POST',
+                  body: formData,
+                });
+                
+                if (uploadResponse.ok) {
+                  const uploadData = await uploadResponse.json();
+                  console.log('Photo uploaded:', uploadData.photo?.id);
+                } else {
+                  console.error('Failed to upload photo:', file.name);
+                }
+              }
+              
+              console.log('All photos uploaded!');
+            }
+          } catch (error) {
+            console.error('Error creating project or uploading photos:', error);
+          }
+          
           // Optionally redirect: window.location.href = '/dashboard';
         }
               
@@ -473,6 +523,19 @@ export function IntakeForm() {
           </div>
         )}
       </fieldset>
+
+      {/* Photo Upload */}
+      <section aria-label="Property photos" className="pt-2">
+        <h2 className="text-base font-semibold mb-3">Photos (Optional)</h2>
+        <p className="text-sm text-muted-foreground mb-3">
+          Upload 1-10 photos of your property to help us understand your needs.
+        </p>
+        <PhotoUploadInterface
+          onUpload={setUploadedPhotos}
+          maxFiles={10}
+          maxSizeMB={10}
+        />
+      </section>
 
       <Button type="submit" disabled={isSubmitting} className="mt-2">
         {isSubmitting ? "Submitting…" : "Submit"}

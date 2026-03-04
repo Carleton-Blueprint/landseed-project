@@ -1,21 +1,40 @@
 /**
  * API route: POST /api/upload — accepts multipart/form-data photo uploads.
- * Validates file presence, size (max 10MB), and type (JPEG, PNG, WebP). S3 upload and virus-scan queue
- * are left as placeholders to wire in lib/s3 and src/backend/queue.
+ * Validates file presence, size (max 10MB), and type (JPEG, PNG, WebP). 
+ * Uploads to S3 and creates Photo record in database.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToS3 } from "lib/s3";
+import { prisma } from "lib/prisma";
+import { auth } from "@/auth";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth();
+    
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Unauthorized - must be signed in" },
+        { status: 401 }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") ?? formData.get("photo");
+    const projectId = formData.get("projectId");
 
     if (!file || !(file instanceof File)) {
       return NextResponse.json(
         { error: "Missing or invalid file in form field 'file' or 'photo'" },
+        { status: 400 }
+      );
+    }
+
+    if (!projectId || typeof projectId !== "string") {
+      return NextResponse.json(
+        { error: "Missing projectId" },
         { status: 400 }
       );
     }
@@ -40,22 +59,27 @@ export async function POST(request: NextRequest) {
     const extension = file.name.split('.').pop() || 'jpg';
     const uniqueFilename = `${timestamp}-${randomId}.${extension}`;
     
-    // For now, use a test folder. Later: projects/{projectId}/photos/{filename}
-    const s3Key = `test-uploads/${uniqueFilename}`;
+    // Use project-specific folder
+    const s3Key = `projects/${projectId}/photos/${uniqueFilename}`;
 
     // Convert file to buffer and upload to S3
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const s3Url = await uploadToS3(buffer, s3Key, file.type);
 
+    // Create Photo record in database
+    const photo = await prisma.photo.create({
+      data: {
+        url: s3Url,
+        projectId: projectId,
+        virus_scan_status: "pending",
+      },
+    });
+
     return NextResponse.json({
       success: true,
-      url: s3Url,
-      key: s3Key,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      message: "File uploaded successfully to S3!",
+      photo,
+      message: "File uploaded successfully!",
     });
   } catch (err) {
     console.error("Upload error:", err);
