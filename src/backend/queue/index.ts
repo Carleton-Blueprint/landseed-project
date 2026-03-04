@@ -10,7 +10,7 @@ const connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379"
   maxRetriesPerRequest: null,
 });
 
-export const virusScanQueue = new Queue<{ key: string; bucket?: string }>("virus-scan", {
+export const virusScanQueue = new Queue<{ key: string; photoId: string; bucket?: string }>("virus-scan", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 1000 } },
 });
@@ -21,7 +21,7 @@ export const aiJobsQueue = new Queue<{ jobType: string; payload: unknown }>("ai-
 });
 
 export function createVirusScanWorker(
-  processor: (job: { data: { key: string; bucket?: string } }) => Promise<void>
+  processor: (job: { data: { key: string; photoId: string; bucket?: string } }) => Promise<void>
 ) {
   return new Worker("virus-scan", processor, { connection });
 }

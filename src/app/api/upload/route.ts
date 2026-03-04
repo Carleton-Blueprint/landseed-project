@@ -1,12 +1,13 @@
 /**
  * API route: POST /api/upload — accepts multipart/form-data photo uploads.
  * Validates file presence, size (max 10MB), and type (JPEG, PNG, WebP). 
- * Uploads to S3 and creates Photo record in database.
+ * Uploads to S3, creates Photo record, and queues virus scan job.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToS3 } from "lib/s3";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
+import { virusScanQueue } from "@/backend/queue";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(arrayBuffer);
     const s3Url = await uploadToS3(buffer, s3Key, file.type);
 
-    // Create Photo record in database
+    // Create Photo record in database with "pending" status
     const photo = await prisma.photo.create({
       data: {
         url: s3Url,
@@ -76,10 +77,28 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Add virus scan job to Redis queue (non-blocking)
+    // The worker will process this asynchronously
+    await virusScanQueue.add(
+      `scan-${photo.id}`,  // Job name (unique identifier)
+      { 
+        key: s3Key,                              // S3 file path
+        photoId: photo.id,                       // Database record ID
+        bucket: process.env.AWS_S3_BUCKET   // S3 bucket name
+      },
+      { 
+        priority: 1,              // High priority (1 = highest)
+        removeOnComplete: 100,    // Keep last 100 completed jobs for debugging
+        removeOnFail: 500,        // Keep last 500 failed jobs for analysis
+      }
+    );
+
+    console.log(`✅ Photo ${photo.id} uploaded. Virus scan job queued.`);
+
     return NextResponse.json({
       success: true,
       photo,
-      message: "File uploaded successfully!",
+      message: "File uploaded successfully! Virus scan in progress...",
     });
   } catch (err) {
     console.error("Upload error:", err);
