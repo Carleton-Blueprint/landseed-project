@@ -46,30 +46,64 @@ const intakeSchema = z.object({
       .max(24, "Phone number is too long")
       .optional()
       .or(z.literal("")),
+
+    // Caregiver section
+    isCaregiver: z.boolean().default(false),
+    seniorName: z.string().max(120).optional().or(z.literal("")),
+    relationshipToSenior: z.string().max(120).optional().or(z.literal("")),
+    caregiverConsentConfirmed: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
-    if (data.ownershipStatus === "tenant") {
-      if (!data.landlordName?.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["landlordName"],
-          message: "Landlord name is required for tenants",
-        });
-      }
-      if (!data.landlordPhone?.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["landlordPhone"],
-          message: "Landlord phone is required for tenants",
-        });
-      }
+  if (data.ownershipStatus === "tenant") {
+    if (!data.landlordName?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["landlordName"],
+        message: "Landlord name is required for tenants",
+      });
     }
-    if (data.ownershipStatus === "other") {
+
+    if (!data.landlordPhone?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["landlordPhone"],
+        message: "Landlord phone is required for tenants",
+      });
+    }
+  }
+
+  if (data.ownershipStatus === "other") {
     if (!data.ownershipOtherDetails?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["ownershipOtherDetails"],
         message: "Please explain your ownership status",
+      });
+    }
+  }
+
+  if (data.isCaregiver) {
+    if (!data.seniorName?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["seniorName"],
+        message: "Senior name is required when submitting as a caregiver",
+      });
+    }
+
+    if (!data.relationshipToSenior?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["relationshipToSenior"],
+        message: "Relationship to the senior is required",
+      });
+    }
+
+    if (data.caregiverConsentConfirmed !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["caregiverConsentConfirmed"],
+        message: "You must confirm your authority and the senior’s consent",
       });
     }
   }
@@ -90,6 +124,10 @@ const defaultValues: IntakeFormValues = {
   ownershipOtherDetails: "",
   landlordName: "",
   landlordPhone: "",
+  isCaregiver: false,
+  seniorName: "",
+  relationshipToSenior: "",
+  caregiverConsentConfirmed: false,
 };
 
 export function IntakeForm() {
@@ -105,6 +143,7 @@ export function IntakeForm() {
   });
 
   const ownershipStatus = watch("ownershipStatus");
+  const isCaregiver = watch("isCaregiver");
 
   // Photo upload state
   const [uploadedPhotos, setUploadedPhotos] = React.useState<File[]>([]);
@@ -277,6 +316,79 @@ export function IntakeForm() {
               </p>
             )}
           </div>
+        </div>
+      </section>
+
+      {/* Caregiver Section */}
+      <section aria-label="Caregiver information" className="pt-2">
+        <h2 className="text-base font-semibold">Submitting on Behalf of a Senior</h2>
+
+        <div className="mt-3 space-y-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" {...register("isCaregiver")} />
+            I am a caregiver submitting this request on behalf of a senior
+          </label>
+
+          {isCaregiver && (
+            <div className="space-y-4 rounded-md border p-3">
+              <div>
+                <label htmlFor="intake-senior-name" className="mb-1 block text-sm font-medium">
+                  Senior Name <span className="text-destructive" aria-hidden="true">*</span>
+                </label>
+                <Input
+                  id="intake-senior-name"
+                  type="text"
+                  aria-required="true"
+                  aria-invalid={Boolean(errors.seniorName)}
+                  aria-describedby={errors.seniorName ? "intake-senior-name-error" : undefined}
+                  placeholder="Senior full name"
+                  className={errors.seniorName ? "border-destructive" : ""}
+                  {...register("seniorName")}
+                />
+                {errors.seniorName && (
+                  <p id="intake-senior-name-error" className="mt-1 text-sm text-destructive" role="alert">
+                    {errors.seniorName.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="intake-relationship-to-senior" className="mb-1 block text-sm font-medium">
+                  Relationship to Senior <span className="text-destructive" aria-hidden="true">*</span>
+                </label>
+                <Input
+                  id="intake-relationship-to-senior"
+                  type="text"
+                  aria-required="true"
+                  aria-invalid={Boolean(errors.relationshipToSenior)}
+                  aria-describedby={errors.relationshipToSenior ? "intake-relationship-error" : undefined}
+                  placeholder="e.g. daughter, son, caregiver"
+                  className={errors.relationshipToSenior ? "border-destructive" : ""}
+                  {...register("relationshipToSenior")}
+                />
+                {errors.relationshipToSenior && (
+                  <p id="intake-relationship-error" className="mt-1 text-sm text-destructive" role="alert">
+                    {errors.relationshipToSenior.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" {...register("caregiverConsentConfirmed")} />
+                  <span>
+                    I confirm that I have the senior’s consent and legal authority to submit this request on their behalf
+                    <span className="text-destructive" aria-hidden="true"> *</span>
+                  </span>
+                </label>
+                {errors.caregiverConsentConfirmed && (
+                  <p className="mt-1 text-sm text-destructive" role="alert">
+                    {errors.caregiverConsentConfirmed.message}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
