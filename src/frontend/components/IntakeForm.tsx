@@ -55,7 +55,7 @@ const intakeSchema = z.object({
   })
   .superRefine((data, ctx) => {
     if (data.ownershipStatus === "tenant") {
-      if (!data.landlordName || !data.landlordName.trim()) {
+      if (!data.landlordName?.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["landlordName"],
@@ -63,7 +63,7 @@ const intakeSchema = z.object({
         });
       }
 
-      if (!data.landlordPhone || !data.landlordPhone.trim()) {
+      if (!data.landlordPhone?.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["landlordPhone"],
@@ -73,7 +73,7 @@ const intakeSchema = z.object({
     }
 
     if (data.ownershipStatus === "other") {
-      if (!data.ownershipOtherDetails || !data.ownershipOtherDetails.trim()) {
+      if (!data.ownershipOtherDetails?.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["ownershipOtherDetails"],
@@ -83,7 +83,7 @@ const intakeSchema = z.object({
     }
 
     if (data.isCaregiver) {
-      if (!data.seniorName || !data.seniorName.trim()) {
+      if (!data.seniorName?.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["seniorName"],
@@ -91,7 +91,7 @@ const intakeSchema = z.object({
         });
       }
 
-      if (!data.relationshipToSenior || !data.relationshipToSenior.trim()) {
+      if (!data.relationshipToSenior?.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["relationshipToSenior"],
