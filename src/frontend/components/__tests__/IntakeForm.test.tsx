@@ -4,6 +4,11 @@
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
+jest.mock("next-auth/react", () => ({
+  signIn: jest.fn(),
+}));
+
 import { IntakeForm } from "../IntakeForm";
 
 describe("IntakeForm", () => {
@@ -16,12 +21,26 @@ describe("IntakeForm", () => {
     expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument();
   });
 
-  it("shows validation error when name is empty and form is submitted", async () => {
+  it("shows validation errors when required fields are empty and form is submitted", async () => {
     const user = userEvent.setup();
     render(<IntakeForm />);
 
     await user.click(screen.getByRole("button", { name: /submit/i }));
 
-    await expect(screen.findByText(/name is required/i)).resolves.toBeInTheDocument();
+    expect(await screen.findByText(/name is required/i)).toBeInTheDocument();
+    expect(await screen.findByText(/email is required/i)).toBeInTheDocument();
+    expect(await screen.findByText(/phone is required/i)).toBeInTheDocument();
+  });
+
+  it("shows caregiver fields when caregiver checkbox is checked", async () => {
+    const user = userEvent.setup();
+    render(<IntakeForm />);
+
+    await user.click(
+      screen.getByLabelText(/i am a caregiver submitting this request on behalf of a senior/i)
+    );
+
+    expect(screen.getByLabelText(/senior name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/relationship to senior/i)).toBeInTheDocument();
   });
 });
