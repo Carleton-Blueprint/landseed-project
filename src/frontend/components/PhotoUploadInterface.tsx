@@ -9,15 +9,26 @@ export interface PhotoUploadInterfaceProps {
     maxSizeMB?: number;
 }
 
+interface TrackedFile {
+    file: File;
+    progress: number;
+}
+
 export function PhotoUploadInterface({
     onUpload,
     maxFiles = 10,
     maxSizeMB = 10,
 }: PhotoUploadInterfaceProps) {
-    const [files, setFiles] = useState<File[]>([]);
+    const [files, setFiles] = useState<TrackedFile[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [replaceIndex, setReplaceIndex] = useState<number | null>(null);
     const hiddenInputRef = useRef<HTMLInputElement>(null);
+
+    const notifyParent = useCallback((currentFiles: TrackedFile[]) => {
+        if (onUpload) {
+            onUpload(currentFiles.map(f => f.file));
+        }
+    }, [onUpload]);
 
     const handleReplaceClick = (index: number) => {
         setReplaceIndex(index);
@@ -25,6 +36,33 @@ export function PhotoUploadInterface({
             hiddenInputRef.current.click();
         }
     };
+
+    const simulateProgress = useCallback((indexToAnimate: number | number[]) => {
+        const indices = Array.isArray(indexToAnimate) ? indexToAnimate : [indexToAnimate];
+        let currentProgress = 0;
+        const interval = setInterval(() => {
+            currentProgress += 10;
+            if (currentProgress > 100) {
+                currentProgress = 100;
+                clearInterval(interval);
+            }
+            setFiles(prev => {
+                const next = [...prev];
+                let changed = false;
+                indices.forEach(idx => {
+                    if (next[idx] && next[idx].progress < currentProgress) {
+                        next[idx] = { ...next[idx], progress: currentProgress };
+                        changed = true;
+                    }
+                });
+                if (changed && currentProgress === 100) {
+                    // Update parent once progress is complete
+                    setTimeout(() => notifyParent(next), 0);
+                }
+                return changed ? next : prev;
+            });
+        }, 50);
+    }, [notifyParent]);
 
     const handleReplaceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0 && replaceIndex !== null) {
@@ -37,13 +75,15 @@ export function PhotoUploadInterface({
                 return;
             }
 
-            const updatedFiles = [...files];
-            updatedFiles[replaceIndex] = newFile;
-            setFiles(updatedFiles);
-            if (onUpload) {
-                onUpload(updatedFiles);
-            }
+            setFiles(prev => {
+                const updated = [...prev];
+                updated[replaceIndex] = { file: newFile, progress: 0 };
+                return updated;
+            });
             setError(null);
+            
+            // Simulate progress for replaced file
+            simulateProgress(replaceIndex);
         }
         e.target.value = "";
         setReplaceIndex(null);
@@ -72,13 +112,19 @@ export function PhotoUploadInterface({
                 return;
             }
 
-            const updatedFiles = [...files, ...acceptedFiles];
-            setFiles(updatedFiles);
-            if (onUpload) {
-                onUpload(updatedFiles);
-            }
+            const startIndex = files.length;
+            const newTrackedFiles = acceptedFiles.map(f => ({ file: f, progress: 0 }));
+            
+            setFiles(prev => {
+                const updated = [...prev, ...newTrackedFiles];
+                return updated;
+            });
+
+            const indicesToAnimate = newTrackedFiles.map((_, i) => startIndex + i);
+            simulateProgress(indicesToAnimate);
+
         },
-        [files, maxFiles, maxSizeMB, onUpload]
+        [files, maxFiles, maxSizeMB, notifyParent, simulateProgress]
     );
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -91,76 +137,97 @@ export function PhotoUploadInterface({
     });
 
     const removeFile = (index: number) => {
-        const filteredFiles = files.filter((_, i) => i !== index);
-        setFiles(filteredFiles);
-        if (onUpload) {
-            onUpload(filteredFiles);
-        }
+        setFiles(prev => {
+            const filtered = prev.filter((_, i) => i !== index);
+            notifyParent(filtered);
+            return filtered;
+        });
     };
 
     return (
         <div className="w-full space-y-4">
             <div
                 {...getRootProps()}
-                className={`border-2 border-dashed rounded p-8 text-center cursor-pointer ${isDragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-blue-400"
-                    }`}
+                className={`border-2 border-dashed rounded p-8 text-center cursor-pointer transition-colors ${
+                    isDragActive 
+                        ? "border-primary bg-primary/10" 
+                        : "border-muted-foreground/30 hover:border-primary/50"
+                }`}
             >
                 <input {...getInputProps()} />
                 <div>
-                    <p className="font-semibold text-gray-700">
+                    <p className="font-semibold text-foreground">
                         {isDragActive
                             ? "Drop here..."
                             : "Click or drag files here to upload"}
                     </p>
-                    <p className="text-sm text-gray-500 mt-2">
+                    <p className="text-sm text-muted-foreground mt-2">
                         Max {maxFiles} files (Up to {maxSizeMB}MB each)
                     </p>
                 </div>
             </div>
 
             {error && (
-                <div className="text-red-500 text-sm font-semibold">
+                <div className="text-destructive text-sm font-semibold" role="alert">
                     {error}
                 </div>
             )}
 
             {files.length > 0 && (
                 <div className="mt-4">
-                    <p className="font-semibold mb-2">Uploaded Files ({files.length})</p>
-                    <ul className="space-y-2">
-                        {files.map((file, i) => (
+                    <p className="font-semibold mb-2 text-foreground">Uploaded Files ({files.length})</p>
+                    <ul className="space-y-3">
+                        {files.map((trackedFile, i) => (
                             <li
                                 key={i}
-                                className="flex justify-between items-center p-2 border rounded bg-white shadow-sm"
+                                className="flex flex-col p-3 border rounded bg-card text-card-foreground shadow-sm gap-2"
                             >
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium pr-4">{file.name}</span>
-                                    <span className="text-xs text-gray-500">
-                                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                                <div className="flex justify-between items-center">
+                                    <div className="flex flex-col truncate pr-4">
+                                        <span className="text-sm font-medium truncate">{trackedFile.file.name}</span>
+                                        <span className="text-xs text-muted-foreground">
+                                            {(trackedFile.file.size / 1024 / 1024).toFixed(2)} MB
+                                        </span>
+                                    </div>
+                                    <div className="flex gap-2 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleReplaceClick(i);
+                                            }}
+                                            className="text-primary hover:bg-primary/10 p-1.5 text-sm rounded transition-colors"
+                                            aria-label={`Replace ${trackedFile.file.name}`}
+                                            disabled={trackedFile.progress < 100}
+                                        >
+                                            Replace
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                removeFile(i);
+                                            }}
+                                            className="text-destructive hover:bg-destructive/10 p-1.5 text-sm rounded transition-colors"
+                                            aria-label={`Delete ${trackedFile.file.name}`}
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                {/* Visual Progress Bar */}
+                                <div className="w-full bg-secondary rounded-full h-2.5 overflow-hidden" aria-hidden="true">
+                                    <div 
+                                        className="bg-primary h-2.5 rounded-full transition-all duration-75 ease-out"
+                                        style={{ width: `${trackedFile.progress}%` }}
+                                    ></div>
+                                </div>
+                                {trackedFile.progress < 100 && (
+                                    <span className="text-xs text-muted-foreground animate-pulse">
+                                        Uploading... {trackedFile.progress}%
                                     </span>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleReplaceClick(i);
-                                        }}
-                                        className="text-blue-500 hover:bg-blue-50 p-1 text-sm rounded transition-colors"
-                                    >
-                                        Replace
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            removeFile(i);
-                                        }}
-                                        className="text-red-500 hover:bg-red-50 p-1 text-sm rounded transition-colors"
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
+                                )}
                             </li>
                         ))}
                     </ul>
@@ -173,7 +240,9 @@ export function PhotoUploadInterface({
                 ref={hiddenInputRef} 
                 onChange={handleReplaceChange} 
                 accept="image/*,.jpeg,.jpg,.png,.webp"
+                aria-label="Hidden replacement file input"
             />
         </div>
     );
 }
+
