@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useRef } from "react";
 import { useDropzone } from "react-dropzone";
 
 export interface PhotoUploadInterfaceProps {
@@ -16,6 +16,58 @@ export function PhotoUploadInterface({
 }: PhotoUploadInterfaceProps) {
     const [files, setFiles] = useState<File[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [replaceIndex, setReplaceIndex] = useState<number | null>(null);
+    const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const simulateProgress = (file: File) => {
+        const fileKey = `${file.name}-${file.size}`;
+        setUploadProgress((prev) => ({ ...prev, [fileKey]: 0 }));
+
+        let progress = 0;
+        const interval = setInterval(() => {
+            progress += Math.random() * 30 + 10;
+            if (progress >= 100) {
+                progress = 100;
+                clearInterval(interval);
+            }
+            setUploadProgress((prev) => ({ ...prev, [fileKey]: Math.min(progress, 100) }));
+        }, 250);
+    };
+
+    const handleReplaceClick = (index: number) => {
+        setReplaceIndex(index);
+        if (fileInputRef.current) {
+            fileInputRef.current.click();
+        }
+    };
+
+    const handleReplaceFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || e.target.files.length === 0 || replaceIndex === null) return;
+        const newFile = e.target.files[0];
+
+        // validate size
+        if (newFile.size > maxSizeMB * 1024 * 1024) {
+            setError(`File is too large. Max size is ${maxSizeMB}MB.`);
+            return;
+        }
+
+        const updatedFiles = [...files];
+        updatedFiles[replaceIndex] = newFile;
+        setFiles(updatedFiles);
+        simulateProgress(newFile);
+        
+        if (onUpload) {
+            onUpload(updatedFiles);
+        }
+
+        // reset
+        setReplaceIndex(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
+        setError(null);
+    };
 
     const onDrop = useCallback(
         (acceptedFiles: File[], fileRejections: import("react-dropzone").FileRejection[]) => {
@@ -42,6 +94,9 @@ export function PhotoUploadInterface({
 
             const updatedFiles = [...files, ...acceptedFiles];
             setFiles(updatedFiles);
+            
+            acceptedFiles.forEach(simulateProgress);
+            
             if (onUpload) {
                 onUpload(updatedFiles);
             }
@@ -101,25 +156,57 @@ export function PhotoUploadInterface({
                                 key={i}
                                 className="flex justify-between items-center p-2 border rounded bg-white shadow-sm"
                             >
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium pr-4">{file.name}</span>
-                                    <span className="text-xs text-gray-500">
+                                <div className="flex flex-col flex-1 mr-4">
+                                    <span className="text-sm font-medium">{file.name}</span>
+                                    <span className="text-xs text-gray-500 mb-2">
                                         {(file.size / 1024 / 1024).toFixed(2)} MB
                                     </span>
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                        <div
+                                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                            style={{ width: `${uploadProgress[`${file.name}-${file.size}`] ?? 100}%` }}
+                                        ></div>
+                                    </div>
+                                    {(uploadProgress[`${file.name}-${file.size}`] ?? 100) < 100 ? (
+                                        <span className="text-xs text-gray-500 mt-1">
+                                            Uploading... {Math.round(uploadProgress[`${file.name}-${file.size}`] ?? 0)}%
+                                        </span>
+                                    ) : (
+                                        <span className="text-xs text-green-600 mt-1 font-semibold">Ready</span>
+                                    )}
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        removeFile(i);
-                                    }}
-                                    className="text-red-500 hover:bg-red-50 p-1 rounded"
-                                >
-                                    Delete
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleReplaceClick(i);
+                                        }}
+                                        className="text-blue-500 hover:bg-blue-50 p-2 text-sm rounded font-medium transition-colors"
+                                    >
+                                        Replace
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            removeFile(i);
+                                        }}
+                                        className="text-red-500 hover:bg-red-50 p-2 text-sm rounded font-medium transition-colors"
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
                             </li>
                         ))}
                     </ul>
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        className="hidden"
+                        accept="image/jpeg, image/jpg, image/png, image/webp"
+                        onChange={handleReplaceFile}
+                    />
                 </div>
             )}
         </div>

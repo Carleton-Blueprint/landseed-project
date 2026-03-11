@@ -40,15 +40,15 @@ export async function uploadToS3(buffer: Buffer, key: string, contentType: strin
 }
 
 // Helper function to test connection
-// export async function testS3Connection(): Promise<boolean> {
-//   try {
-//     const client = getS3Client();
-//     const command = new ListBucketsCommand({});
-//     await client.send(command);
-//     console.log('✅ S3 connection successful');
-//     return true;
-//   } catch (error) {
-//     console.error("❌ S3 connection failed:", error);
-//     return false;
-//   }
-// }
+export async function testS3Connection(): Promise<boolean> {
+  try {
+    const client = getS3Client();
+    const command = new ListBucketsCommand({});
+    await client.send(command);
+    console.log('✅ S3 connection successful');
+    return true;
+  } catch (error) {
+    console.error("❌ S3 connection failed:", error);
+    return false;
+  }
+}

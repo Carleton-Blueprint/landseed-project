@@ -10,7 +10,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/frontend/components/ui/button";
-import { Input } from "@/frontend/components/ui/input";
 import { signIn } from "next-auth/react";
 import { PhotoUploadInterface } from "./PhotoUploadInterface";
 
@@ -46,30 +45,64 @@ const intakeSchema = z.object({
       .max(24, "Phone number is too long")
       .optional()
       .or(z.literal("")),
+
+    // Caregiver section
+    isCaregiver: z.boolean().default(false),
+    seniorName: z.string().max(120).optional().or(z.literal("")),
+    relationshipToSenior: z.string().max(120).optional().or(z.literal("")),
+    caregiverConsentConfirmed: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
-    if (data.ownershipStatus === "tenant") {
-      if (!data.landlordName?.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["landlordName"],
-          message: "Landlord name is required for tenants",
-        });
-      }
-      if (!data.landlordPhone?.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["landlordPhone"],
-          message: "Landlord phone is required for tenants",
-        });
-      }
+  if (data.ownershipStatus === "tenant") {
+    if (!data.landlordName?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["landlordName"],
+        message: "Landlord name is required for tenants",
+      });
     }
-    if (data.ownershipStatus === "other") {
+
+    if (!data.landlordPhone?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["landlordPhone"],
+        message: "Landlord phone is required for tenants",
+      });
+    }
+  }
+
+  if (data.ownershipStatus === "other") {
     if (!data.ownershipOtherDetails?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["ownershipOtherDetails"],
         message: "Please explain your ownership status",
+      });
+    }
+  }
+
+  if (data.isCaregiver) {
+    if (!data.seniorName?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["seniorName"],
+        message: "Senior name is required when submitting as a caregiver",
+      });
+    }
+
+    if (!data.relationshipToSenior?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["relationshipToSenior"],
+        message: "Relationship to the senior is required",
+      });
+    }
+
+    if (data.caregiverConsentConfirmed !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["caregiverConsentConfirmed"],
+        message: "You must confirm your authority and the seniorâ€™s consent",
       });
     }
   }
@@ -90,6 +123,10 @@ const defaultValues: IntakeFormValues = {
   ownershipOtherDetails: "",
   landlordName: "",
   landlordPhone: "",
+  isCaregiver: false,
+  seniorName: "",
+  relationshipToSenior: "",
+  caregiverConsentConfirmed: false,
 };
 
 export function IntakeForm() {
@@ -97,6 +134,7 @@ export function IntakeForm() {
     register,
     handleSubmit,
     watch,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<IntakeFormValues>({
     resolver: zodResolver(intakeSchema),
@@ -105,9 +143,17 @@ export function IntakeForm() {
   });
 
   const ownershipStatus = watch("ownershipStatus");
+  const isCaregiver = watch("isCaregiver");
 
   // Photo upload state
   const [uploadedPhotos, setUploadedPhotos] = React.useState<File[]>([]);
+  const [photoKey, setPhotoKey] = React.useState(0);
+
+  const handleCancel = () => {
+    reset(defaultValues);
+    setUploadedPhotos([]);
+    setPhotoKey((prev) => prev + 1);
+  };
 
   async function onSubmit(values: IntakeFormValues) {
     try {
@@ -138,18 +184,15 @@ export function IntakeForm() {
         const data = await response.json();
         console.log('User created:', data);
 
-        // Sign the User in
         const result = await signIn('credentials', {
           email: values.email,
           name: values.name,
           phone: values.phone,
-          redirect: false,  // Handle later
+          redirect: false,
         });
 
         if (result?.ok) {
           console.log('Signed in successfully!');
-          
-          // Create a Project for every user
           try {
             const projectResponse = await fetch('/api/project', {
               method: 'POST',
@@ -158,27 +201,21 @@ export function IntakeForm() {
                 address: `${values.addressLine1}, ${values.city}, ${values.province} ${values.postalCode}`,
               }),
             });
-            
             if (!projectResponse.ok) {
               console.error('Failed to create project');
               return;
             }
-            
             const { project } = await projectResponse.json();
             console.log('Project created:', project.id);
-            
-            // If user uploaded photos, upload them
             if (uploadedPhotos.length > 0) {
               for (const file of uploadedPhotos) {
                 const formData = new FormData();
                 formData.append('file', file);
                 formData.append('projectId', project.id);
-                
                 const uploadResponse = await fetch('/api/upload', {
                   method: 'POST',
                   body: formData,
                 });
-                
                 if (uploadResponse.ok) {
                   const uploadData = await uploadResponse.json();
                   console.log('Photo uploaded:', uploadData.photo?.id);
@@ -186,213 +223,240 @@ export function IntakeForm() {
                   console.error('Failed to upload photo:', file.name);
                 }
               }
-              
               console.log('All photos uploaded!');
             }
           } catch (error) {
             console.error('Error creating project or uploading photos:', error);
           }
-          
-          // Optionally redirect: window.location.href = '/dashboard';
         }
-              
     } catch (error) {
-        // Handle network errors
-        console.error('Network error:', error);
+      console.error('Network error:', error);
     }
   }
 
   return (
     <form
       onSubmit={handleSubmit(onSubmit)}
-      className="space-y-6"
-      noValidate
       aria-label="Digital intake form"
+      className="space-y-6 max-w-2xl"
     >
-      {/* Account / Contact Info */}
-      <section aria-label="Contact information">
-        <div className="mt-4 space-y-4">
-          <div>
-            <label htmlFor="intake-name" className="mb-1 block text-sm font-medium">
-              Name <span className="text-destructive" aria-hidden="true">*</span>
-            </label>
-            <Input
-              id="intake-name"
-              type="text"
-              autoComplete="name"
-              aria-required="true"
-              aria-invalid={Boolean(errors.name)}
-              aria-describedby={errors.name ? "intake-name-error" : undefined}
-              placeholder="Your full name"
-              className={errors.name ? "border-destructive" : ""}
-              {...register("name")}
-            />
-            {errors.name && (
-              <p id="intake-name-error" className="mt-1 text-sm text-destructive" role="alert">
-                {errors.name.message}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label htmlFor="intake-email" className="mb-1 block text-sm font-medium">
-              Email <span className="text-destructive" aria-hidden="true">*</span>
-            </label>
-            <Input
-              id="intake-email"
-              type="email"
-              autoComplete="email"
-              aria-required="true"
-              aria-invalid={Boolean(errors.email)}
-              aria-describedby={errors.email ? "intake-email-error" : undefined}
-              placeholder="you@example.com"
-              className={errors.email ? "border-destructive" : ""}
-              {...register("email")}
-            />
-            {errors.email && (
-              <p id="intake-email-error" className="mt-1 text-sm text-destructive" role="alert">
-                {errors.email.message}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label htmlFor="intake-phone" className="mb-1 block text-sm font-medium">
-              Phone <span className="text-destructive" aria-hidden="true">*</span>
-            </label>
-            <Input
-              id="intake-phone"
-              type="tel"
-              autoComplete="tel"
-              aria-required="true"
-              aria-invalid={Boolean(errors.phone)}
-              aria-describedby={errors.phone ? "intake-phone-error" : undefined}
-              placeholder="+1 (555) 000-0000"
-              className={errors.phone ? "border-destructive" : ""}
-              {...register("phone")}
-            />
-            {errors.phone && (
-              <p id="intake-phone-error" className="mt-1 text-sm text-destructive" role="alert">
-                {errors.phone.message}
-              </p>
-            )}
-          </div>
+      <h1 className="text-xl font-semibold">Intake Form</h1>
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Contact</h2>
+        <p className="text-sm text-muted-foreground mb-3">
+          Please provide your contact information.
+        </p>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="intake-name" className="mb-1 block text-sm font-medium">
+            Name
+          </label>
+          <input
+            id="intake-name"
+            type="text"
+            {...register("name")}
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            aria-invalid={!!errors.name}
+            aria-describedby={errors.name ? "intake-name-error" : undefined}
+          />
+          {errors.name && (
+            <p id="intake-name-error" className="mt-1 text-sm text-destructive" role="alert">
+              {errors.name.message}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="intake-email" className="mb-1 block text-sm font-medium">
+            Email
+          </label>
+          <input
+            id="intake-email"
+            type="email"
+            {...register("email")}
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            aria-invalid={!!errors.email}
+            aria-describedby={errors.email ? "intake-name-error" : undefined}
+          />
+          {errors.email && (
+            <p id="intake-email-error" className="mt-1 text-sm text-destructive" role="alert">
+              {errors.email.message}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="intake-phone" className="mb-1 block text-sm font-medium">
+            Phone
+          </label>
+          <input
+            id="intake-phone"
+            type="tel"
+            {...register("phone")}
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            aria-invalid={!!errors.phone}
+            aria-describedby={errors.phone ? "intake-phone-error" : undefined}
+          />
+          {errors.phone && (
+            <p id="intake-phone-error" className="mt-1 text-sm text-destructive" role="alert">
+              {errors.phone.message}
+            </p>
+          )}
         </div>
       </section>
 
-      {/* Service Address */}
-      <section aria-label="Service address">
-        <h2 className="text-base font-semibold">Service Address</h2>
-
-        <div className="mt-3 space-y-4">
-          <div>
-            <label htmlFor="intake-address1" className="mb-1 block text-sm font-medium">
-              Street Address <span className="text-destructive" aria-hidden="true">*</span>
+      {isCaregiver && (
+        <section className="space-y-3">
+          <h2 className="text-base font-semibold mb-3">Caregiver</h2>
+          <p className="text-sm text-muted-foreground mb-3">
+            You are submitting on behalf of a senior. Please provide their details and confirm consent.
+          </p>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="intake-senior-name" className="mb-1 block text-sm font-medium">
+              Senior name
             </label>
-            <Input
-              id="intake-address1"
+            <input
+              id="intake-senior-name"
               type="text"
-              autoComplete="street-address"
-              aria-required="true"
-              aria-invalid={Boolean(errors.addressLine1)}
-              aria-describedby={errors.addressLine1 ? "intake-address1-error" : undefined}
-              placeholder="123 Main St"
-              className={errors.addressLine1 ? "border-destructive" : ""}
-              {...register("addressLine1")}
+              {...register("seniorName")}
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              aria-invalid={!!errors.seniorName}
+              aria-describedby={errors.seniorName ? "intake-senior-name-error" : undefined}
             />
-            {errors.addressLine1 && (
-              <p id="intake-address1-error" className="mt-1 text-sm text-destructive" role="alert">
-                {errors.addressLine1.message}
+            {errors.seniorName && (
+              <p id="intake-senior-name-error" className="mt-1 text-sm text-destructive" role="alert">
+                {errors.seniorName.message}
               </p>
             )}
           </div>
-
-          <div>
-            <label htmlFor="intake-address2" className="mb-1 block text-sm font-medium">
-              Unit / Apt (optional)
+          <div className="flex flex-col gap-2">
+            <label htmlFor="intake-relationship-to-senior" className="mb-1 block text-sm font-medium">
+              Relationship to senior
             </label>
-            <Input
-              id="intake-address2"
+            <input
+              id="intake-relationship-to-senior"
               type="text"
-              autoComplete="address-line2"
-              aria-invalid={Boolean(errors.addressLine2)}
-              aria-describedby={errors.addressLine2 ? "intake-address2-error" : undefined}
-              placeholder="Apt 4B"
-              className={errors.addressLine2 ? "border-destructive" : ""}
-              {...register("addressLine2")}
+              {...register("relationshipToSenior")}
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              aria-invalid={!!errors.relationshipToSenior}
+              aria-describedby={errors.relationshipToSenior ? "intake-relationship-error" : undefined}
             />
-            {errors.addressLine2 && (
-              <p id="intake-address2-error" className="mt-1 text-sm text-destructive" role="alert">
-                {errors.addressLine2.message}
+            {errors.relationshipToSenior && (
+              <p id="intake-relationship-error" className="mt-1 text-sm text-destructive" role="alert">
+                {errors.relationshipToSenior.message}
               </p>
             )}
           </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="intake-city" className="mb-1 block text-sm font-medium">
-                City <span className="text-destructive" aria-hidden="true">*</span>
-              </label>
-              <Input
-                id="intake-city"
-                type="text"
-                autoComplete="address-level2"
-                aria-required="true"
-                aria-invalid={Boolean(errors.city)}
-                aria-describedby={errors.city ? "intake-city-error" : undefined}
-                placeholder="Ottawa"
-                className={errors.city ? "border-destructive" : ""}
-                {...register("city")}
-              />
-              {errors.city && (
-                <p id="intake-city-error" className="mt-1 text-sm text-destructive" role="alert">
-                  {errors.city.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label htmlFor="intake-province" className="mb-1 block text-sm font-medium">
-                Province <span className="text-destructive" aria-hidden="true">*</span>
-              </label>
-              <select
-                id="intake-province"
-                className={`h-10 w-full rounded-md border bg-background px-3 text-sm ${
-                  errors.province ? "border-destructive" : "border-input"
-                }`}
-                aria-required="true"
-                aria-invalid={Boolean(errors.province)}
-                aria-describedby={errors.province ? "intake-province-error" : undefined}
-                {...register("province")}
-              >
-                {provinces.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-              {errors.province && (
-                <p id="intake-province-error" className="mt-1 text-sm text-destructive" role="alert">
-                  {errors.province.message}
-                </p>
-              )}
-            </div>
+          <div className="flex items-center gap-2">
+            <input
+              id="intake-caregiver-consent"
+              type="checkbox"
+              {...register("caregiverConsentConfirmed")}
+              className="rounded border-input"
+            />
+            <label htmlFor="intake-caregiver-consent" className="text-sm">
+              I confirm I have authority to submit this form and the senior has consented.
+            </label>
           </div>
+          {errors.caregiverConsentConfirmed && (
+            <p className="mt-1 text-sm text-destructive" role="alert">
+              {errors.caregiverConsentConfirmed.message}
+            </p>
+          )}
+        </section>
+      )}
 
-          <div>
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Service address</h2>
+        <p className="text-sm text-muted-foreground mb-3">
+          Street address, city, province, and postal code.
+        </p>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="intake-address1" className="mb-1 block text-sm font-medium">
+            Street address
+          </label>
+          <input
+            id="intake-address1"
+            type="text"
+            {...register("addressLine1")}
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            aria-invalid={!!errors.addressLine1}
+            aria-describedby={errors.addressLine1 ? "intake-address1-error" : undefined}
+          />
+          {errors.addressLine1 && (
+            <p id="intake-address1-error" className="mt-1 text-sm text-destructive" role="alert">
+              {errors.addressLine1.message}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="intake-address2" className="mb-1 block text-sm font-medium">
+            Address line 2 (optional)
+          </label>
+          <input
+            id="intake-address2"
+            type="text"
+            {...register("addressLine2")}
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            aria-invalid={!!errors.addressLine2}
+            aria-describedby={errors.addressLine2 ? "intake-address2-error" : undefined}
+          />
+          {errors.addressLine2 && (
+            <p id="intake-address2-error" className="mt-1 text-sm text-destructive" role="alert">
+              {errors.addressLine2.message}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
+          <div className="flex flex-col gap-2 flex-1">
+            <label htmlFor="intake-city" className="mb-1 block text-sm font-medium">
+              City
+            </label>
+            <input
+              id="intake-city"
+              type="text"
+              {...register("city")}
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              aria-invalid={!!errors.city}
+              aria-describedby={errors.city ? "intake-city-error" : undefined}
+            />
+            {errors.city && (
+              <p id="intake-city-error" className="mt-1 text-sm text-destructive" role="alert">
+                {errors.city.message}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 flex-1">
+            <label htmlFor="intake-province" className="mb-1 block text-sm font-medium">
+              Province
+            </label>
+            <select
+              id="intake-province"
+              {...register("province")}
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              aria-invalid={!!errors.province}
+              aria-describedby={errors.province ? "intake-province-error" : undefined}
+            >
+              {provinces.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+            {errors.province && (
+              <p id="intake-province-error" className="mt-1 text-sm text-destructive" role="alert">
+                {errors.province.message}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 w-32">
             <label htmlFor="intake-postal" className="mb-1 block text-sm font-medium">
-              Postal Code <span className="text-destructive" aria-hidden="true">*</span>
+              Postal code
             </label>
-            <Input
+            <input
               id="intake-postal"
               type="text"
-              autoComplete="postal-code"
-              aria-required="true"
-              aria-invalid={Boolean(errors.postalCode)}
-              aria-describedby={errors.postalCode ? "intake-postal-error" : undefined}
-              placeholder="K1A 0B1"
-              className={errors.postalCode ? "border-destructive" : ""}
               {...register("postalCode")}
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              aria-invalid={!!errors.postalCode}
+              aria-describedby={errors.postalCode ? "intake-postal-error" : undefined}
             />
             {errors.postalCode && (
               <p id="intake-postal-error" className="mt-1 text-sm text-destructive" role="alert">
@@ -403,85 +467,66 @@ export function IntakeForm() {
         </div>
       </section>
 
-      {/* Ownership */}
-      <fieldset className="pt-2" aria-label="Property ownership status">
-        <legend className="text-base font-semibold">Property Ownership</legend>
-
-        <div className="mt-3 space-y-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="radio" value="owner" {...register("ownershipStatus")} />
-            Owner
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Ownership</h2>
+        <p className="text-sm text-muted-foreground mb-3">
+          Are you the owner, tenant, or something else?
+        </p>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="intake-ownership" className="mb-1 block text-sm font-medium">
+            Ownership
           </label>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input type="radio" value="tenant" {...register("ownershipStatus")} />
-            Tenant
-          </label>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input type="radio" value="other" {...register("ownershipStatus")} />
-            Other
-          </label>
-
+          <select
+            id="intake-ownership"
+            {...register("ownershipStatus")}
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            aria-invalid={!!errors.ownershipStatus}
+            aria-describedby={errors.ownershipStatus ? "intake-ownership-error" : undefined}
+          >
+            <option value="owner">Owner</option>
+            <option value="tenant">Tenant</option>
+            <option value="other">Other</option>
+          </select>
           {errors.ownershipStatus && (
-            <p className="mt-1 text-sm text-destructive" role="alert">
+            <p id="intake-ownership-error" className="mt-1 text-sm text-destructive" role="alert">
               {errors.ownershipStatus.message}
             </p>
           )}
         </div>
-
         {ownershipStatus === "tenant" && (
-          <div className="mt-4 space-y-4 rounded-md border p-3">
-            <p className="text-sm text-muted-foreground">
-              Please provide your landlord’s contact information.
-            </p>
-
-            <div>
+          <div className="space-y-3">
+            <div className="flex flex-col gap-2">
               <label htmlFor="intake-landlord-name" className="mb-1 block text-sm font-medium">
-                Landlord Name <span className="text-destructive" aria-hidden="true">*</span>
+                Landlord name
               </label>
-              <Input
+              <input
                 id="intake-landlord-name"
                 type="text"
-                aria-required="true"
-                aria-invalid={Boolean(errors.landlordName)}
-                aria-describedby={errors.landlordName ? "intake-landlord-name-error" : undefined}
-                placeholder="Landlord full name"
-                className={errors.landlordName ? "border-destructive" : ""}
                 {...register("landlordName")}
+                className="rounded border border-input bg-background px-3 py-2 text-sm"
+                aria-invalid={!!errors.landlordName}
+                aria-describedby={errors.landlordName ? "intake-landlord-name-error" : undefined}
               />
               {errors.landlordName && (
-                <p
-                  id="intake-landlord-name-error"
-                  className="mt-1 text-sm text-destructive"
-                  role="alert"
-                >
+                <p id="intake-landlord-name-error" className="mt-1 text-sm text-destructive" role="alert">
                   {errors.landlordName.message}
                 </p>
               )}
             </div>
-
-            <div>
+            <div className="flex flex-col gap-2">
               <label htmlFor="intake-landlord-phone" className="mb-1 block text-sm font-medium">
-                Landlord Phone <span className="text-destructive" aria-hidden="true">*</span>
+                Landlord phone
               </label>
-              <Input
+              <input
                 id="intake-landlord-phone"
                 type="tel"
-                autoComplete="tel"
-                aria-required="true"
-                aria-invalid={Boolean(errors.landlordPhone)}
-                aria-describedby={errors.landlordPhone ? "intake-landlord-phone-error" : undefined}
-                placeholder="+1 (555) 000-0000"
-                className={errors.landlordPhone ? "border-destructive" : ""}
                 {...register("landlordPhone")}
+                className="rounded border border-input bg-background px-3 py-2 text-sm"
+                aria-invalid={!!errors.landlordPhone}
+                aria-describedby={errors.landlordPhone ? "intake-landlord-phone-error" : undefined}
               />
               {errors.landlordPhone && (
-                <p
-                  id="intake-landlord-phone-error"
-                  className="mt-1 text-sm text-destructive"
-                  role="alert"
-                >
+                <p id="intake-landlord-phone-error" className="mt-1 text-sm text-destructive" role="alert">
                   {errors.landlordPhone.message}
                 </p>
               )}
@@ -489,57 +534,49 @@ export function IntakeForm() {
           </div>
         )}
         {ownershipStatus === "other" && (
-          <div className="mt-4 space-y-3 rounded-md border p-3">
-            <p className="text-sm text-muted-foreground">
-              Please briefly explain your ownership situation.
-            </p>
-
-            <div>
-              <label htmlFor="intake-ownership-other" className="mb-1 block text-sm font-medium">
-                Explanation <span className="text-destructive" aria-hidden="true">*</span>
-              </label>
-
-              <Input
-                id="intake-ownership-other"
-                type="text"
-                aria-required="true"
-                aria-invalid={Boolean(errors.ownershipOtherDetails)}
-                aria-describedby={errors.ownershipOtherDetails ? "intake-ownership-other-error" : undefined}
-                placeholder="e.g., family member owns the home…"
-                className={errors.ownershipOtherDetails ? "border-destructive" : ""}
-                {...register("ownershipOtherDetails")}
-              />
-
-              {errors.ownershipOtherDetails && (
-                <p
-                  id="intake-ownership-other-error"
-                  className="mt-1 text-sm text-destructive"
-                  role="alert"
-                >
-                  {errors.ownershipOtherDetails.message}
-                </p>
-              )}
-            </div>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="intake-ownership-other" className="mb-1 block text-sm font-medium">
+              Explain your ownership status
+            </label>
+            <input
+              id="intake-ownership-other"
+              type="text"
+              {...register("ownershipOtherDetails")}
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              aria-invalid={!!errors.ownershipOtherDetails}
+              aria-describedby={errors.ownershipOtherDetails ? "intake-ownership-other-error" : undefined}
+            />
+            {errors.ownershipOtherDetails && (
+              <p id="intake-ownership-other-error" className="mt-1 text-sm text-destructive" role="alert">
+                {errors.ownershipOtherDetails.message}
+              </p>
+            )}
           </div>
         )}
-      </fieldset>
+      </section>
 
-      {/* Photo Upload */}
-      <section aria-label="Property photos" className="pt-2">
+      <section className="space-y-3">
         <h2 className="text-base font-semibold mb-3">Photos (Optional)</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Upload 1-10 photos of your property to help us understand your needs.
         </p>
         <PhotoUploadInterface
+          key={photoKey}
           onUpload={setUploadedPhotos}
           maxFiles={10}
           maxSizeMB={10}
         />
       </section>
 
-      <Button type="submit" disabled={isSubmitting} className="mt-2">
-        {isSubmitting ? "Submitting…" : "Submit"}
-      </Button>
+      <div className="flex gap-4 mt-2">
+        <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmitting}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Submittingâ€¦" : "Submit"}
+        </Button>
+      </div>
     </form>
   );
 }
+
