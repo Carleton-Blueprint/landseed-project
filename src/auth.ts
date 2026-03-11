@@ -1,9 +1,14 @@
+/**
+ * Auth.js (NextAuth v5) config: providers, adapter, session strategy, and callbacks.
+ * Used by the API route handler and by auth(), signIn(), signOut() across the app.
+ * v5 supports Next.js 15; requires AUTH_SECRET in env.
+ */
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "lib/prisma";
 
-export const { auth, handlers, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
   pages: {
@@ -61,4 +66,3 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   // Prefer AUTH_SECRET but fall back to NEXTAUTH_SECRET for backwards compatibility
   secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
 });
-

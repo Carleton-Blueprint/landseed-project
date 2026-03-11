@@ -9,17 +9,22 @@
  * What it does:
  *   1. Polls Redis queue for new scan jobs
  *   2. Downloads file from S3
- *   3. Scans for viruses (placeholder - integrate ClamAV/VirusTotal later)
+ *   3. Scans for viruses using ClamAV
  *   4. Updates Photo.virus_scan_status in database
  *   5. Deletes infected files (if found)
  * 
  * Job Flow:
- *   Upload API → Redis Queue → This Worker → Database Update
+ *   Upload API → Redis Queue → This Worker → ClamAV → Database Update
  */
 
 import { createVirusScanWorker } from "./index";
 import { prisma } from "lib/prisma";
 import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import NodeClam from "clamscan";
+import { writeFile, unlink } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
+import { Readable } from "stream";
 
 // Initialize S3 client for downloading files to scan
 const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
@@ -32,28 +37,43 @@ const s3Client = new S3Client({
   },
 });
 
+// Initialize ClamAV scanner
+let clamScanner: NodeClam | null = null;
+
+async function getClamScanner(): Promise<NodeClam> {
+  if (!clamScanner) {
+    const clamscan = await new NodeClam().init({
+      clamdscan: {
+        host: process.env.CLAMAV_HOST ?? "localhost",
+        port: parseInt(process.env.CLAMAV_PORT ?? "3310"),
+      },
+      preference: "clamdscan", // Use network scanner (clamd)
+    });
+    clamScanner = clamscan;
+    console.log("✅ ClamAV scanner initialized");
+  }
+  return clamScanner;
+}
+
 /**
- * PLACEHOLDER: Virus scanning logic
- * 
- * In production, replace with one of these integrations:
- * 
- * Option 1 - ClamAV (Free, Open Source):
- *   npm install clamscan
- *   const clam = await clamscan.init();
- *   const { isInfected } = await clam.scanFile(filePath);
- * 
- * Option 2 - VirusTotal API (Cloud Service):
- *   npm install node-virustotal
- *   const vt = new VirusTotal(apiKey);
- *   const result = await vt.fileScan(fileBuffer);
- * 
- * Option 3 - AWS GuardDuty (Managed):
- *   Enable in AWS Console, auto-scans S3
- * 
- * For now: Simulates 2-second scan, always returns "clean"
+ * Helper function to convert stream to buffer
+ */
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Virus scanning with ClamAV
+ * Downloads file from S3, scans it, and returns result
  */
 async function scanFileForVirus(s3Key: string, bucket: string): Promise<"clean" | "infected"> {
   console.log(`  📥 Downloading file from S3: ${s3Key}`);
+  
+  let tempFilePath: string | null = null;
   
   try {
     // Download file from S3
@@ -65,26 +85,44 @@ async function scanFileForVirus(s3Key: string, bucket: string): Promise<"clean" 
     const response = await s3Client.send(command);
     const fileStream = response.Body;
     
-    if (!fileStream) {
+    if (!fileStream || !(fileStream instanceof Readable)) {
       throw new Error("Failed to download file from S3");
     }
 
-    console.log(`  🔍 Scanning for viruses... (placeholder)`);
+    // Convert stream to buffer and save to temp file
+    const fileBuffer = await streamToBuffer(fileStream);
+    const fileName = s3Key.split("/").pop() ?? "temp-file";
+    tempFilePath = join(tmpdir(), `scan-${Date.now()}-${fileName}`);
     
-    // TODO: Replace this with actual virus scanning
-    // Simulate scan delay (2 seconds)
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await writeFile(tempFilePath, fileBuffer);
+    console.log(`  💾 Saved to temp file: ${tempFilePath}`);
+
+    // Scan with ClamAV
+    console.log(`  🔍 Scanning for viruses with ClamAV...`);
+    const clam = await getClamScanner();
+    const { isInfected, viruses } = await clam.scanFile(tempFilePath);
     
-    // For now, always return "clean"
-    // In production, this would be the result from ClamAV/VirusTotal/etc
-    const scanResult = "clean";
+    if (isInfected) {
+      console.log(`  ⚠️  VIRUS DETECTED: ${viruses.join(", ")}`);
+      return "infected";
+    }
     
-    console.log(`  ✅ Scan complete: ${scanResult}`);
-    return scanResult;
+    console.log(`  ✅ Scan complete: clean`);
+    return "clean";
     
   } catch (error) {
     console.error(`  ❌ Error scanning file:`, error);
     throw error;
+  } finally {
+    // Clean up temp file
+    if (tempFilePath) {
+      try {
+        await unlink(tempFilePath);
+        console.log(`  🗑️  Cleaned up temp file`);
+      } catch (cleanupError) {
+        console.warn(`  ⚠️  Failed to cleanup temp file: ${cleanupError}`);
+      }
+    }
   }
 }
 
@@ -175,11 +213,12 @@ worker.on("error", (err) => {
 
 // Startup message
 console.log("\n" + "=".repeat(60));
-console.log("🔍 VIRUS SCAN WORKER STARTED");
+console.log("🔍 VIRUS SCAN WORKER STARTED (ClamAV)");
 console.log("=".repeat(60));
-console.log(`📡 Connected to Redis: ${process.env.REDIS_URL ?? "redis://localhost:6379"}`);
+console.log(`📡 Redis: ${process.env.REDIS_URL ?? "redis://localhost:6379"}`);
 console.log(`📦 S3 Region: ${process.env.AWS_REGION ?? "ca-central-1"}`);
 console.log(`🪣 S3 Bucket: ${process.env.AWS_S3_BUCKET ?? "(not set)"}`);
+console.log(`🛡️  ClamAV: ${process.env.CLAMAV_HOST ?? "localhost"}:${process.env.CLAMAV_PORT ?? "3310"}`);
 console.log(`⏳ Waiting for jobs from queue: "virus-scan"`);
 console.log("=".repeat(60) + "\n");
 
