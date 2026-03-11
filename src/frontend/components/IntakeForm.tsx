@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Digital intake form: name (required), email, and phone. Uses React Hook Form + Zod for validation.
  * Built for accessibility (labels, aria-invalid, aria-describedby, role="alert" on errors).
  * Submit handler is a placeholder; wire to your API when ready.
@@ -10,7 +10,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/frontend/components/ui/button";
-import { Input } from "@/frontend/components/ui/input";
 import { signIn } from "next-auth/react";
 import { PhotoUploadInterface } from "./PhotoUploadInterface";
 
