@@ -11,6 +11,7 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
+    "db:seed-versions": "tsx prisma/seed-versions.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:e2e": "playwright test",

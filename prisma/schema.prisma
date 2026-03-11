@@ -13,17 +13,21 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String?
-  email     String?  @unique
-  phone     String?
-  emailVerified DateTime?
-  image     String?
-  accounts  Account[]
-  sessions  Session[]
-  projects  Project[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                     String                  @id @default(cuid())
+  name                   String?
+  email                  String?                 @unique
+  phone                  String?
+  emailVerified          DateTime?
+  image                  String?
+  accounts               Account[]
+  sessions               Session[]
+  projects               Project[]
+  pricingMatrixVersions  PricingMatrixVersion[]
+  grantRulesVersions     GrantRulesVersion[]
+  pricingMatrixAuditLogs PricingMatrixAuditLog[]
+  grantRulesAuditLogs    GrantRulesAuditLog[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
 }
 
 model Account {
@@ -34,11 +38,11 @@ model Account {
   providerAccountId String
   refresh_token     String? @db.Text
   access_token      String? @db.Text
-  expires_at       Int?
-  token_type       String?
+  expires_at        Int?
+  token_type        String?
   scope             String?
   id_token          String? @db.Text
-  session_state    String?
+  session_state     String?
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
@@ -65,16 +69,103 @@ model Project {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   photos    Photo[]
+  quotes    Quote[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Photo {
+  id                String   @id @default(cuid())
+  url               String
+  virus_scan_status String   @default("pending")
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Quote {
+  id          String   @id @default(cuid())
+  projectId   String
+  subtotal    Decimal  @db.Decimal(10, 2)
+  total       Decimal  @db.Decimal(10, 2)
+  generatedAt DateTime @default(now())
+
+  pricingMatrixVersionId String
+  grantRulesVersionId    String
+
+  project              Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pricingMatrixVersion PricingMatrixVersion @relation(fields: [pricingMatrixVersionId], references: [id])
+  grantRulesVersion    GrantRulesVersion    @relation(fields: [grantRulesVersionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([pricingMatrixVersionId])
+  @@index([grantRulesVersionId])
+}
+
+model PricingMatrixVersion {
   id              String   @id @default(cuid())
-  url             String
-  virus_scan_status String @default("pending")
-  projectId       String
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versionNumber   Int      @unique
+  data            Json
   createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdByUserId String
+  isActive        Boolean  @default(false)
+
+  createdBy User                    @relation(fields: [createdByUserId], references: [id])
+  quotes    Quote[]
+  auditLogs PricingMatrixAuditLog[]
+
+  @@index([versionNumber])
+  @@index([isActive])
+}
+
+model GrantRulesVersion {
+  id              String   @id @default(cuid())
+  versionNumber   Int      @unique
+  rules           Json
+  createdAt       DateTime @default(now())
+  createdByUserId String
+  isActive        Boolean  @default(false)
+
+  createdBy User                 @relation(fields: [createdByUserId], references: [id])
+  quotes    Quote[]
+  auditLogs GrantRulesAuditLog[]
+
+  @@index([versionNumber])
+  @@index([isActive])
+}
+
+model PricingMatrixAuditLog {
+  id              String   @id @default(cuid())
+  versionId       String
+  changedByUserId String
+  changedAt       DateTime @default(now())
+  changeSummary   String?  @db.Text
+  beforeState     Json?
+  afterState      Json?
+
+  version   PricingMatrixVersion @relation(fields: [versionId], references: [id])
+  changedBy User                 @relation(fields: [changedByUserId], references: [id])
+
+  @@index([versionId])
+  @@index([changedAt])
+}
+
+model GrantRulesAuditLog {
+  id              String   @id @default(cuid())
+  versionId       String
+  changedByUserId String
+  changedAt       DateTime @default(now())
+  changeSummary   String?  @db.Text
+  beforeState     Json?
+  afterState      Json?
+
+  version   GrantRulesVersion @relation(fields: [versionId], references: [id])
+  changedBy User              @relation(fields: [changedByUserId], references: [id])
+
+  @@index([versionId])
+  @@index([changedAt])
 }
