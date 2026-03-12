@@ -2,7 +2,8 @@
  * S3 client placeholder for photo uploads. This file exposes the bucket name and a stub for the client.
  * When ready: install @aws-sdk/client-s3, implement getS3Client(), and set AWS_S3_BUCKET + AWS_* in env.
  */
-import { S3Client, PutObjectCommand, ListBucketsCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, ListBucketsCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export const S3_BUCKET = process.env.AWS_S3_BUCKET ?? "";
 const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
@@ -37,6 +38,16 @@ export async function uploadToS3(buffer: Buffer, key: string, contentType: strin
   
   // Return the S3 URL
   return `https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+}
+
+export async function getSignedDownloadUrl(key: string, expiresIn: number = 3600): Promise<string> {
+  const client = getS3Client();
+  const command = new GetObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: key,
+  });
+
+  return await getSignedUrl(client, command, { expiresIn });
 }
 
 // Helper function to test connection

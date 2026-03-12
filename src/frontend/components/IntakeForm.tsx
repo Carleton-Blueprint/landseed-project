@@ -12,6 +12,7 @@ import { z } from "zod";
 import { Button } from "@/frontend/components/ui/button";
 import { signIn } from "next-auth/react";
 import { PhotoUploadInterface } from "./PhotoUploadInterface";
+import { useQuery, useMutation } from "@tanstack/react-query";
 
 const provinces = ["AB","BC","MB","NB","NL","NS","NT","NU","ON","PE","QC","SK","YT",] as const;
 
@@ -148,11 +149,66 @@ export function IntakeForm() {
   // Photo upload state
   const [uploadedPhotos, setUploadedPhotos] = React.useState<File[]>([]);
   const [photoKey, setPhotoKey] = React.useState(0);
+  const [draftBanner, setDraftBanner] = React.useState<string | null>(null);
+
+  // ── Load draft on mount ────────────────────────────────────
+  const { data: draftResponse } = useQuery({
+    queryKey: ["intake-draft"],
+    queryFn: async () => {
+      const res = await fetch("/api/draft");
+      if (!res.ok) return null;
+      return res.json() as Promise<{ draft: Record<string, unknown> | null; savedAt?: string }>;
+    },
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  // Rehydrate form when draft is loaded
+  React.useEffect(() => {
+    if (draftResponse?.draft) {
+      reset({ ...defaultValues, ...(draftResponse.draft as Partial<IntakeFormValues>) });
+      const savedAt = draftResponse.savedAt
+        ? new Date(draftResponse.savedAt).toLocaleString()
+        : null;
+      setDraftBanner(savedAt ? `Draft restored (last saved ${savedAt})` : "Draft restored");
+    }
+  }, [draftResponse, reset]);
+
+  // ── Save draft mutation ────────────────────────────────────
+  const [lastSaved, setLastSaved] = React.useState<string | null>(null);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+
+  const saveDraftMutation = useMutation({
+    mutationFn: async (values: Partial<IntakeFormValues>) => {
+      const res = await fetch("/api/draft", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      if (!res.ok) throw new Error("Failed to save draft");
+      return res.json() as Promise<{ savedAt: string }>;
+    },
+    onSuccess: (data) => {
+      setLastSaved(new Date(data.savedAt).toLocaleString());
+      setSaveError(null);
+    },
+    onError: () => {
+      setSaveError("Could not save draft. Please try again.");
+    },
+  });
+
+  const handleSaveDraft = () => {
+    const currentValues = watch();
+    saveDraftMutation.mutate(currentValues);
+  };
 
   const handleCancel = () => {
     reset(defaultValues);
     setUploadedPhotos([]);
     setPhotoKey((prev) => prev + 1);
+    setLastSaved(null);
+    setSaveError(null);
+    setDraftBanner(null);
   };
 
   async function onSubmit(values: IntakeFormValues) {
@@ -241,6 +297,14 @@ export function IntakeForm() {
       className="space-y-6 max-w-2xl"
     >
       <h1 className="text-xl font-semibold">Intake Form</h1>
+
+      {/* Draft restore banner */}
+      {draftBanner && (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          <span>📋 {draftBanner}</span>
+          <button type="button" onClick={() => setDraftBanner(null)} className="shrink-0 font-medium hover:underline">Dismiss</button>
+        </div>
+      )}
       <section className="space-y-3">
         <h2 className="text-base font-semibold mb-3">Contact</h2>
         <p className="text-sm text-muted-foreground mb-3">
@@ -299,6 +363,17 @@ export function IntakeForm() {
               {errors.phone.message}
             </p>
           )}
+        </div>
+        <div className="flex items-center gap-2 mt-4">
+          <input
+            id="intake-caregiver"
+            type="checkbox"
+            {...register("isCaregiver")}
+            className="rounded border-input"
+          />
+          <label htmlFor="intake-caregiver" className="text-sm">
+            I am a caregiver submitting this request on behalf of a senior
+          </label>
         </div>
       </section>
 
@@ -568,12 +643,28 @@ export function IntakeForm() {
         />
       </section>
 
+      {/* Draft save status */}
+      {lastSaved && (
+        <p className="text-sm text-green-700" role="status">✓ Draft saved at {lastSaved}</p>
+      )}
+      {saveError && (
+        <p className="text-sm text-destructive" role="alert">{saveError}</p>
+      )}
+
       <div className="flex gap-4 mt-2">
         <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmitting}>
           Cancel
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleSaveDraft}
+          disabled={isSubmitting || saveDraftMutation.isPending}
+        >
+          {saveDraftMutation.isPending ? "Saving…" : "Save as Draft"}
+        </Button>
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Submittingâ€¦" : "Submit"}
+          {isSubmitting ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </form>
