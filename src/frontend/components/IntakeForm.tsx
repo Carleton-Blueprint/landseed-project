@@ -51,6 +51,9 @@ const intakeSchema = z.object({
     seniorName: z.string().max(120).optional().or(z.literal("")),
     relationshipToSenior: z.string().max(120).optional().or(z.literal("")),
     caregiverConsentConfirmed: z.boolean().default(false),
+
+    // Consent section
+    clientConsentConfirmed: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
   if (data.ownershipStatus === "tenant") {
@@ -106,6 +109,15 @@ const intakeSchema = z.object({
       });
     }
   }
+
+  if (data.clientConsentConfirmed !== true) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["clientConsentConfirmed"],
+      message: "You must consent before submitting this request",
+    });
+  }
+  
 });
 
 export type IntakeFormValues = z.infer<typeof intakeSchema>;
@@ -127,6 +139,7 @@ const defaultValues: IntakeFormValues = {
   seniorName: "",
   relationshipToSenior: "",
   caregiverConsentConfirmed: false,
+  clientConsentConfirmed: false,
 };
 
 export function IntakeForm() {
@@ -566,6 +579,45 @@ export function IntakeForm() {
           maxFiles={10}
           maxSizeMB={10}
         />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Consent</h2>
+        <div className="rounded-md border border-input bg-muted/30 p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            We collect your contact details, address, photos, and other information in this form
+            so we can review your modification request, prepare estimates, and support your project.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Your information will be stored securely and only used for processing your request and
+            related project support.
+          </p>
+
+          <div className="flex items-start gap-2 pt-1">
+            <input
+              id="intake-client-consent"
+              type="checkbox"
+              {...register("clientConsentConfirmed")}
+              className="mt-1 rounded border-input"
+              aria-invalid={!!errors.clientConsentConfirmed}
+              aria-describedby={errors.clientConsentConfirmed ? "intake-client-consent-error" : undefined}
+            />
+            <label htmlFor="intake-client-consent" className="text-sm leading-6">
+              I consent to the collection, storage, and processing of my photos and personal information
+              for the purpose of reviewing and managing my request.
+            </label>
+          </div>
+
+          {errors.clientConsentConfirmed && (
+            <p
+              id="intake-client-consent-error"
+              className="mt-1 text-sm text-destructive"
+              role="alert"
+            >
+              {errors.clientConsentConfirmed.message}
+            </p>
+          )}
+        </div>
       </section>
 
       <div className="flex gap-4 mt-2">
