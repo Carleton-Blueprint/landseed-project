@@ -4,6 +4,7 @@
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 jest.mock("next-auth/react", () => ({
   signIn: jest.fn(),
@@ -11,9 +12,20 @@ jest.mock("next-auth/react", () => ({
 
 import { IntakeForm } from "../IntakeForm";
 
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const Wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+  return Wrapper;
+}
+
+
 describe("IntakeForm", () => {
   it("renders form with name, email, phone fields and submit button", () => {
-    render(<IntakeForm />);
+    render(<IntakeForm />, { wrapper: createWrapper() });
 
     expect(screen.getByLabelText(/name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
@@ -23,7 +35,7 @@ describe("IntakeForm", () => {
 
   it("shows validation errors when required fields are empty and form is submitted", async () => {
     const user = userEvent.setup();
-    render(<IntakeForm />);
+    render(<IntakeForm />, { wrapper: createWrapper() });
 
     await user.click(screen.getByRole("button", { name: /submit/i }));
 
@@ -34,10 +46,10 @@ describe("IntakeForm", () => {
 
   it("shows caregiver fields when caregiver checkbox is checked", async () => {
     const user = userEvent.setup();
-    render(<IntakeForm />);
+    render(<IntakeForm />, { wrapper: createWrapper() });
 
     await user.click(
-      screen.getByLabelText(/i am a caregiver submitting this request on behalf of a senior/i)
+      screen.getByRole("checkbox", { name: /i am a caregiver submitting this request on behalf of a senior/i })
     );
 
     expect(screen.getByLabelText(/senior name/i)).toBeInTheDocument();

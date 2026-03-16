@@ -1,133 +1,76 @@
-"use client";
-
-import React from "react";
-
-type ProjectStatus =
-  | "pending"
-  | "in review"
-  | "initial estimate range ready"
-  | "refined estimate ready"
-  | "consultation required"
-  | "in progress"
-  | "completed";
-
-type ModificationRequest = {
-  id: string;
-  address: string;
-  status: ProjectStatus;
-  createdAt: string;
-};
-
-const mockRequests: ModificationRequest[] = [
-  {
-    id: "1",
-    address: "123 Main St, Ottawa, ON",
-    status: "pending",
-    createdAt: "2026-03-10T10:00:00Z",
-  },
-  {
-    id: "2",
-    address: "45 Elm St, Ottawa, ON",
-    status: "in review",
-    createdAt: "2026-03-08T14:30:00Z",
-  },
-  {
-    id: "3",
-    address: "78 Pine Ave, Ottawa, ON",
-    status: "completed",
-    createdAt: "2026-03-05T09:15:00Z",
-  },
-  {
-    id: "4",
-    address: "15 Cedar Rd, Ottawa, ON",
-    status: "consultation required",
-    createdAt: "2026-03-01T12:00:00Z",
-  },
-];
-
-const statusOptions: Array<"all" | ProjectStatus> = [
-  "all",
-  "pending",
-  "in review",
-  "initial estimate range ready",
-  "refined estimate ready",
-  "consultation required",
-  "in progress",
-  "completed",
-];
+import { auth } from "@/auth";
+import { prisma } from "lib/prisma";
+import { redirect } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/frontend/components/ui/button";
 
 export default function DashboardPage() {
-  const [statusFilter, setStatusFilter] = React.useState<"all" | ProjectStatus>("all");
+  return <DashboardContent />;
+}
 
-  const sortedRequests = [...mockRequests].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+async function DashboardContent() {
+  const session = await auth();
 
-  const filteredRequests =
-    statusFilter === "all"
-      ? sortedRequests
-      : sortedRequests.filter((request) => request.status === statusFilter);
+  if (!session?.user?.id) {
+    redirect("/api/auth/signin");
+  }
+
+  const projects = await prisma.project.findMany({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "desc" },
+    include: { photos: true },
+  });
 
   return (
-    <main className="min-h-screen p-6 md:p-8">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">My Dashboard</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            View your submitted modification requests and track their current status.
-          </p>
-        </div>
-
-        <section className="space-y-3">
-          <label htmlFor="status-filter" className="block text-sm font-medium">
-            Filter by status
-          </label>
-          <select
-            id="status-filter"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "all" | ProjectStatus)}
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-          >
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>
-                {status === "all" ? "All statuses" : status}
-              </option>
-            ))}
-          </select>
-        </section>
-
-        <section className="space-y-4">
-          {filteredRequests.length === 0 ? (
-            <div className="rounded-md border border-input p-4 text-sm text-muted-foreground">
-              No requests match this status.
-            </div>
+    <main className="min-h-screen p-6 md:p-8 max-w-4xl mx-auto">
+      <h1 className="mb-6 text-3xl font-bold tracking-tight text-gray-900 border-b pb-4">
+        Your Dashboard
+      </h1>
+      
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <h2 className="text-xl font-semibold mb-4">Your Projects</h2>
+          
+          {projects.length === 0 ? (
+            <p className="text-gray-500">You don&apos;t have any projects yet.</p>
           ) : (
-            filteredRequests.map((request) => (
-              <article
-                key={request.id}
-                className="rounded-lg border border-input bg-background p-4 shadow-sm"
-              >
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-4">
+              {projects.map((project) => (
+                <div key={project.id} className="border rounded-md p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-4 hover:bg-gray-50 transition-colors">
                   <div>
-                    <h2 className="text-base font-semibold">{request.address}</h2>
-                    <p className="text-sm text-muted-foreground">
-                      Submitted on{" "}
-                      {new Date(request.createdAt).toLocaleDateString("en-CA", {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </p>
+                    <h3 className="font-medium text-lg text-gray-900">{project.address}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+                        project.status === "draft" ? "bg-amber-50 text-amber-700 border-amber-200" 
+                        : "bg-blue-50 text-blue-700 border-blue-200"
+                      }`}>
+                        {project.status === "draft" ? "Pending" : project.status}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        {new Date(project.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
                   </div>
-
-                  <span className="inline-flex w-fit rounded-full border px-3 py-1 text-xs font-medium capitalize">
-                    {request.status}
-                  </span>
+                  
+                  <div className="flex shrink-0">
+                    {project.grantDocumentKey ? (
+                      <Link href={`/api/documents/${project.id}/download`} target="_blank">
+                        <Button variant="default" className="w-full sm:w-auto flex items-center gap-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                          Download Grant PDF
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Button variant="outline" disabled className="w-full sm:w-auto">
+                        Generating PDF...
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </article>
-            ))
+              ))}
+            </div>
           )}
-        </section>
+        </div>
       </div>
     </main>
   );
