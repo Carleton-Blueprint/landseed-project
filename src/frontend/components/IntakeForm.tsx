@@ -656,7 +656,6 @@ export function IntakeForm() {
         />
       </section>
 
-<<<<<<< HEAD
       <section className="space-y-3">
         <h2 className="text-base font-semibold mb-3">Consent</h2>
         <div className="rounded-md border border-input bg-muted/30 p-4 space-y-3">
