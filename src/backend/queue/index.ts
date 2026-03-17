@@ -20,6 +20,20 @@ export const aiJobsQueue = new Queue<{ jobType: string; payload: unknown }>("ai-
   defaultJobOptions: { attempts: 2, backoff: { type: "exponential", delay: 2000 } },
 });
 
+export const emailQueue = new Queue<{
+  eventType: string;
+  idempotencyKey: string;
+  recipientEmail: string;
+  recipientName?: string | null;
+  userId?: string;
+  projectId?: string;
+  projectAddress?: string | null;
+  estimateLink?: string | null;
+}>("email", {
+  connection,
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
+});
+
 export function createVirusScanWorker(
   processor: (job: { data: { key: string; photoId: string; bucket?: string } }) => Promise<void>
 ) {
@@ -30,4 +44,21 @@ export function createAiJobsWorker(
   processor: (job: { data: { jobType: string; payload: unknown } }) => Promise<void>
 ) {
   return new Worker("ai-jobs", processor, { connection });
+}
+
+export function createEmailWorker(
+  processor: (job: {
+    data: {
+      eventType: string;
+      idempotencyKey: string;
+      recipientEmail: string;
+      recipientName?: string | null;
+      userId?: string;
+      projectId?: string;
+      projectAddress?: string | null;
+      estimateLink?: string | null;
+    };
+  }) => Promise<void>
+) {
+  return new Worker("email", processor, { connection });
 }

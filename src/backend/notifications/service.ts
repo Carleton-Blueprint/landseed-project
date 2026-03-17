@@ -1,0 +1,119 @@
+import {
+  NotificationDeliveryStatus,
+  NotificationEventType,
+  Prisma,
+} from "@prisma/client";
+import { prisma } from "lib/prisma";
+import { renderEmailTemplate } from "@/backend/notifications/emailTemplates";
+import { sendTransactionalEmail } from "@/backend/services/transactionalEmail";
+
+export type NotificationJobPayload = {
+  eventType: NotificationEventType;
+  idempotencyKey: string;
+  recipientEmail: string;
+  recipientName?: string | null;
+  userId?: string;
+  projectId?: string;
+  projectAddress?: string | null;
+  estimateLink?: string | null;
+};
+
+export async function queueNotification(payload: NotificationJobPayload): Promise<void> {
+  const existing = await prisma.notificationDelivery.findUnique({
+    where: { idempotencyKey: payload.idempotencyKey },
+    select: { id: true, status: true },
+  });
+
+  if (existing?.status === NotificationDeliveryStatus.SENT) {
+    return;
+  }
+
+  const template = renderEmailTemplate({
+    eventType: payload.eventType,
+    recipientName: payload.recipientName,
+    projectAddress: payload.projectAddress,
+    estimateLink: payload.estimateLink,
+  });
+
+  // Strip undefined keys so payload remains valid JSON for Prisma Json fields.
+  const payloadJson = JSON.parse(JSON.stringify(payload)) as Prisma.InputJsonValue;
+
+  await prisma.notificationDelivery.upsert({
+    where: { idempotencyKey: payload.idempotencyKey },
+    create: {
+      eventType: payload.eventType,
+      recipientEmail: payload.recipientEmail,
+      subject: template.subject,
+      templateName: template.templateName,
+      status: NotificationDeliveryStatus.PENDING,
+      idempotencyKey: payload.idempotencyKey,
+      payload: payloadJson,
+      userId: payload.userId,
+      projectId: payload.projectId,
+    },
+    update: {
+      recipientEmail: payload.recipientEmail,
+      subject: template.subject,
+      templateName: template.templateName,
+      status: NotificationDeliveryStatus.PENDING,
+      payload: payloadJson,
+      userId: payload.userId,
+      projectId: payload.projectId,
+      lastError: null,
+    },
+  });
+}
+
+export async function processNotification(payload: NotificationJobPayload): Promise<void> {
+  const delivery = await prisma.notificationDelivery.findUnique({
+    where: { idempotencyKey: payload.idempotencyKey },
+    select: { id: true, status: true, attempts: true },
+  });
+
+  if (!delivery) {
+    throw new Error(`Notification delivery record not found for ${payload.idempotencyKey}`);
+  }
+
+  if (delivery.status === NotificationDeliveryStatus.SENT) {
+    return;
+  }
+
+  const template = renderEmailTemplate({
+    eventType: payload.eventType,
+    recipientName: payload.recipientName,
+    projectAddress: payload.projectAddress,
+    estimateLink: payload.estimateLink,
+  });
+
+  try {
+    const result = await sendTransactionalEmail({
+      to: payload.recipientEmail,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+    });
+
+    await prisma.notificationDelivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: NotificationDeliveryStatus.SENT,
+        sentAt: new Date(),
+        attempts: { increment: 1 },
+        provider: result.provider,
+        providerMessageId: result.messageId,
+        lastError: null,
+      },
+    });
+  } catch (error) {
+    await prisma.notificationDelivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: NotificationDeliveryStatus.FAILED,
+        attempts: { increment: 1 },
+        lastError: error instanceof Error ? error.message : "Unknown email send error",
+      },
+    });
+
+    throw error;
+  }
+}

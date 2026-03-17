@@ -3,7 +3,8 @@
  * Implements FR-2.7: Auditing logic for tracking versions used in quote generation.
  */
 
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma, NotificationEventType } from '@prisma/client';
+import { enqueueNotification } from '@/backend/notifications/enqueue';
 
 const prisma = new PrismaClient();
 
@@ -78,6 +79,19 @@ function applyGrantRules(subtotal: number, grantRules: Prisma.JsonValue): number
 export async function generateQuote(
   input: QuoteCalculationInput
 ): Promise<QuoteResult> {
+  const projectWithUser = await prisma.project.findUnique({
+    where: { id: input.projectId },
+    include: {
+      user: {
+        select: { id: true, name: true, email: true },
+      },
+    },
+  });
+
+  if (!projectWithUser) {
+    throw new Error('Project not found');
+  }
+
   // 1. Fetch active versions
   const pricingMatrixVersion = await getActivePricingMatrixVersion();
   const grantRulesVersion = await getActiveGrantRulesVersion();
@@ -107,6 +121,28 @@ export async function generateQuote(
       grantRulesVersion: true,
     },
   });
+
+  await prisma.project.update({
+    where: { id: projectWithUser.id },
+    data: { status: 'estimate_ready' },
+  });
+
+  if (projectWithUser.user.email) {
+    const estimateBaseUrl =
+      process.env.APP_BASE_URL ??
+      process.env.NEXTAUTH_URL ??
+      'http://localhost:3000';
+    await enqueueNotification({
+      eventType: NotificationEventType.ESTIMATE_READY,
+      idempotencyKey: `estimate-ready:${quote.id}`,
+      recipientEmail: projectWithUser.user.email,
+      recipientName: projectWithUser.user.name,
+      userId: projectWithUser.user.id,
+      projectId: projectWithUser.id,
+      projectAddress: projectWithUser.address,
+      estimateLink: `${estimateBaseUrl}/projects/${projectWithUser.id}/estimate`,
+    });
+  }
 
   return {
     quoteId: quote.id,

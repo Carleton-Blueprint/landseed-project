@@ -15,7 +15,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:e2e": "playwright test",
-    "worker:virus-scan": "tsx src/backend/queue/virusScanWorker.ts"
+    "worker:virus-scan": "tsx src/backend/queue/virusScanWorker.ts",
+    "worker:email": "tsx src/backend/queue/emailWorker.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.0.0",
