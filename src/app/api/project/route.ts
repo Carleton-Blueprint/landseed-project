@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { NotificationEventType } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
+import { enqueueNotification } from "@/backend/notifications/enqueue";
 
 /**
  * POST /api/project
@@ -35,6 +37,18 @@ export async function POST(req: NextRequest) {
         userId: session.user.id,
       },
     });
+
+    if (session.user.email) {
+      await enqueueNotification({
+        eventType: NotificationEventType.SUBMISSION_RECEIPT,
+        idempotencyKey: `submission-receipt:${project.id}`,
+        recipientEmail: session.user.email,
+        recipientName: session.user.name,
+        userId: session.user.id,
+        projectId: project.id,
+        projectAddress: project.address,
+      });
+    }
 
     return NextResponse.json({ success: true, project }, { status: 201 });
   } catch (error) {

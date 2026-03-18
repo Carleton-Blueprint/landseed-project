@@ -26,6 +26,7 @@ model User {
   grantRulesVersions     GrantRulesVersion[]
   pricingMatrixAuditLogs PricingMatrixAuditLog[]
   grantRulesAuditLogs    GrantRulesAuditLog[]
+  notifications          NotificationDelivery[]
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
 }
@@ -70,6 +71,7 @@ model Project {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   photos    Photo[]
   quotes    Quote[]
+  notifications NotificationDelivery[]
   draftData        Json?
   grantDocumentKey String?
   createdAt DateTime @default(now())
@@ -170,4 +172,42 @@ model GrantRulesAuditLog {
 
   @@index([versionId])
   @@index([changedAt])
+}
+
+enum NotificationEventType {
+  SUBMISSION_RECEIPT
+  ESTIMATE_READY
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model NotificationDelivery {
+  id                String                     @id @default(cuid())
+  eventType         NotificationEventType
+  status            NotificationDeliveryStatus @default(PENDING)
+  recipientEmail    String
+  subject           String
+  templateName      String
+  idempotencyKey    String                     @unique
+  provider          String?
+  providerMessageId String?
+  attempts          Int                        @default(0)
+  lastError         String?
+  payload           Json?
+  sentAt            DateTime?
+  userId            String?
+  projectId         String?
+  user              User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  project           Project?                   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  @@index([eventType])
+  @@index([status])
+  @@index([projectId])
+  @@index([userId])
 }
