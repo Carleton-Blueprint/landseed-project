@@ -16,7 +16,13 @@ async function DashboardContent() {
   }
 
   const projects = await prisma.project.findMany({
-    where: { userId: session.user.id },
+    where: {
+      projectAccess: {
+        some: {
+          userId: session.user.id,
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
     include: { photos: true },
   });

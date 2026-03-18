@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { NotificationEventType } from "@prisma/client";
+import { NotificationEventType, ProjectAccessRole } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
@@ -29,12 +29,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create project
+    // Create project and owner access atomically via nested create.
     const project = await prisma.project.create({
       data: {
         address,
         status: "draft",
         userId: session.user.id,
+        projectAccess: {
+          create: {
+            userId: session.user.id,
+            role: ProjectAccessRole.OWNER,
+            grantedByUserId: session.user.id,
+          },
+        },
       },
     });
 

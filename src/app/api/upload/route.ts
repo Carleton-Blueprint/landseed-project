@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { uploadToS3 } from "lib/s3";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
+import { hasProjectAccess } from "@/backend/auth/projectAccess";
+import { ProjectAccessRole } from "@prisma/client";
 import { virusScanQueue } from "@/backend/queue";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -37,6 +39,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Missing projectId" },
         { status: 400 }
+      );
+    }
+
+    const canUploadToProject = await hasProjectAccess(
+      session.user.id,
+      projectId,
+      ProjectAccessRole.EDITOR
+    );
+    if (!canUploadToProject) {
+      return NextResponse.json(
+        { error: "Unauthorized access to project" },
+        { status: 403 }
       );
     }
 

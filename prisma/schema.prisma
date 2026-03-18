@@ -22,6 +22,8 @@ model User {
   accounts               Account[]
   sessions               Session[]
   projects               Project[]
+  projectAccess          ProjectAccess[]         @relation("ProjectAccessUser")
+  grantedProjectAccess   ProjectAccess[]         @relation("ProjectAccessGrantedBy")
   pricingMatrixVersions  PricingMatrixVersion[]
   grantRulesVersions     GrantRulesVersion[]
   pricingMatrixAuditLogs PricingMatrixAuditLog[]
@@ -69,6 +71,7 @@ model Project {
   status    String   @default("draft")
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectAccess ProjectAccess[]
   photos    Photo[]
   quotes    Quote[]
   notifications NotificationDelivery[]
@@ -76,6 +79,31 @@ model Project {
   grantDocumentKey String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum ProjectAccessRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model ProjectAccess {
+  id              String            @id @default(cuid())
+  projectId       String
+  userId          String
+  role            ProjectAccessRole @default(VIEWER)
+  grantedByUserId String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation("ProjectAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User?   @relation("ProjectAccessGrantedBy", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([grantedByUserId])
 }
 
 model Photo {
