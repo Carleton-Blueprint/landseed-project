@@ -8,13 +8,17 @@ export async function POST(request: Request) {
     // Parse the incoming data
     const data = await request.json();
     const { name, email, phone } = data;
+    const normalizedName = typeof name === "string" ? name.trim() : "";
+    const normalizedEmail =
+      typeof email === "string" ? email.trim().toLowerCase() : "";
+    const normalizedPhone = typeof phone === "string" ? phone.trim() : "";
 
     // Create a new user in the database
     const user = await prisma.user.create({
       data: {
-        name: name,
-        email: email || null,  // Optional field
-        phone: phone || null,  // Optional field
+        name: normalizedName || null,
+        email: normalizedEmail || null,  // Optional field
+        phone: normalizedPhone || null,  // Optional field
       }
     });
 
