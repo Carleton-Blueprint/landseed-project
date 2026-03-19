@@ -75,6 +75,25 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+
+  // STILL DOESNT WORK - FIX!!! - TO-DO
+  const currentDraftAccess = await prisma.projectAccess.findFirst({
+    where: {
+      userId: session.user.id,
+      project: {
+        status: "draft",
+      },
+    },
+    select: { role: true },
+    orderBy: {
+      project: { updatedAt: "desc" },
+    },
+  });
+
+  if (currentDraftAccess && !EDITABLE_ROLES.includes(currentDraftAccess.role)) {
+    return NextResponse.json({ error: "Viewers cannot edit draft" }, { status: 403 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();

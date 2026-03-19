@@ -46,4 +46,3 @@ prisma/migrations/**/migration_lock.toml
 
 # Notes
 docs/
-notes.md
