@@ -75,8 +75,6 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-
-  // STILL DOESNT WORK - FIX!!! - TO-DO
   const currentDraftAccess = await prisma.projectAccess.findFirst({
     where: {
       userId: session.user.id,
