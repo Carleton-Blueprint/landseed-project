@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
+import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { getSignedDownloadUrl } from "lib/s3";
 
 export async function GET(
@@ -17,14 +18,15 @@ export async function GET(
 
     const project = await prisma.project.findUnique({
       where: { id },
-      select: { userId: true, grantDocumentKey: true },
+      select: { id: true, grantDocumentKey: true },
     });
 
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    if (project.userId !== session.user.id) {
+    const canViewProject = await hasProjectAccess(session.user.id, project.id);
+    if (!canViewProject) {
       return NextResponse.json({ error: "Unauthorized access to project" }, { status: 403 });
     }
 

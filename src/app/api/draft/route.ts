@@ -10,7 +10,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
+import { ProjectAccessRole } from "@prisma/client";
 import { z } from "zod";
+
+const EDITABLE_ROLES: ProjectAccessRole[] = [
+  ProjectAccessRole.OWNER,
+  ProjectAccessRole.EDITOR,
+];
 
 // Mirrors the partial shape of IntakeFormValues — all fields optional so a partial save is fine.
 const draftSchema = z.object({
@@ -42,7 +48,15 @@ export async function GET() {
   }
 
   const draft = await prisma.project.findFirst({
-    where: { userId: session.user.id, status: "draft" },
+    where: {
+      status: "draft",
+      projectAccess: {
+        some: {
+          userId: session.user.id,
+          role: { in: EDITABLE_ROLES },
+        },
+      },
+    },
     select: { id: true, draftData: true, updatedAt: true },
     orderBy: { updatedAt: "desc" },
   });
@@ -59,6 +73,23 @@ export async function PATCH(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const currentDraftAccess = await prisma.projectAccess.findFirst({
+    where: {
+      userId: session.user.id,
+      project: {
+        status: "draft",
+      },
+    },
+    select: { role: true },
+    orderBy: {
+      project: { updatedAt: "desc" },
+    },
+  });
+
+  if (currentDraftAccess && !EDITABLE_ROLES.includes(currentDraftAccess.role)) {
+    return NextResponse.json({ error: "Viewers cannot edit draft" }, { status: 403 });
   }
 
   let body: unknown;
@@ -82,7 +113,15 @@ export async function PATCH(request: Request) {
 
   // Upsert: update the most recent "draft" project, or create a new one.
   const existing = await prisma.project.findFirst({
-    where: { userId: session.user.id, status: "draft" },
+    where: {
+      status: "draft",
+      projectAccess: {
+        some: {
+          userId: session.user.id,
+          role: { in: EDITABLE_ROLES },
+        },
+      },
+    },
     orderBy: { updatedAt: "desc" },
   });
 
@@ -99,6 +138,13 @@ export async function PATCH(request: Request) {
         status: "draft",
         address,
         draftData,
+        projectAccess: {
+          create: {
+            userId: session.user.id,
+            role: ProjectAccessRole.OWNER,
+            grantedByUserId: session.user.id,
+          },
+        },
       },
     });
   }
