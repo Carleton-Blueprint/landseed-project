@@ -133,9 +133,18 @@ model Quote {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  status         QuoteStatus @default(PENDING)
+  declinedReason String?     @db.Text
+
   @@index([projectId])
   @@index([pricingMatrixVersionId])
   @@index([grantRulesVersionId])
+}
+
+enum QuoteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
 }
 
 model PricingMatrixVersion {

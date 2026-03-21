@@ -3,6 +3,7 @@
  * Server component; IntakeForm is client-side for form state.
  */
 import { IntakeForm } from "@/frontend/components/IntakeForm";
+import { GuidedIntakeForm } from "@/frontend/components/GuidedIntakeForm";
 
 export default function HomePage() {
   return (
@@ -11,6 +12,9 @@ export default function HomePage() {
         <h1 className="mb-6 text-2xl font-semibold tracking-tight">
           Digital Intake
         </h1>
+        <div className="mb-12">
+          <GuidedIntakeForm />
+        </div>
         <IntakeForm />
       </div>
     </main>
