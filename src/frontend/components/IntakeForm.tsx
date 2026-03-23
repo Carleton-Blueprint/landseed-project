@@ -16,6 +16,15 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 
 const provinces = ["AB","BC","MB","NB","NL","NS","NT","NU","ON","PE","QC","SK","YT",] as const;
 
+const modificationOptions = [
+  "Grab bars",
+  "Raised toilet",
+  "Walk-in shower",
+  "Widened doorway",
+  "Stair lift",
+  "Handrails",
+] as const;
+
 const intakeSchema = z.object({
   name: z.string().min(1, "Name is required").max(120, "Name is too long"),
   email: z.string().min(1, "Email is required").email("Enter a valid email"),
@@ -55,6 +64,9 @@ const intakeSchema = z.object({
 
     // Consent section
     clientConsentConfirmed: z.boolean().default(false),
+
+    // Modification items
+    modificationItems: z.array(z.string()).min(1, "Select at least one modification item"),
   })
   .superRefine((data, ctx) => {
   if (data.ownershipStatus === "tenant") {
@@ -141,6 +153,7 @@ const defaultValues: IntakeFormValues = {
   relationshipToSenior: "",
   caregiverConsentConfirmed: false,
   clientConsentConfirmed: false,
+  modificationItems: [],
 };
 
 export function IntakeForm() {
@@ -640,6 +653,33 @@ export function IntakeForm() {
               </p>
             )}
           </div>
+        )}
+      </section>
+
+            <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Modification items</h2>
+        <p className="text-sm text-muted-foreground mb-3">
+          Select all modifications needed for this request.
+        </p>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          {modificationOptions.map((item) => (
+            <label key={item} className="flex items-center gap-2 rounded border border-input px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                value={item}
+                {...register("modificationItems")}
+                className="rounded border-input"
+              />
+              <span>{item}</span>
+            </label>
+          ))}
+        </div>
+
+        {errors.modificationItems && (
+          <p className="mt-1 text-sm text-destructive" role="alert">
+            {errors.modificationItems.message}
+          </p>
         )}
       </section>
 
