@@ -108,7 +108,8 @@ export async function logAuditEventNonBlocking(input: AuditEventInput): Promise<
   try {
     await logAuditEvent(input);
   } catch (error) {
-    // TODO: Need to decide whether audit failures should block write operations for stricter compliance posture.
+    // TODO: Keep audit logging non-blocking for now; revisit fail-closed behavior when high-risk
+    // financial flows, privilege changes, or security-critical operations are introduced
     console.error("Audit logging failed:", error);
   }
 }
