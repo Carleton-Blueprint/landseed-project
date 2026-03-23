@@ -29,6 +29,7 @@ model User {
   pricingMatrixAuditLogs PricingMatrixAuditLog[]
   grantRulesAuditLogs    GrantRulesAuditLog[]
   notifications          NotificationDelivery[]
+  auditEvents            AuditEvent[]
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
 }
@@ -75,6 +76,7 @@ model Project {
   photos    Photo[]
   quotes    Quote[]
   notifications NotificationDelivery[]
+  auditEvents   AuditEvent[]
   draftData        Json?
   grantDocumentKey String?
   createdAt DateTime @default(now())
@@ -135,10 +137,69 @@ model Quote {
 
   status         QuoteStatus @default(PENDING)
   declinedReason String?     @db.Text
+  auditEvents    AuditEvent[]
 
   @@index([projectId])
   @@index([pricingMatrixVersionId])
   @@index([grantRulesVersionId])
+}
+
+enum AuditEventCategory {
+  MANUAL_CHANGE
+  SENSITIVE_ACCESS
+}
+
+enum AuditEventOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
+}
+
+enum AuditSensitivityLevel {
+  INTERNAL
+  CONFIDENTIAL
+  RESTRICTED
+}
+
+model AuditEvent {
+  id               String                @id @default(cuid())
+  category         AuditEventCategory
+  action           String
+  outcome          AuditEventOutcome
+  sensitivityLevel AuditSensitivityLevel @default(CONFIDENTIAL)
+
+  actorUserId String?
+  actorUser   User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  quoteId String?
+  quote   Quote?  @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+
+  resourceType String
+  resourceId   String?
+
+  reason      String? @db.Text
+  description String? @db.Text
+
+  beforeState Json?
+  afterState  Json?
+  metadata    Json?
+
+  ipAddress String?
+  userAgent String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([category, createdAt])
+  @@index([action, createdAt])
+  @@index([outcome, createdAt])
+  @@index([sensitivityLevel, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([quoteId, createdAt])
+  @@index([resourceType, resourceId])
 }
 
 enum QuoteStatus {

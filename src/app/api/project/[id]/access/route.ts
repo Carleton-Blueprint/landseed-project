@@ -3,6 +3,7 @@ import { ProjectAccessRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
+import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
 
 const VALID_ROLES = new Set<ProjectAccessRole>([
   ProjectAccessRole.OWNER,
@@ -11,18 +12,42 @@ const VALID_ROLES = new Set<ProjectAccessRole>([
 ]);
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestContext = getRequestAuditContext(request);
+  const { id: projectId } = await params;
+
   const session = await auth();
   if (!session?.user?.id) {
+    await logAuditEventNonBlocking({
+      category: "SENSITIVE_ACCESS",
+      action: "PROJECT_ACCESS_LIST_VIEW",
+      outcome: "DENIED",
+      sensitivityLevel: "RESTRICTED",
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Unauthenticated access list read attempt",
+      ...requestContext,
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id: projectId } = await params;
-
   const canViewProject = await hasProjectAccess(session.user.id, projectId);
   if (!canViewProject) {
+    await logAuditEventNonBlocking({
+      category: "SENSITIVE_ACCESS",
+      action: "PROJECT_ACCESS_LIST_VIEW",
+      outcome: "DENIED",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Project access list read denied",
+      ...requestContext,
+    });
     return NextResponse.json({ error: "Unauthorized access to project" }, { status: 403 });
   }
 
@@ -45,6 +70,22 @@ export async function GET(
     ],
   });
 
+  await logAuditEventNonBlocking({
+    category: "SENSITIVE_ACCESS",
+    action: "PROJECT_ACCESS_LIST_VIEW",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    actorUserId: session.user.id,
+    projectId,
+    resourceType: "project_access",
+    resourceId: projectId,
+    description: "Project access list viewed",
+    metadata: {
+      entryCount: accessList.length,
+    },
+    ...requestContext,
+  });
+
   return NextResponse.json({ access: accessList });
 }
 
@@ -52,12 +93,24 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestContext = getRequestAuditContext(request);
+  const { id: projectId } = await params;
+
   const session = await auth();
   if (!session?.user?.id) {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "PROJECT_ACCESS_GRANT_OR_UPDATE",
+      outcome: "DENIED",
+      sensitivityLevel: "RESTRICTED",
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Unauthenticated project access change attempt",
+      ...requestContext,
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const { id: projectId } = await params;
 
   const canManageAccess = await hasProjectAccess(
     session.user.id,
@@ -65,6 +118,18 @@ export async function POST(
     ProjectAccessRole.OWNER
   );
   if (!canManageAccess) {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "PROJECT_ACCESS_GRANT_OR_UPDATE",
+      outcome: "DENIED",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Project access change denied because actor is not owner",
+      ...requestContext,
+    });
     return NextResponse.json({ error: "Only project owners can manage access" }, { status: 403 });
   }
 
@@ -72,6 +137,18 @@ export async function POST(
   try {
     body = await request.json();
   } catch {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "PROJECT_ACCESS_GRANT_OR_UPDATE",
+      outcome: "FAILURE",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Project access change rejected due to invalid JSON",
+      ...requestContext,
+    });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
@@ -83,6 +160,22 @@ export async function POST(
       : undefined;
 
   if (!email || !role) {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "PROJECT_ACCESS_GRANT_OR_UPDATE",
+      outcome: "FAILURE",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Project access change rejected due to validation failure",
+      metadata: {
+        providedEmail: email,
+        providedRole: input.role,
+      },
+      ...requestContext,
+    });
     return NextResponse.json(
       { error: "email and role are required. role must be OWNER, EDITOR, or VIEWER" },
       { status: 400 }
@@ -94,6 +187,21 @@ export async function POST(
     select: { id: true, email: true },
   });
   if (!targetUser) {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "PROJECT_ACCESS_GRANT_OR_UPDATE",
+      outcome: "FAILURE",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Project access change rejected because target user does not exist",
+      metadata: {
+        targetEmail: email,
+      },
+      ...requestContext,
+    });
     return NextResponse.json(
       { error: "User not found. Ask them to create an account first." },
       { status: 404 }
@@ -105,8 +213,33 @@ export async function POST(
     select: { id: true, userId: true },
   });
   if (!project) {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "PROJECT_ACCESS_GRANT_OR_UPDATE",
+      outcome: "FAILURE",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Project access change rejected because project was not found",
+      ...requestContext,
+    });
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
+
+  const previousAccess = await prisma.projectAccess.findUnique({
+    where: {
+      projectId_userId: {
+        projectId,
+        userId: targetUser.id,
+      },
+    },
+    select: {
+      role: true,
+      grantedByUserId: true,
+    },
+  });
 
   const enforcedRole = project.userId === targetUser.id ? ProjectAccessRole.OWNER : role;
 
@@ -138,6 +271,34 @@ export async function POST(
         },
       },
     },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "PROJECT_ACCESS_GRANT_OR_UPDATE",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    actorUserId: session.user.id,
+    projectId,
+    resourceType: "project_access",
+    resourceId: `${projectId}:${targetUser.id}`,
+    description: "Project access granted or updated",
+    beforeState: previousAccess
+      ? {
+          role: previousAccess.role,
+          grantedByUserId: previousAccess.grantedByUserId,
+        }
+      : null,
+    afterState: {
+      role: access.role,
+      grantedByUserId: session.user.id,
+      targetUserId: targetUser.id,
+      targetEmail: targetUser.email,
+    },
+    metadata: {
+      enforcedRole,
+    },
+    ...requestContext,
   });
 
   return NextResponse.json({ success: true, access });

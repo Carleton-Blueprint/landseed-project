@@ -1,11 +1,15 @@
 import React from "react";
 import { notFound, redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { EstimateClientComponent } from "./EstimateClientComponent";
+import { getAuditContextFromHeaders, logAuditEventNonBlocking } from "@/backend/audit/log";
 
 export default async function EstimatePage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
+  const requestHeaders = await headers();
+  const requestContext = getAuditContextFromHeaders(requestHeaders);
 
   const session = await auth();
   if (!session?.user?.id) {
@@ -30,6 +34,19 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
 
   // Basic access check: Must have access record
   if (project.projectAccess.length === 0) {
+    await logAuditEventNonBlocking({
+      category: "SENSITIVE_ACCESS",
+      action: "ESTIMATE_VIEW",
+      outcome: "DENIED",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId: project.id,
+      resourceType: "estimate",
+      resourceId: project.id,
+      description: "Estimate page access denied due to missing project access",
+      ...requestContext,
+    });
+
     return (
         <div className="flex h-screen items-center justify-center p-4 text-center">
             <p className="text-xl text-red-600">You do not have access to this estimate.</p>
@@ -39,12 +56,42 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
 
   const latestQuote = project.quotes[0];
   if (!latestQuote) {
+    await logAuditEventNonBlocking({
+      category: "SENSITIVE_ACCESS",
+      action: "ESTIMATE_VIEW",
+      outcome: "SUCCESS",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId: project.id,
+      resourceType: "estimate",
+      resourceId: project.id,
+      description: "Estimate page viewed while quote is still pending generation",
+      ...requestContext,
+    });
+
     return (
         <div className="flex h-screen items-center justify-center p-4 text-center">
             <p className="text-xl">Your estimate is still being prepared. Please check back later.</p>
         </div>
     );
   }
+
+  await logAuditEventNonBlocking({
+    category: "SENSITIVE_ACCESS",
+    action: "ESTIMATE_VIEW",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    actorUserId: session.user.id,
+    projectId: project.id,
+    quoteId: latestQuote.id,
+    resourceType: "estimate",
+    resourceId: latestQuote.id,
+    description: "Estimate page viewed",
+    metadata: {
+      quoteStatus: latestQuote.status,
+    },
+    ...requestContext,
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
