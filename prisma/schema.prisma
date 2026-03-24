@@ -75,6 +75,7 @@ model Project {
   projectAccess ProjectAccess[]
   photos    Photo[]
   quotes    Quote[]
+  eligibilityAssessments EligibilityAssessment[]
   notifications NotificationDelivery[]
   auditEvents   AuditEvent[]
   draftData        Json?
@@ -234,10 +235,39 @@ model GrantRulesVersion {
 
   createdBy User                 @relation(fields: [createdByUserId], references: [id])
   quotes    Quote[]
+  eligibilityAssessments EligibilityAssessment[]
   auditLogs GrantRulesAuditLog[]
 
   @@index([versionNumber])
   @@index([isActive])
+}
+
+enum EligibilityDecision {
+  ELIGIBLE
+  INELIGIBLE
+  NEEDS_MORE_INFO
+  MANUAL_REVIEW
+}
+
+model EligibilityAssessment {
+  id                  String              @id @default(cuid())
+  projectId           String
+  grantRulesVersionId String
+  overallDecision     EligibilityDecision
+  programDecisions    Json
+  reasonCodes         Json
+  missingRequirements Json
+  isLatest            Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  grantRulesVersion GrantRulesVersion @relation(fields: [grantRulesVersionId], references: [id], onDelete: Restrict)
+
+  @@index([projectId])
+  @@index([grantRulesVersionId])
+  @@index([projectId, isLatest])
+  @@index([createdAt])
 }
 
 model PricingMatrixAuditLog {
