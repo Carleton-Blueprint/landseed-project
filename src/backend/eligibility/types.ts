@@ -55,3 +55,68 @@ export interface NormalizedModificationItemsResult {
   unknownItems: string[];
   duplicateCodes: ModificationCode[];
 }
+
+export const ELIGIBILITY_REQUIRED_FIELDS = {
+  PROVINCE: "PROVINCE",
+  OWNERSHIP_STATUS: "OWNERSHIP_STATUS",
+  MODIFICATION_ITEMS: "MODIFICATION_ITEMS",
+  CLIENT_CONSENT_CONFIRMED: "CLIENT_CONSENT_CONFIRMED",
+  LANDLORD_NAME: "LANDLORD_NAME",
+  LANDLORD_PHONE: "LANDLORD_PHONE",
+  OWNERSHIP_OTHER_DETAILS: "OWNERSHIP_OTHER_DETAILS",
+  SENIOR_NAME: "SENIOR_NAME",
+  RELATIONSHIP_TO_SENIOR: "RELATIONSHIP_TO_SENIOR",
+  CAREGIVER_CONSENT_CONFIRMED: "CAREGIVER_CONSENT_CONFIRMED",
+} as const;
+
+export type EligibilityRequiredField =
+  (typeof ELIGIBILITY_REQUIRED_FIELDS)[keyof typeof ELIGIBILITY_REQUIRED_FIELDS];
+
+export type EligibilityOwnershipStatus = "owner" | "tenant" | "other";
+
+export interface EligibilityAssemblerSourceProject {
+  id: string;
+  status: string;
+  address: string;
+  draftData: unknown;
+}
+
+export interface EligibilityInputProjectSection {
+  projectId: string;
+  projectStatus: string;
+  address: string;
+}
+
+export interface EligibilityInputRequiredSection {
+  province: string | null;
+  ownershipStatus: EligibilityOwnershipStatus | null;
+  clientConsentConfirmed: boolean | null;
+  modificationCodes: ModificationCode[];
+}
+
+export interface EligibilityInputOptionalSection {
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  postalCode: string | null;
+  ownershipOtherDetails: string | null;
+  landlordName: string | null;
+  landlordPhone: string | null;
+  isCaregiver: boolean;
+  seniorName: string | null;
+  relationshipToSenior: string | null;
+  caregiverConsentConfirmed: boolean | null;
+}
+
+export interface EligibilityInput {
+  project: EligibilityInputProjectSection;
+  required: EligibilityInputRequiredSection;
+  optional: EligibilityInputOptionalSection;
+  missingRequiredFields: EligibilityRequiredField[];
+  malformedDraftFields: string[];
+  normalization: {
+    unknownModificationItems: string[];
+    duplicateModificationCodes: ModificationCode[];
+  };
+}
