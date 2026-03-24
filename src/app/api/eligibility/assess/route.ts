@@ -1,0 +1,61 @@
+/**
+ * API Route: /api/eligibility/assess
+ * POST: Evaluate a project's eligibility and save assessment
+ * Auth: NextAuth (staff/admin only)
+ */
+
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/src/auth';
+import { evaluateProjectEligibility } from '@/src/backend/eligibility/service';
+import prisma from 'lib/prisma';
+
+export async function POST(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    // Only staff can manually trigger evaluation
+    if (!session?.user) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { projectId } = body;
+
+    if (!projectId) {
+      return Response.json({ error: 'projectId is required' }, { status: 400 });
+    }
+
+    // Get project and user
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { user: true },
+    });
+
+    if (!project) {
+      return Response.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // Evaluate eligibility
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id! },
+    });
+
+    const result = await evaluateProjectEligibility(project, user ?? undefined);
+
+    if ('code' in result && result.code) {
+      // Error result
+      return Response.json(
+        { error: result.message },
+        { status: 400 }
+      );
+    }
+
+    return Response.json(result, { status: 200 });
+  } catch (error) {
+    console.error('Eligibility assessment POST error:', error);
+    return Response.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
