@@ -37,8 +37,6 @@ describe("assembleEligibilityInput", () => {
     expect(result.optional.isCaregiver).toBe(false);
     expect(result.missingRequiredFields).toEqual([]);
     expect(result.malformedDraftFields).toEqual([]);
-    expect(result.normalization.unknownModificationItems).toEqual([]);
-    expect(result.normalization.duplicateModificationCodes).toEqual([]);
   });
 
   it("detects missing required fields for partial draft data", () => {
@@ -96,11 +94,6 @@ describe("assembleEligibilityInput", () => {
     expect(result.required.ownershipStatus).toBeNull();
     expect(result.required.clientConsentConfirmed).toBeNull();
     expect(result.required.modificationCodes).toEqual(["GRAB_BARS"]);
-
-    expect(result.normalization.unknownModificationItems).toEqual([
-      "Unknown custom item",
-    ]);
-    expect(result.normalization.duplicateModificationCodes).toEqual(["GRAB_BARS"]);
 
     expect(result.malformedDraftFields).toEqual([
       "province",

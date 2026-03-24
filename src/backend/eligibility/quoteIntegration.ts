@@ -8,9 +8,9 @@
  * - Assessment status captured for audit trail
  */
 
-import { Project, Quote } from '@prisma/client';
+import { Quote } from '@prisma/client';
 import { getLatestEligibilityAssessment } from './service';
-import prisma from 'lib/prisma';
+import { prisma } from 'lib/prisma';
 
 export interface GenerateQuoteWithEligibilityInput {
   projectId: string;
@@ -52,10 +52,6 @@ export async function generateQuoteWithEligibility(
     // Create audit event linking quote to eligibility assessment
     if (eligibility) {
       try {
-        const project = await prisma.project.findUnique({
-          where: { id: input.projectId },
-        });
-
         await prisma.auditEvent.create({
           data: {
             category: 'MANUAL_CHANGE',

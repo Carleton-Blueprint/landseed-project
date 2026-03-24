@@ -13,16 +13,26 @@
 
 import { Project } from '@prisma/client';
 import { evaluateProjectEligibility } from './service';
-import prisma from 'lib/prisma';
+import { prisma } from 'lib/prisma';
 
 const EVALUATION_COOLDOWN_SECONDS = 30;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+}
 
 /**
  * Detect if draft data has significantly changed
  */
-function hasDraftDataChanged(oldDraft: any, newDraft: any): boolean {
+function hasDraftDataChanged(oldDraft: unknown, newDraft: unknown): boolean {
   if (!oldDraft && !newDraft) return false;
   if (!oldDraft || !newDraft) return true;
+
+  const oldRecord = asRecord(oldDraft);
+  const newRecord = asRecord(newDraft);
 
   // Check key fields that matter for eligibility
   const relevantFields = [
@@ -36,7 +46,7 @@ function hasDraftDataChanged(oldDraft: any, newDraft: any): boolean {
   ];
 
   for (const field of relevantFields) {
-    if (JSON.stringify(oldDraft[field]) !== JSON.stringify(newDraft[field])) {
+    if (JSON.stringify(oldRecord[field]) !== JSON.stringify(newRecord[field])) {
       return true;
     }
   }
@@ -90,8 +100,8 @@ export async function triggerEvaluationAfterProjectCreation(project: Project): P
  */
 export async function triggerEvaluationAfterDraftUpdate(
   project: Project,
-  oldDraft: any,
-  newDraft: any
+  oldDraft: unknown,
+  newDraft: unknown
 ): Promise<void> {
   // Check if evaluation is needed
   if (!hasDraftDataChanged(oldDraft, newDraft)) {

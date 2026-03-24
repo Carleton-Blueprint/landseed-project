@@ -149,7 +149,7 @@ export function assembleEligibilityInput(
   );
 
   const modificationItems = readModificationItems(draft, malformedDraftFields);
-  const normalizedModifications = normalizeModificationItems(modificationItems);
+  const modificationCodes = normalizeModificationItems(modificationItems);
 
   const optional = {
     name: readString(draft, "name", malformedDraftFields),
@@ -182,7 +182,7 @@ export function assembleEligibilityInput(
     pushMissing(missingRequiredFields, ELIGIBILITY_REQUIRED_FIELDS.OWNERSHIP_STATUS);
   }
 
-  if (normalizedModifications.normalizedCodes.length === 0) {
+  if (modificationCodes.length === 0) {
     pushMissing(missingRequiredFields, ELIGIBILITY_REQUIRED_FIELDS.MODIFICATION_ITEMS);
   }
 
@@ -237,14 +237,10 @@ export function assembleEligibilityInput(
       province,
       ownershipStatus,
       clientConsentConfirmed,
-      modificationCodes: normalizedModifications.normalizedCodes,
+      modificationCodes,
     },
     optional,
     missingRequiredFields,
     malformedDraftFields: [...new Set(malformedDraftFields)],
-    normalization: {
-      unknownModificationItems: normalizedModifications.unknownItems,
-      duplicateModificationCodes: normalizedModifications.duplicateCodes,
-    },
   };
 }

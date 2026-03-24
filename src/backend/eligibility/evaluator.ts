@@ -12,10 +12,21 @@
 import {
   EligibilityInput,
   EligibilityDecision,
-  ELIGIBILITY_REASON_CODES,
   EligibilityProgram,
 } from './types';
 import { GrantRulesVersion } from '@prisma/client';
+
+type RulesObject = {
+  eligibility?: {
+    requireOwnerOccupied?: boolean;
+  };
+  provinces?: Record<
+    string,
+    {
+      eligibleModifications?: string[];
+    }
+  >;
+};
 
 export interface EvaluationResult {
   overallDecision: EligibilityDecision;
@@ -27,36 +38,13 @@ export interface EvaluationResult {
 }
 
 /**
- * Parse rules JSON safely, with fallback to empty object
- */
-function parseRulesWithFallback(rulesJson: any): any {
-  if (!rulesJson || typeof rulesJson !== 'object') {
-    return {};
-  }
-  return rulesJson;
-}
-
-/**
  * Check if required fields are present
  */
 function validateRequiredFields(input: EligibilityInput): {
   valid: boolean;
   missingFields: string[];
 } {
-  const missing: string[] = [];
-
-  if (!input.required.province) {
-    missing.push('province');
-  }
-  if (!input.required.ownershipStatus) {
-    missing.push('ownershipStatus');
-  }
-  if (!input.required.clientConsentConfirmed) {
-    missing.push('clientConsentConfirmed');
-  }
-  if (!input.required.modificationCodes || input.required.modificationCodes.length === 0) {
-    missing.push('modificationCodes');
-  }
+  const missing = input.missingRequiredFields.map(String);
 
   return {
     valid: missing.length === 0,
@@ -68,7 +56,7 @@ function validateRequiredFields(input: EligibilityInput): {
  * Check if province is supported for eligibility evaluation
  * Initially only ON (Ontario) is enabled
  */
-function isProvinceSupported(province: string): boolean {
+function isProvinceSupported(province: string | null): boolean {
   const supportedProvinces = ['ON']; // Phase 1: Ontario only
   return supportedProvinces.includes(province?.toUpperCase() || '');
 }
@@ -76,7 +64,10 @@ function isProvinceSupported(province: string): boolean {
 /**
  * Get provincial rules from the grant rules version
  */
-function getProvinceRules(rules: any, province: string): any {
+function getProvinceRules(rules: RulesObject, province: string | null) {
+  if (!province) {
+    return null;
+  }
   if (!rules.provinces || typeof rules.provinces !== 'object') {
     return null;
   }
@@ -87,7 +78,7 @@ function getProvinceRules(rules: any, province: string): any {
  * CMHC baseline eligibility check
  * All provinces must pass these baseline requirements
  */
-function evaluateCmhcBaseline(input: EligibilityInput, rules: any): {
+function evaluateCmhcBaseline(input: EligibilityInput, rules: RulesObject): {
   eligible: boolean;
   reasonCodes: string[];
 } {
@@ -96,19 +87,6 @@ function evaluateCmhcBaseline(input: EligibilityInput, rules: any): {
   // Check consent is confirmed
   if (!input.required.clientConsentConfirmed) {
     reasonCodes.push('CONSENT_NOT_CONFIRMED');
-  }
-
-  // Check age requirement (if specified in rules)
-  const minAge = rules.eligibility?.minApplicantAge ?? 18;
-  if (input.optional.age && input.optional.age < minAge) {
-    reasonCodes.push('APPLICANT_BELOW_MINIMUM_AGE');
-  }
-
-  // Check income requirement (if specified in rules) - optional field
-  const maxIncome = rules.eligibility?.maxHouseholdIncome;
-  if (maxIncome && input.optional.estimatedHouseholdIncome && 
-      input.optional.estimatedHouseholdIncome > maxIncome) {
-    reasonCodes.push('HOUSEHOLD_INCOME_EXCEEDS_LIMIT');
   }
 
   // Check property type (if specified in rules)
@@ -121,7 +99,7 @@ function evaluateCmhcBaseline(input: EligibilityInput, rules: any): {
   if (input.required.ownershipStatus === 'tenant' && !input.optional.landlordName) {
     reasonCodes.push('MISSING_LANDLORD_NAME');
   }
-  if (input.required.ownershipStatus === 'caregiver' && !input.optional.seniorName) {
+  if (input.optional.isCaregiver && !input.optional.seniorName) {
     reasonCodes.push('MISSING_SENIOR_NAME');
   }
 
@@ -136,7 +114,7 @@ function evaluateCmhcBaseline(input: EligibilityInput, rules: any): {
  */
 function evaluateProvinceOverlay(
   input: EligibilityInput,
-  provinceRules: any
+  provinceRules: { eligibleModifications?: string[] } | null
 ): {
   eligible: boolean | null; // null = skip if missing rules
   reasonCodes: string[];
@@ -147,27 +125,12 @@ function evaluateProvinceOverlay(
 
   const reasonCodes: string[] = [];
 
-  // Check minimum household income if specified
-  if (provinceRules.minHouseholdIncome &&
-      input.optional.estimatedHouseholdIncome &&
-      input.optional.estimatedHouseholdIncome < provinceRules.minHouseholdIncome) {
-    reasonCodes.push('HOUSEHOLD_INCOME_BELOW_MINIMUM');
-  }
-
-  // Check property age (if specified)
-  if (provinceRules.minPropertyAge &&
-      input.optional.propertyYearBuilt) {
-    const propertyAge = new Date().getFullYear() - input.optional.propertyYearBuilt;
-    if (propertyAge < provinceRules.minPropertyAge) {
-      reasonCodes.push('PROPERTY_TOO_NEW');
-    }
-  }
-
   // Check eligible modifications (if specified)
   if (Array.isArray(provinceRules.eligibleModifications) &&
       input.required.modificationCodes) {
+    const eligibleModifications = provinceRules.eligibleModifications;
     const ineligibleMods = input.required.modificationCodes.filter(
-      (code) => !provinceRules.eligibleModifications.includes(code)
+      (code) => !eligibleModifications.includes(code)
     );
     if (ineligibleMods.length > 0) {
       reasonCodes.push('INELIGIBLE_MODIFICATION_TYPES');
@@ -322,7 +285,10 @@ export function evaluateEligibility(
   input: EligibilityInput,
   grantRulesVersion: GrantRulesVersion
 ): EvaluationResult {
-  const rules = parseRulesWithFallback(grantRulesVersion.rules);
+  const rules: RulesObject =
+    grantRulesVersion.rules && typeof grantRulesVersion.rules === 'object'
+      ? (grantRulesVersion.rules as RulesObject)
+      : {};
 
   // Validate required fields
   const requiredValidation = validateRequiredFields(input);
@@ -334,7 +300,10 @@ export function evaluateEligibility(
   const cmhcBaseline = evaluateCmhcBaseline(input, rules);
 
   // Evaluate provincial overlay (only if province is supported)
-  let provinceOverlay = { eligible: null, reasonCodes: [] };
+  let provinceOverlay: { eligible: boolean | null; reasonCodes: string[] } = {
+    eligible: null,
+    reasonCodes: [],
+  };
   if (provinceSupported) {
     const provinceRules = getProvinceRules(rules, input.required.province);
     provinceOverlay = evaluateProvinceOverlay(input, provinceRules);
@@ -364,8 +333,9 @@ export function evaluateEligibility(
     reasonCodes: synthesis.allReasonCodes,
     staffReasonMessages: staffMessages,
     clientReasonMessages: clientMessages,
-    missingRequirements: synthesis.allMissingRequirements.length > 0
-      ? synthesis.allMissingRequirements
-      : (requiredValidation.missingFields.length > 0 ? requiredValidation.missingFields : []),
+    missingRequirements:
+      synthesis.allMissingRequirements.length > 0
+        ? synthesis.allMissingRequirements
+        : requiredValidation.missingFields,
   };
 }

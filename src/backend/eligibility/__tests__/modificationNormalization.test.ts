@@ -12,7 +12,7 @@ describe("normalizeModificationItems", () => {
       "Handrails",
     ]);
 
-    expect(result.normalizedCodes).toEqual([
+    expect(result).toEqual([
       "GRAB_BARS",
       "RAISED_TOILET",
       "WALK_IN_SHOWER",
@@ -20,11 +20,9 @@ describe("normalizeModificationItems", () => {
       "STAIR_LIFT",
       "HANDRAILS",
     ]);
-    expect(result.unknownItems).toEqual([]);
-    expect(result.duplicateCodes).toEqual([]);
   });
 
-  it("handles case and whitespace variants while deduplicating stable codes", () => {
+  it("handles case and whitespace variants while deduplicating", () => {
     const result = normalizeModificationItems([
       "  Grab   bars ",
       "grab bars",
@@ -33,16 +31,14 @@ describe("normalizeModificationItems", () => {
       "  stair lift",
     ]);
 
-    expect(result.normalizedCodes).toEqual([
+    expect(result).toEqual([
       "GRAB_BARS",
       "WALK_IN_SHOWER",
       "STAIR_LIFT",
     ]);
-    expect(result.duplicateCodes).toEqual(["GRAB_BARS", "WALK_IN_SHOWER"]);
-    expect(result.unknownItems).toEqual([]);
   });
 
-  it("collects unknown items and ignores duplicate unknown labels", () => {
+  it("ignores empty strings and unknown items", () => {
     const result = normalizeModificationItems([
       "Custom ramp",
       "custom ramp",
@@ -51,12 +47,10 @@ describe("normalizeModificationItems", () => {
       "   ",
     ]);
 
-    expect(result.normalizedCodes).toEqual([]);
-    expect(result.unknownItems).toEqual(["Custom ramp", "not a real item"]);
-    expect(result.duplicateCodes).toEqual([]);
+    expect(result).toEqual([]);
   });
 
-  it("supports mixed known and unknown values deterministically", () => {
+  it("deduplicates across mixed known items", () => {
     const result = normalizeModificationItems([
       "Grab bars",
       "custom rail",
@@ -65,8 +59,6 @@ describe("normalizeModificationItems", () => {
       "raised toilet",
     ]);
 
-    expect(result.normalizedCodes).toEqual(["GRAB_BARS", "RAISED_TOILET"]);
-    expect(result.unknownItems).toEqual(["custom rail"]);
-    expect(result.duplicateCodes).toEqual(["RAISED_TOILET"]);
+    expect(result).toEqual(["GRAB_BARS", "RAISED_TOILET"]);
   });
 });

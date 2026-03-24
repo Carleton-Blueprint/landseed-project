@@ -79,18 +79,3 @@ export async function createEligibilityAssessmentSnapshot(
     return rows[0] ?? null;
   });
 }
-
-export async function getLatestEligibilityAssessmentForProject(projectId: string) {
-  const rows = await prisma.$queryRaw<EligibilityAssessmentRow[]>(
-    Prisma.sql`
-      SELECT *
-      FROM "EligibilityAssessment"
-      WHERE "projectId" = ${projectId}
-        AND "isLatest" = true
-      ORDER BY "createdAt" DESC
-      LIMIT 1
-    `
-  );
-
-  return rows[0] ?? null;
-}

@@ -10,10 +10,10 @@
 
 import { Project, User } from '@prisma/client';
 import { assembleEligibilityInput } from './assembler';
-import { evaluateEligibility, EvaluationResult } from './evaluator';
+import { evaluateEligibility } from './evaluator';
 import { createEligibilityAssessmentSnapshot } from './repository';
 import { EligibilityDecision } from './types';
-import prisma from 'lib/prisma';
+import { prisma } from 'lib/prisma';
 
 export interface EvaluateEligibilityServiceResult {
   assessmentId: string;
@@ -29,9 +29,9 @@ export interface EvaluateEligibilityServiceResult {
 }
 
 export interface EvaluateEligibilityServiceError {
-  code: 'NO_ACTIVE_GRANT_RULES' | 'ASSEMBLY_FAILED' | 'EVALUATION_FAILED' | 'PERSISTENCE_FAILED' | 'UNKNOWN';
+  code: 'NO_ACTIVE_GRANT_RULES' | 'PERSISTENCE_FAILED' | 'UNKNOWN';
   message: string;
-  details?: any;
+  details?: unknown;
 }
 
 /**

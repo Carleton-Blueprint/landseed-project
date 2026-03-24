@@ -4,17 +4,16 @@
  * Auth: NextAuth (staff/admin only)
  */
 
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/auth';
-import { evaluateProjectEligibility } from '@/src/backend/eligibility/service';
-import prisma from 'lib/prisma';
+import { auth } from '@/auth';
+import { evaluateProjectEligibility } from '@/backend/eligibility/service';
+import { prisma } from 'lib/prisma';
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     // Only staff can manually trigger evaluation
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -28,7 +27,6 @@ export async function POST(request: Request) {
     // Get project and user
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      include: { user: true },
     });
 
     if (!project) {
@@ -37,7 +35,7 @@ export async function POST(request: Request) {
 
     // Evaluate eligibility
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id! },
+      where: { id: session.user.id },
     });
 
     const result = await evaluateProjectEligibility(project, user ?? undefined);

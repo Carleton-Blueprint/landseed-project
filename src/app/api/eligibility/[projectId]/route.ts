@@ -6,28 +6,20 @@
  * Auth: NextAuth (project must belong to user or user must be staff)
  */
 
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/auth';
-import { getLatestEligibilityAssessment } from '@/src/backend/eligibility/service';
-import prisma from 'lib/prisma';
-
-async function isStaffUser(userId: string): Promise<boolean> {
-  // Simple check: staff users would have elevated roles or special flags
-  // For now, check if user has created any grant rules (staff marker)
-  const grantRulesCount = await prisma.grantRulesVersion.count({
-    where: { createdByUserId: userId },
-  });
-  return grantRulesCount > 0;
-}
+import { ProjectAccessRole } from '@prisma/client';
+import { auth } from '@/auth';
+import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
+import { hasProjectAccess } from '@/backend/auth/projectAccess';
+import { prisma } from 'lib/prisma';
 
 export async function GET(
   request: Request,
   { params }: { params: { projectId: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -45,9 +37,14 @@ export async function GET(
 
     // Check if user owns project or is staff
     const isOwner = project.userId === session.user.id;
-    const isStaff = await isStaffUser(session.user.id!);
+    const hasAccess = await hasProjectAccess(session.user.id, projectId);
+    const canViewDetailedReasons = await hasProjectAccess(
+      session.user.id,
+      projectId,
+      ProjectAccessRole.EDITOR
+    );
 
-    if (!isOwner && !isStaff) {
+    if (!isOwner && !hasAccess) {
       return Response.json({ error: 'Access denied' }, { status: 403 });
     }
 
@@ -67,7 +64,7 @@ export async function GET(
       projectId: assessment.projectId,
       overallDecision: assessment.overallDecision,
       createdAt: assessment.createdAt,
-      ...(isStaff && {
+      ...(canViewDetailedReasons && {
         // Staff can see detailed information
         detailedReasons: {
           programDecisions: assessment.programDecisions,
@@ -76,7 +73,7 @@ export async function GET(
         },
         grantRulesVersionNumber: assessment.grantRulesVersionNumber,
       }),
-      ...(!isStaff && {
+      ...(!canViewDetailedReasons && {
         // Clients see only the decision and simplified message
         // (message should be computed from the decision in the frontend)
       }),

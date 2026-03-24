@@ -16,24 +16,34 @@
 
 import { GrantRulesVersion } from '@prisma/client';
 import { evaluateProjectEligibility } from './service';
-import prisma from 'lib/prisma';
+import { prisma } from 'lib/prisma';
 
 const BATCH_SIZE = 10;
 const BATCH_DELAY_MS = 100; // Milliseconds between batches
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+}
 
 /**
  * Check if rule changes could affect eligibility decisions
  * Simple heuristic: if eligibility sections changed, likely impact
  */
-function rulesHaveImpactfulChanges(oldRules: any, newRules: any): boolean {
+function rulesHaveImpactfulChanges(oldRules: unknown, newRules: unknown): boolean {
   if (!oldRules || !newRules) return true;
 
-  // Check if eligibility or province rules differ
-  const oldEligibility = JSON.stringify(oldRules.eligibility || {});
-  const newEligibility = JSON.stringify(newRules.eligibility || {});
+  const oldRecord = asRecord(oldRules);
+  const newRecord = asRecord(newRules);
 
-  const oldProvinces = JSON.stringify(oldRules.provinces || {});
-  const newProvinces = JSON.stringify(newRules.provinces || {});
+  // Check if eligibility or province rules differ
+  const oldEligibility = JSON.stringify(oldRecord.eligibility || {});
+  const newEligibility = JSON.stringify(newRecord.eligibility || {});
+
+  const oldProvinces = JSON.stringify(oldRecord.provinces || {});
+  const newProvinces = JSON.stringify(newRecord.provinces || {});
 
   return oldEligibility !== newEligibility || oldProvinces !== newProvinces;
 }
@@ -111,7 +121,7 @@ export async function triggerReEvaluationOnRuleActivation(
                         },
                       },
                     });
-                  } catch (_auditError) {
+                  } catch {
                     // Audit failure should not block
                   }
                 }

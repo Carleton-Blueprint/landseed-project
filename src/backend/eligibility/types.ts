@@ -50,12 +50,6 @@ export interface EligibilityResult {
   programDecisions: EligibilityProgramDecision[];
 }
 
-export interface NormalizedModificationItemsResult {
-  normalizedCodes: ModificationCode[];
-  unknownItems: string[];
-  duplicateCodes: ModificationCode[];
-}
-
 export const ELIGIBILITY_REQUIRED_FIELDS = {
   PROVINCE: "PROVINCE",
   OWNERSHIP_STATUS: "OWNERSHIP_STATUS",
@@ -115,8 +109,4 @@ export interface EligibilityInput {
   optional: EligibilityInputOptionalSection;
   missingRequiredFields: EligibilityRequiredField[];
   malformedDraftFields: string[];
-  normalization: {
-    unknownModificationItems: string[];
-    duplicateModificationCodes: ModificationCode[];
-  };
 }

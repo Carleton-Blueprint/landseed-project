@@ -1,7 +1,6 @@
 import {
   MODIFICATION_CODES,
   ModificationCode,
-  NormalizedModificationItemsResult,
 } from "@/backend/eligibility/types";
 
 const INTAKE_MODIFICATION_LABEL_TO_CODE: Record<string, ModificationCode> = {
@@ -20,19 +19,11 @@ function normalizeLabel(input: string): string {
 
 /**
  * Normalizes user-selected intake modification labels into stable internal codes.
- * - Deduplicates by internal code
- * - Collects unknown labels for downstream reason-code handling
- * - Tracks duplicate known selections for deterministic auditing
+ * Frontend checkboxes ensure no unknowns or duplicates, so we just deduplicate and return.
  */
-export function normalizeModificationItems(
-  items: string[]
-): NormalizedModificationItemsResult {
+export function normalizeModificationItems(items: string[]): ModificationCode[] {
   const normalizedCodes: ModificationCode[] = [];
-  const duplicateCodes: ModificationCode[] = [];
-  const unknownItems: string[] = [];
-
   const seenCodes = new Set<ModificationCode>();
-  const seenUnknownLabels = new Set<string>();
 
   for (const rawItem of items) {
     const trimmed = rawItem.trim();
@@ -43,30 +34,13 @@ export function normalizeModificationItems(
     const lookupKey = normalizeLabel(trimmed);
     const code = INTAKE_MODIFICATION_LABEL_TO_CODE[lookupKey];
 
-    if (!code) {
-      if (!seenUnknownLabels.has(lookupKey)) {
-        seenUnknownLabels.add(lookupKey);
-        unknownItems.push(trimmed);
-      }
-      continue;
+    if (code && !seenCodes.has(code)) {
+      seenCodes.add(code);
+      normalizedCodes.push(code);
     }
-
-    if (seenCodes.has(code)) {
-      if (!duplicateCodes.includes(code)) {
-        duplicateCodes.push(code);
-      }
-      continue;
-    }
-
-    seenCodes.add(code);
-    normalizedCodes.push(code);
   }
 
-  return {
-    normalizedCodes,
-    unknownItems,
-    duplicateCodes,
-  };
+  return normalizedCodes;
 }
 
 export const MODIFICATION_NORMALIZATION_MAP = INTAKE_MODIFICATION_LABEL_TO_CODE;

@@ -21,7 +21,7 @@ import {
 } from '@prisma/client';
 import { EligibilityDecision } from './types';
 import { EvaluateEligibilityServiceResult } from './service';
-import prisma from 'lib/prisma';
+import { prisma } from 'lib/prisma';
 
 /**
  * Log assessment created event
