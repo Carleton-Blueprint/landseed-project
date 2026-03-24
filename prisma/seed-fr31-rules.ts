@@ -150,8 +150,18 @@ async function main() {
     },
   };
 
-  const grantVersion2 = await prisma.grantRulesVersion.create({
-    data: {
+  const existingVersion2 = await prisma.grantRulesVersion.findUnique({
+    where: { versionNumber: 2 },
+    select: { id: true },
+  });
+
+  const grantVersion2 = await prisma.grantRulesVersion.upsert({
+    where: { versionNumber: 2 },
+    update: {
+      rules: fr31GrantRules,
+      isActive: true, // Keep v2 active on reseed
+    },
+    create: {
       versionNumber: 2,
       rules: fr31GrantRules,
       createdByUserId: systemUser.id,
@@ -159,17 +169,24 @@ async function main() {
     },
   });
 
+  const changeSummary = existingVersion2
+    ? 'FR-3.1 grant rules v2.0.0 updated and re-activated via seed'
+    : 'FR-3.1 grant rules v2.0.0 created with provincial variations and eligibility rules';
+
   await prisma.grantRulesAuditLog.create({
     data: {
       versionId: grantVersion2.id,
       changedByUserId: systemUser.id,
-      changeSummary:
-        'FR-3.1 grant rules v2.0.0 created with provincial variations and eligibility rules',
+      changeSummary,
       afterState: fr31GrantRules,
     },
   });
 
-  console.log('✅ Grant Rules v2.0.0 created and activated\n');
+  console.log(
+    existingVersion2
+      ? '✅ Grant Rules v2.0.0 updated and activated\n'
+      : '✅ Grant Rules v2.0.0 created and activated\n'
+  );
 
   // Display info
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -199,7 +216,7 @@ async function main() {
   console.log(`   • Automatic re-evaluation on rule version changes`);
   console.log(`   • Staff vs. client message differentiation`);
   console.log(`   • Full audit trail for compliance`);
-  console.log('\n📝 To test evaluation:`);
+  console.log('\n📝 To test evaluation:');
   console.log(
     `   POST /api/eligibility/assess with projectId to trigger evaluation`
   );
