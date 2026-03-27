@@ -92,15 +92,6 @@ function readModificationItems(
   return stringItems;
 }
 
-function normalizeProvince(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const normalized = value.trim().toUpperCase();
-  return normalized || null;
-}
-
 function pushMissing(
   fields: EligibilityRequiredField[],
   field: EligibilityRequiredField
@@ -121,7 +112,7 @@ export function assembleEligibilityInput(
 
   const draft = asRecord(project.draftData);
 
-  const province = normalizeProvince(readString(draft, "province"));
+  const province = readString(draft, "province");
   const ownershipStatus = readOwnershipStatus(draft);
   const clientConsentConfirmed = readBoolean(
     draft,
