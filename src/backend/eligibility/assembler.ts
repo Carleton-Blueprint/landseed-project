@@ -16,8 +16,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function readString(
   source: Record<string, unknown>,
-  key: string,
-  malformedFields: string[]
+  key: string
 ): string | null {
   const value = source[key];
 
@@ -26,7 +25,6 @@ function readString(
   }
 
   if (typeof value !== "string") {
-    malformedFields.push(key);
     return null;
   }
 
@@ -36,8 +34,7 @@ function readString(
 
 function readBoolean(
   source: Record<string, unknown>,
-  key: string,
-  malformedFields: string[]
+  key: string
 ): boolean | null {
   const value = source[key];
 
@@ -46,7 +43,6 @@ function readBoolean(
   }
 
   if (typeof value !== "boolean") {
-    malformedFields.push(key);
     return null;
   }
 
@@ -54,8 +50,7 @@ function readBoolean(
 }
 
 function readOwnershipStatus(
-  source: Record<string, unknown>,
-  malformedFields: string[]
+  source: Record<string, unknown>
 ): EligibilityOwnershipStatus | null {
   const value = source.ownershipStatus;
 
@@ -64,7 +59,6 @@ function readOwnershipStatus(
   }
 
   if (typeof value !== "string") {
-    malformedFields.push("ownershipStatus");
     return null;
   }
 
@@ -73,7 +67,6 @@ function readOwnershipStatus(
     return normalized;
   }
 
-  malformedFields.push("ownershipStatus");
   return null;
 }
 
@@ -124,42 +117,38 @@ function pushMissing(
 export function assembleEligibilityInput(
   project: EligibilityAssemblerSourceProject
 ): EligibilityInput {
-  const malformedDraftFields: string[] = [];
   const missingRequiredFields: EligibilityRequiredField[] = [];
 
   const draft = asRecord(project.draftData);
 
-  const province = normalizeProvince(readString(draft, "province", malformedDraftFields));
-  const ownershipStatus = readOwnershipStatus(draft, malformedDraftFields);
+  const province = normalizeProvince(readString(draft, "province"));
+  const ownershipStatus = readOwnershipStatus(draft);
   const clientConsentConfirmed = readBoolean(
     draft,
-    "clientConsentConfirmed",
-    malformedDraftFields
+    "clientConsentConfirmed"
   );
 
-  const modificationItems = readModificationItems(draft, malformedDraftFields);
+  const modificationItems = readModificationItems(draft);
   const modificationCodes = normalizeModificationItems(modificationItems);
 
   const optional = {
-    name: readString(draft, "name", malformedDraftFields),
-    email: readString(draft, "email", malformedDraftFields),
-    phone: readString(draft, "phone", malformedDraftFields),
-    city: readString(draft, "city", malformedDraftFields),
-    postalCode: readString(draft, "postalCode", malformedDraftFields),
-    ownershipOtherDetails: readString(draft, "ownershipOtherDetails", malformedDraftFields),
-    landlordName: readString(draft, "landlordName", malformedDraftFields),
-    landlordPhone: readString(draft, "landlordPhone", malformedDraftFields),
-    isCaregiver: readBoolean(draft, "isCaregiver", malformedDraftFields) ?? false,
-    seniorName: readString(draft, "seniorName", malformedDraftFields),
+    name: readString(draft, "name"),
+    email: readString(draft, "email"),
+    phone: readString(draft, "phone"),
+    city: readString(draft, "city"),
+    postalCode: readString(draft, "postalCode"),
+    ownershipOtherDetails: readString(draft, "ownershipOtherDetails"),
+    landlordName: readString(draft, "landlordName"),
+    landlordPhone: readString(draft, "landlordPhone"),
+    isCaregiver: readBoolean(draft, "isCaregiver") ?? false,
+    seniorName: readString(draft, "seniorName"),
     relationshipToSenior: readString(
       draft,
-      "relationshipToSenior",
-      malformedDraftFields
+      "relationshipToSenior"
     ),
     caregiverConsentConfirmed: readBoolean(
       draft,
-      "caregiverConsentConfirmed",
-      malformedDraftFields
+      "caregiverConsentConfirmed"
     ),
   };
 
