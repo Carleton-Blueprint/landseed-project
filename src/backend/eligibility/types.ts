@@ -108,5 +108,4 @@ export interface EligibilityInput {
   required: EligibilityInputRequiredSection;
   optional: EligibilityInputOptionalSection;
   missingRequiredFields: EligibilityRequiredField[];
-  malformedDraftFields: string[];
 }
