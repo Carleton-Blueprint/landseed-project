@@ -78,8 +78,7 @@ function readOwnershipStatus(
 }
 
 function readModificationItems(
-  source: Record<string, unknown>,
-  malformedFields: string[]
+  source: Record<string, unknown>
 ): string[] {
   const value = source.modificationItems;
 
@@ -88,25 +87,15 @@ function readModificationItems(
   }
 
   if (!Array.isArray(value)) {
-    malformedFields.push("modificationItems");
     return [];
   }
 
   const stringItems: string[] = [];
-  let hasMalformedElement = false;
-
   for (const item of value) {
     if (typeof item === "string") {
       stringItems.push(item);
-      continue;
     }
-    hasMalformedElement = true;
   }
-
-  if (hasMalformedElement) {
-    malformedFields.push("modificationItems");
-  }
-
   return stringItems;
 }
 
@@ -241,6 +230,5 @@ export function assembleEligibilityInput(
     },
     optional,
     missingRequiredFields,
-    malformedDraftFields: [...new Set(malformedDraftFields)],
   };
 }
