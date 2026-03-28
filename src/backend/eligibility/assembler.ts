@@ -109,10 +109,53 @@ export function assembleEligibilityInput(
   project: EligibilityAssemblerSourceProject
 ): EligibilityInput {
   const missingRequiredFields: EligibilityRequiredField[] = [];
+  const malformedDraftFields: string[] = [];
 
   const draft = asRecord(project.draftData);
 
-  const province = readString(draft, "province");
+  const checkType = (key: string, expectedType: "string" | "boolean" | "array") => {
+    const val = draft[key];
+    if (val !== undefined && val !== null) {
+      if (expectedType === "array") {
+        if (!Array.isArray(val) || val.some(v => typeof v !== "string")) malformedDraftFields.push(key);
+      } else {
+        if (typeof val !== expectedType) malformedDraftFields.push(key);
+      }
+    }
+  };
+
+  checkType("province", "string");
+  
+  if (draft.ownershipStatus !== undefined && draft.ownershipStatus !== null) {
+    if (typeof draft.ownershipStatus !== "string") {
+      malformedDraftFields.push("ownershipStatus");
+    } else {
+      const normalized = draft.ownershipStatus.trim().toLowerCase();
+      if (normalized !== "owner" && normalized !== "tenant" && normalized !== "other") {
+        malformedDraftFields.push("ownershipStatus");
+      }
+    }
+  }
+
+  checkType("clientConsentConfirmed", "boolean");
+  checkType("modificationItems", "array");
+  checkType("name", "string");
+  checkType("email", "string");
+  checkType("phone", "string");
+  checkType("city", "string");
+  checkType("postalCode", "string");
+  checkType("ownershipOtherDetails", "string");
+  checkType("landlordName", "string");
+  checkType("landlordPhone", "string");
+  checkType("isCaregiver", "boolean");
+  checkType("seniorName", "string");
+  checkType("relationshipToSenior", "string");
+  checkType("caregiverConsentConfirmed", "boolean");
+
+  let province = readString(draft, "province");
+  if (province) {
+    province = province.toUpperCase();
+  }
   const ownershipStatus = readOwnershipStatus(draft);
   const clientConsentConfirmed = readBoolean(
     draft,
@@ -210,5 +253,6 @@ export function assembleEligibilityInput(
     },
     optional,
     missingRequiredFields,
+    malformedDraftFields,
   };
 }
