@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { EstimateClientComponent } from "./EstimateClientComponent";
+import { AskQuestionPanel } from "@/frontend/components/AskQuestionPanel";
 import { getAuditContextFromHeaders, logAuditEventNonBlocking } from "@/backend/audit/log";
 
 export default async function EstimatePage(props: { params: Promise<{ id: string }> }) {
@@ -121,7 +122,13 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
           initialStatus={latestQuote.status}
           initialReason={latestQuote.declinedReason}
         />
+
+        {/* Ask a Question Section */}
+        <div className="mt-8">
+          <AskQuestionPanel quoteId={latestQuote.id} />
+        </div>
       </div>
     </div>
   );
 }
+

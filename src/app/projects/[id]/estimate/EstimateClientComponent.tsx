@@ -45,8 +45,8 @@ export function EstimateClientComponent({ quoteId, initialStatus, initialReason 
       if (newStatus === "DECLINED") {
          setDeclineReason(reasonPayload!);
       }
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsSubmitting(false);
     }
@@ -69,7 +69,7 @@ export function EstimateClientComponent({ quoteId, initialStatus, initialReason 
         <h3 className="text-xl font-semibold mb-2">Estimate Declined</h3>
         <p className="mb-2">You declined this estimate.</p>
         {declineReason && (
-           <p className="italic text-gray-600 border-l-4 pl-4 mt-4">"{declineReason}"</p>
+           <p className="italic text-gray-600 border-l-4 pl-4 mt-4">&quot;{declineReason}&quot;</p>
         )}
       </div>
     );
