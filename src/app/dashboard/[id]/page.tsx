@@ -4,6 +4,15 @@ import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { prisma } from "lib/prisma";
 
+function modificationItemsFromDraft(draftData: unknown): string[] {
+  if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) {
+    return [];
+  }
+  const raw = (draftData as Record<string, unknown>).modificationItems;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x): x is string => typeof x === "string");
+}
+
 export default async function ProjectDetailPage({
   params,
 }: {
@@ -17,6 +26,8 @@ export default async function ProjectDetailPage({
   });
 
   if (!project) return notFound();
+
+  const modificationItems = modificationItemsFromDraft(project.draftData);
 
   return (
     <main className="min-h-screen max-w-3xl mx-auto p-6 md:p-8">
@@ -39,12 +50,11 @@ export default async function ProjectDetailPage({
           </p>
         </div>
 
-        {/* Modification items (if your model includes them) */}
-        {project.modificationItems && project.modificationItems.length > 0 && (
+        {modificationItems.length > 0 && (
           <div className="rounded-md border p-4 bg-white shadow-sm">
             <h2 className="text-lg font-semibold mb-2">Modification Items</h2>
             <ul className="list-disc list-inside text-sm text-gray-700">
-              {project.modificationItems.map((item: string) => (
+              {modificationItems.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
@@ -59,7 +69,10 @@ export default async function ProjectDetailPage({
               {project.photos.map((photo) => (
                 <Image
                   key={photo.id}
-                  src={photo.imageUrl ?? "[placehold.co](https://placehold.co/300x200?text=No+image)"}
+                  src={
+                    photo.url ||
+                    "https://placehold.co/300x200?text=No+image"
+                  }
                   alt="Project photo"
                   width={300}
                   height={200}

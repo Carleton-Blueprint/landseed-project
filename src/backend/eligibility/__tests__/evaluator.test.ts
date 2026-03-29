@@ -76,10 +76,6 @@ function createValidInput(overrides: InputOverrides = {}): EligibilityInput {
     },
     missingRequiredFields: [],
     malformedDraftFields: [],
-    normalization: {
-      unknownModificationItems: [],
-      duplicateModificationCodes: [],
-    },
   };
 
   return {
