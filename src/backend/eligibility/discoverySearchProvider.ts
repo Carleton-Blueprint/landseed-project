@@ -1,4 +1,7 @@
 import { EligibilityDecision, EligibilityInput } from './types';
+import { createHash } from 'crypto';
+import { readFileSync } from 'fs';
+import path from 'path';
 
 export type GrantDiscoveryScope = 'MUNICIPAL' | 'PROVINCIAL' | 'NATIONAL';
 
@@ -53,21 +56,54 @@ export interface GrantDiscoveryMetadataOverrides
   executedAt?: string;
 }
 
-const DEFAULT_ENGINE_VERSION = process.env.GRANT_DISCOVERY_ENGINE_VERSION ?? 'phase-1-contract';
-const DEFAULT_PROMPT_VERSION = process.env.GRANT_DISCOVERY_PROMPT_VERSION ?? 'phase-1-contract';
-const DEFAULT_SCORING_VERSION = process.env.GRANT_DISCOVERY_SCORING_VERSION ?? 'phase-1-contract';
-const DEFAULT_MODEL_VERSION = process.env.GRANT_DISCOVERY_AI_MODEL ?? 'unconfigured';
+function hashContent(content: string): string {
+  return createHash('sha256').update(content).digest('hex').slice(0, 12);
+}
+
+function readVersionedFile(relativePath: string): string {
+  try {
+    const filePath = path.join(process.cwd(), relativePath);
+    return readFileSync(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function resolveAutomaticVersions(): Omit<GrantDiscoveryMetadata, 'provider' | 'query' | 'searchedScopes' | 'candidateCount' | 'returnedCount' | 'executedAt' | 'sourceSnapshotId'> & {
+  sourceSnapshotId: string;
+} {
+  const engineSource = readVersionedFile('src/backend/eligibility/discoverySearchProvider.ts');
+  const promptSource = readVersionedFile('src/backend/eligibility/discoveryPrompt.ts');
+  const scoringSource = readVersionedFile('src/backend/eligibility/discoveryScoringConfig.ts');
+  const modelSource = readVersionedFile('src/backend/eligibility/discoveryModelConfig.ts');
+
+  const engineVersion = engineSource ? hashContent(engineSource) : 'unknown';
+  const promptVersion = promptSource ? hashContent(promptSource) : 'unknown';
+  const scoringVersion = scoringSource ? hashContent(scoringSource) : 'unknown';
+  const modelVersion = modelSource ? hashContent(modelSource) : 'unknown';
+  const sourceSnapshotId = hashContent([engineVersion, promptVersion, scoringVersion, modelVersion].join('|'));
+
+  return {
+    engineVersion,
+    promptVersion,
+    scoringVersion,
+    modelVersion,
+    sourceSnapshotId,
+  };
+}
 
 export function resolveGrantDiscoveryMetadata(
   overrides: GrantDiscoveryMetadataOverrides = {}
 ): GrantDiscoveryMetadata {
+  const automaticVersions = resolveAutomaticVersions();
+
   return {
     provider: overrides.provider ?? 'HEURISTIC',
-    engineVersion: overrides.engineVersion ?? DEFAULT_ENGINE_VERSION,
-    promptVersion: overrides.promptVersion ?? DEFAULT_PROMPT_VERSION,
-    scoringVersion: overrides.scoringVersion ?? DEFAULT_SCORING_VERSION,
-    modelVersion: overrides.modelVersion ?? DEFAULT_MODEL_VERSION,
-    sourceSnapshotId: overrides.sourceSnapshotId ?? null,
+    engineVersion: overrides.engineVersion ?? automaticVersions.engineVersion,
+    promptVersion: overrides.promptVersion ?? automaticVersions.promptVersion,
+    scoringVersion: overrides.scoringVersion ?? automaticVersions.scoringVersion,
+    modelVersion: overrides.modelVersion ?? automaticVersions.modelVersion,
+    sourceSnapshotId: overrides.sourceSnapshotId ?? automaticVersions.sourceSnapshotId,
     query: overrides.query ?? '',
     searchedScopes: overrides.searchedScopes ?? ['MUNICIPAL', 'PROVINCIAL', 'NATIONAL'],
     candidateCount: overrides.candidateCount ?? 0,

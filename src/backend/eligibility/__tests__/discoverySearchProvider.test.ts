@@ -8,11 +8,11 @@ describe('resolveGrantDiscoveryMetadata', () => {
     const metadata = resolveGrantDiscoveryMetadata();
 
     expect(metadata.provider).toBe('HEURISTIC');
-    expect(metadata.engineVersion).toBeTruthy();
-    expect(metadata.promptVersion).toBeTruthy();
-    expect(metadata.scoringVersion).toBeTruthy();
-    expect(metadata.modelVersion).toBeTruthy();
-    expect(metadata.sourceSnapshotId).toBeNull();
+    expect(metadata.engineVersion).toMatch(/^[a-f0-9]{12}$/);
+    expect(metadata.promptVersion).toMatch(/^[a-f0-9]{12}$/);
+    expect(metadata.scoringVersion).toMatch(/^[a-f0-9]{12}$/);
+    expect(metadata.modelVersion).toMatch(/^[a-f0-9]{12}$/);
+    expect(metadata.sourceSnapshotId).toMatch(/^[a-f0-9]{12}$/);
     expect(metadata.query).toBe('');
     expect(metadata.searchedScopes).toEqual(['MUNICIPAL', 'PROVINCIAL', 'NATIONAL']);
     expect(metadata.candidateCount).toBe(0);
