@@ -86,6 +86,23 @@ interface DiscoveryCandidateEvaluation {
 }
 
 // ---------------------------------------------------------------------------
+// Debug logger — set GRANT_DISCOVERY_DEBUG=false to silence
+// ---------------------------------------------------------------------------
+
+const DEBUG = (process.env.GRANT_DISCOVERY_DEBUG ?? 'true').toLowerCase() !== 'false';
+
+function debug(tag: string, message: string, data?: unknown): void {
+  if (!DEBUG) return;
+  const ts = new Date().toISOString();
+  const prefix = `[DISCOVERY:${tag}] ${ts}`;
+  if (data !== undefined) {
+    console.log(`${prefix} — ${message}`, JSON.stringify(data, null, 2));
+  } else {
+    console.log(`${prefix} — ${message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Hashing / versioning helpers
 // ---------------------------------------------------------------------------
 
@@ -156,11 +173,6 @@ function extractMetaDescription(html: string): string | null {
 // Query builder
 // ---------------------------------------------------------------------------
 
-/**
- * Builds the human-readable search queries that will be handed to the AI web
- * search tool.  We generate one query per scope so the model can search
- * municipal, provincial, and national programs independently.
- */
 function buildSearchQueries(input: EligibilityInput): { scope: GrantDiscoveryScope; query: string }[] {
   const province = input.required.province ?? 'Canada';
   const mods = input.required.modificationCodes.join(', ') || 'accessibility modifications';
@@ -252,44 +264,67 @@ function parseCatalogPayload(raw: unknown, sourceHint?: string): GrantDiscoveryS
 }
 
 async function fetchCatalogFromUrl(source: GrantDiscoverySourceEntry): Promise<GrantDiscoverySourceEntry[]> {
+  debug('CATALOG', `Fetching: ${source.sourceUrl}`);
   try {
     const response = await fetch(source.sourceUrl, {
       headers: { Accept: 'application/json, text/plain;q=0.9, */*;q=0.1' },
     });
-    if (!response.ok) return [];
+
+    if (!response.ok) {
+      debug('CATALOG', `Fetch failed for ${source.sourceUrl}`, { status: response.status, statusText: response.statusText });
+      return [];
+    }
 
     const bodyText = await response.text();
     const trimmed = bodyText.trim();
-    if (!trimmed) return [];
+    if (!trimmed) {
+      debug('CATALOG', `Empty body for ${source.sourceUrl}`);
+      return [];
+    }
 
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       try {
         const parsed = parseCatalogPayload(JSON.parse(trimmed), source.sourceUrl);
-        if (parsed.length > 0) return parsed;
+        if (parsed.length > 0) {
+          debug('CATALOG', `Parsed ${parsed.length} JSON entries from ${source.sourceUrl}`);
+          return parsed;
+        }
       } catch {
-        // fall through
+        debug('CATALOG', `JSON parse failed for ${source.sourceUrl} — falling back to HTML extraction`);
       }
     }
 
-    return [
-      {
-        ...source,
-        title: extractHtmlTitle(trimmed) ?? source.title,
-        summary: extractMetaDescription(trimmed) ?? source.summary,
-        content: trimmed,
-      },
-    ];
-  } catch {
+    const htmlEntry = {
+      ...source,
+      title: extractHtmlTitle(trimmed) ?? source.title,
+      summary: extractMetaDescription(trimmed) ?? source.summary,
+      content: trimmed,
+    };
+    debug('CATALOG', `HTML-backed entry for ${source.sourceUrl}`, { title: htmlEntry.title });
+    return [htmlEntry];
+  } catch (err) {
+    debug('CATALOG', `Exception fetching ${source.sourceUrl}`, { error: String(err) });
     return [];
   }
 }
 
 async function loadDiscoverySources(): Promise<GrantDiscoverySourceEntry[]> {
+  debug('SOURCES', `Fallback catalog size: ${DISCOVERY_FALLBACK_SOURCE_CATALOG.length}`);
+
   const liveSources = DISCOVERY_FALLBACK_SOURCE_CATALOG.filter(
     (source) => uniqueSourceUrls([source]).length > 0
   );
+  debug('SOURCES', `Live sources with valid URLs: ${liveSources.length}`);
+
   const fetched = (await Promise.all(liveSources.map(fetchCatalogFromUrl))).flat();
-  return fetched.length > 0 ? fetched : DISCOVERY_FALLBACK_SOURCE_CATALOG;
+
+  if (fetched.length > 0) {
+    debug('SOURCES', `Using ${fetched.length} fetched sources`);
+    return fetched;
+  }
+
+  debug('SOURCES', `Fetch returned nothing — using static fallback catalog (${DISCOVERY_FALLBACK_SOURCE_CATALOG.length} entries)`);
+  return DISCOVERY_FALLBACK_SOURCE_CATALOG;
 }
 
 function calculateSourceSnapshotId(sources: GrantDiscoverySourceEntry[]): string {
@@ -430,6 +465,11 @@ function scoreCandidate(
     confidence = 'MEDIUM';
   }
 
+  debug('SCORE', `  ${source.id} → score=${cappedScore} decision=${decision}`, {
+    matched: matchedCriteria,
+    missing: missingCriteria,
+  });
+
   return {
     source,
     score: cappedScore,
@@ -447,28 +487,27 @@ function scoreCandidate(
 }
 
 // ---------------------------------------------------------------------------
-// AI web-search discovery  ← THE KEY CHANGE
+// AI web-search discovery
 // ---------------------------------------------------------------------------
 
-/**
- * Uses the OpenAI `web_search_preview` tool so the model actively searches the
- * web for real grant programs instead of re-scoring a static catalog.
- *
- * The model is asked to return a JSON object with a `decisions` array whose
- * shape matches `LlmGrantDecision`.  Each element represents one real grant
- * program it found online, complete with a live `sourceUrl`.
- */
 async function tryOpenAiWebSearch(
   input: EligibilityInput,
   fallbackCandidates: DiscoveryCandidateEvaluation[]
 ): Promise<LlmGrantDecision[] | null> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    debug('AI', 'OPENAI_API_KEY not set — skipping AI web search');
+    return null;
+  }
 
   const enabled = (process.env.GRANT_DISCOVERY_AI_ENABLED ?? 'true').toLowerCase();
-  if (enabled === 'false') return null;
+  if (enabled === 'false') {
+    debug('AI', 'GRANT_DISCOVERY_AI_ENABLED=false — skipping AI web search');
+    return null;
+  }
 
   const scopedQueries = buildSearchQueries(input);
+  debug('AI', `Built ${scopedQueries.length} scoped queries`, scopedQueries);
 
   const profile = {
     province: input.required.province,
@@ -477,17 +516,8 @@ async function tryOpenAiWebSearch(
     modificationCodes: input.required.modificationCodes,
     missingFields: input.missingRequiredFields,
   };
+  debug('AI', 'Applicant profile', profile);
 
-  /**
-   * The system prompt (imported from discoveryPrompt.ts) should instruct the
-   * model to:
-   *   1. Use the web_search tool to search for grants matching the queries.
-   *   2. Evaluate each found grant against the applicant profile.
-   *   3. Return ONLY a JSON object: { "decisions": [ ...LlmGrantDecision ] }
-   *
-   * The queries are embedded in the user message so the model knows exactly
-   * what to search for at each scope level.
-   */
   const userMessage = JSON.stringify({
     profile,
     searchQueries: scopedQueries,
@@ -498,7 +528,6 @@ async function tryOpenAiWebSearch(
       'set jurisdiction to the ISO province code (e.g. "ON") or "CA" for national programs, ' +
       'and include the live sourceUrl where the grant was found. ' +
       'Return ONLY valid JSON: { "decisions": [ ...grant objects ] }',
-    // Provide fallback catalog IDs so the model can also re-assess known sources
     knownCandidates: fallbackCandidates.map((c) => ({
       grantId: c.source.id,
       title: c.source.title,
@@ -509,6 +538,8 @@ async function tryOpenAiWebSearch(
     })),
   });
 
+  debug('AI', `Calling OpenAI — model: ${DISCOVERY_MODEL_NAME}`);
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -516,14 +547,9 @@ async function tryOpenAiWebSearch(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: DISCOVERY_MODEL_NAME, // Should be "gpt-4o" or "gpt-4o-mini" — must support tools
+      model: DISCOVERY_MODEL_NAME,
       temperature: 0,
-      // ↓ This is the critical addition: give the model a real web search tool
-      tools: [
-        {
-          type: 'web_search_preview',
-        },
-      ],
+      tools: [{ type: 'web_search_preview' }],
       tool_choice: 'auto',
       response_format: { type: 'json_object' },
       messages: [
@@ -533,25 +559,46 @@ async function tryOpenAiWebSearch(
     }),
   });
 
-  if (!response.ok) return null;
+  debug('AI', `OpenAI HTTP response: ${response.status} ${response.statusText}`);
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '(unreadable)');
+    debug('AI', 'OpenAI error body', { body: errBody });
+    return null;
+  }
 
   const body = (await response.json().catch(() => null)) as {
     choices?: Array<{ message?: { content?: string | null } }>;
+    usage?: unknown;
   } | null;
 
+  debug('AI', 'OpenAI response summary', {
+    choiceCount: body?.choices?.length ?? 0,
+    usage: body?.usage ?? null,
+    contentPreview: body?.choices?.[0]?.message?.content?.slice(0, 400) ?? null,
+  });
+
   const content = body?.choices?.[0]?.message?.content;
-  if (!content) return null;
+  if (!content) {
+    debug('AI', 'No content in response');
+    return null;
+  }
 
   let parsed: { decisions?: LlmGrantDecision[] } | null = null;
   try {
     parsed = JSON.parse(content) as { decisions?: LlmGrantDecision[] };
-  } catch {
+    debug('AI', `JSON parsed — decisions count: ${parsed?.decisions?.length ?? 'missing'}`);
+  } catch (err) {
+    debug('AI', 'JSON parse error', { error: String(err), raw: content.slice(0, 500) });
     return null;
   }
 
-  if (!Array.isArray(parsed.decisions)) return null;
+  if (!Array.isArray(parsed.decisions)) {
+    debug('AI', 'decisions is not an array', { parsed });
+    return null;
+  }
 
-  return parsed.decisions.filter(
+  const valid = parsed.decisions.filter(
     (item) =>
       typeof item.grantId === 'string' &&
       typeof item.score === 'number' &&
@@ -560,6 +607,22 @@ async function tryOpenAiWebSearch(
       Array.isArray(item.missingCriteria) &&
       typeof item.rationale === 'string'
   );
+
+  const dropped = parsed.decisions.length - valid.length;
+  if (dropped > 0) {
+    debug('AI', `Dropped ${dropped} malformed decision(s)`);
+  }
+
+  debug('AI', `Returning ${valid.length} valid decisions`, valid.map((d) => ({
+    grantId: d.grantId,
+    title: d.title,
+    scope: d.scope,
+    score: d.score,
+    decision: d.decision,
+    sourceUrl: d.sourceUrl,
+  })));
+
+  return valid;
 }
 
 // ---------------------------------------------------------------------------
@@ -664,34 +727,52 @@ function buildDiscoveryResult(
 export async function discoverAndEvaluateGrants(
   input: EligibilityInput
 ): Promise<GrantDiscoveryEvaluationResult> {
-  // Step 1: Load static/catalog sources for heuristic baseline
+  debug('MAIN', '=== discoverAndEvaluateGrants START ===', {
+    province: input.required.province,
+    ownershipStatus: input.required.ownershipStatus,
+    modificationCodes: input.required.modificationCodes,
+    missingRequiredFields: input.missingRequiredFields,
+  });
+
+  // Step 1: Load catalog sources for heuristic baseline
   const sources = await loadDiscoverySources();
+  debug('MAIN', `Step 1 complete — loaded ${sources.length} source entries`);
+
   const query = buildSearchQuery(input);
   const queryTokens = tokenize(query);
+  debug('MAIN', `Heuristic query: "${query}"`, { queryTokens });
 
-  // Step 2: Heuristic scoring of catalog sources (always runs, used as fallback)
+  // Step 2: Heuristic scoring
+  debug('MAIN', `Step 2 — scoring ${sources.length} candidates heuristically...`);
   const heuristicCandidates = sources
     .map((source) => scoreCandidate(input, source, queryTokens))
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 
+  debug('MAIN', `Step 2 complete — top ${heuristicCandidates.length} heuristic candidates`, heuristicCandidates.map((c) => ({
+    id: c.source.id,
+    title: c.source.title,
+    score: c.score,
+    decision: c.decision,
+  })));
+
   const sourceSnapshotId = calculateSourceSnapshotId(sources);
+  debug('MAIN', `Source snapshot ID: ${sourceSnapshotId}`);
 
   let provider: GrantDiscoveryProvider = 'HEURISTIC';
   let finalCandidates = heuristicCandidates;
 
   try {
-    // Step 3: AI web search — finds REAL grants from the live web
+    // Step 3: AI web search
+    debug('MAIN', 'Step 3 — attempting AI web search...');
     const llmDecisions = await tryOpenAiWebSearch(input, heuristicCandidates);
 
     if (llmDecisions && llmDecisions.length > 0) {
       provider = 'OPENAI';
+      debug('MAIN', `AI returned ${llmDecisions.length} decisions — merging with heuristic results`);
 
-      // Convert AI-discovered grants into DiscoveryCandidateEvaluation shape
-      // so the rest of the pipeline stays unchanged.
       const aiCandidates: DiscoveryCandidateEvaluation[] = llmDecisions.map((llm) => ({
         source: {
-          // Synthesize a GrantDiscoverySourceEntry from the AI response
           id: llm.grantId,
           title: llm.title ?? llm.grantId,
           scope: (llm.scope as GrantDiscoveryScope) ?? 'NATIONAL',
@@ -707,19 +788,27 @@ export async function discoverAndEvaluateGrants(
         rationale: llm.rationale,
       }));
 
-      // Merge: prefer AI results; keep heuristic results for any grantId not
-      // returned by the AI (so known catalog entries aren't silently dropped).
       const aiIds = new Set(aiCandidates.map((c) => c.source.id));
       const heuristicOnly = heuristicCandidates.filter((c) => !aiIds.has(c.source.id));
+      debug('MAIN', `Merge: ${aiCandidates.length} AI + ${heuristicOnly.length} heuristic-only`);
 
       finalCandidates = [...aiCandidates, ...heuristicOnly].sort((a, b) => b.score - a.score);
+    } else {
+      debug('MAIN', 'AI returned no decisions — using heuristic candidates only');
     }
-  } catch {
-    // AI unavailable — heuristic results are already in finalCandidates
+  } catch (err) {
+    debug('MAIN', 'AI web search threw an exception — falling back to heuristic', { error: String(err) });
     provider = 'HEURISTIC';
   }
 
-  return buildDiscoveryResult(input, finalCandidates, {
+  debug('MAIN', `Step 3 complete — provider=${provider}, finalCandidates=${finalCandidates.length}`, finalCandidates.map((c) => ({
+    id: c.source.id,
+    title: c.source.title,
+    score: c.score,
+    decision: c.decision,
+  })));
+
+  const result = buildDiscoveryResult(input, finalCandidates, {
     provider,
     query,
     sourceSnapshotId,
@@ -727,6 +816,15 @@ export async function discoverAndEvaluateGrants(
     returnedCount: finalCandidates.length,
     executedAt: new Date().toISOString(),
   });
+
+  debug('MAIN', '=== discoverAndEvaluateGrants END ===', {
+    overallDecision: result.overallDecision,
+    reasonCodes: result.reasonCodes,
+    grantCount: result.discoveredGrants.length,
+    provider: result.discoveryMetadata.provider,
+  });
+
+  return result;
 }
 
 export function createGrantDiscoverySearchProvider(): GrantDiscoverySearchProvider {
