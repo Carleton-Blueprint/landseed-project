@@ -3,16 +3,20 @@
  * 
  * Orchestrates the eligibility evaluation workflow:
  * 1. Assemble EligibilityInput from Project + draftData
- * 2. Evaluate using active grant rules version
+ * 2. Discover and rank grants from source-backed feeds
  * 3. Persist EligibilityAssessment snapshot
  * 4. Return result with assessment ID
  */
 
-import { Project, User } from '@prisma/client';
+import { Prisma, Project, User } from '@prisma/client';
 import { assembleEligibilityInput } from './assembler';
-import { evaluateEligibility } from './evaluator';
 import { createEligibilityAssessmentSnapshot } from './repository';
 import { EligibilityDecision } from './types';
+import {
+  discoverAndEvaluateGrants,
+  DiscoveredGrant,
+  GrantDiscoveryMetadata,
+} from './discoverySearchProvider';
 import { prisma } from 'lib/prisma';
 
 export interface EvaluateEligibilityServiceResult {
@@ -24,12 +28,13 @@ export interface EvaluateEligibilityServiceResult {
   staffReasonMessages: string[];
   clientReasonMessages: string[];
   missingRequirements: string[];
-  grantRulesVersionId: string;
+  discoveredGrants: DiscoveredGrant[];
+  discoveryMetadata: GrantDiscoveryMetadata;
   createdAt: Date;
 }
 
 export interface EvaluateEligibilityServiceError {
-  code: 'NO_ACTIVE_GRANT_RULES' | 'PERSISTENCE_FAILED' | 'UNKNOWN';
+  code: 'PERSISTENCE_FAILED' | 'UNKNOWN';
   message: string;
   details?: unknown;
 }
@@ -42,33 +47,27 @@ export async function evaluateProjectEligibility(
   performedBy?: User
 ): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceError> {
   try {
-    // Step 1: Get active grant rules version
-    const activeRules = await prisma.grantRulesVersion.findFirst({
-      where: { isActive: true },
-      orderBy: { versionNumber: 'desc' },
-    });
-
-    if (!activeRules) {
-      return {
-        code: 'NO_ACTIVE_GRANT_RULES',
-        message: 'No active grant rules version found. Cannot evaluate eligibility.',
-      };
-    }
-
-    // Step 2: Assemble EligibilityInput from project
+    // Step 1: Assemble EligibilityInput from project
     const input = assembleEligibilityInput(project);
 
-    // Step 3: Evaluate eligibility
-    const evaluation = evaluateEligibility(input, activeRules);
+    // Step 2: Discover and rank grants from source-backed feeds
+    const evaluation = await discoverAndEvaluateGrants(input);
 
-    // Step 4: Persist assessment snapshot
+    // Step 3: Persist assessment snapshot
     const assessment = await createEligibilityAssessmentSnapshot({
       projectId: project.id,
-      grantRulesVersionId: activeRules.id,
       overallDecision: evaluation.overallDecision,
       programDecisions: evaluation.programDecisions,
       reasonCodes: evaluation.reasonCodes,
       missingRequirements: evaluation.missingRequirements,
+      discoveredGrants: evaluation.discoveredGrants as unknown as Prisma.InputJsonValue,
+      discoveryMetadata: evaluation.discoveryMetadata as unknown as Prisma.InputJsonValue,
+      discoveryProvider: evaluation.discoveryMetadata.provider,
+      discoveryEngineVersion: evaluation.discoveryMetadata.engineVersion,
+      discoveryPromptVersion: evaluation.discoveryMetadata.promptVersion,
+      discoveryScoringVersion: evaluation.discoveryMetadata.scoringVersion,
+      discoveryModelVersion: evaluation.discoveryMetadata.modelVersion,
+      discoverySourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
     });
 
     if (!assessment) {
@@ -78,7 +77,7 @@ export async function evaluateProjectEligibility(
       };
     }
 
-    // Step 5: Audit log (if audit event creation is available)
+    // Step 4: Audit log (if audit event creation is available)
     if (performedBy) {
       try {
         await prisma.auditEvent.create({
@@ -90,11 +89,18 @@ export async function evaluateProjectEligibility(
             resourceId: assessment.id,
             projectId: project.id,
             actorUserId: performedBy.id,
-            description: `Eligibility assessment: ${evaluation.overallDecision}`,
+            description: `Eligibility discovery assessment: ${evaluation.overallDecision}`,
             metadata: {
               decision: evaluation.overallDecision,
               reasonCodes: evaluation.reasonCodes,
-              grantRulesVersion: activeRules.versionNumber,
+              discoveryProvider: evaluation.discoveryMetadata.provider,
+              engineVersion: evaluation.discoveryMetadata.engineVersion,
+              promptVersion: evaluation.discoveryMetadata.promptVersion,
+              scoringVersion: evaluation.discoveryMetadata.scoringVersion,
+              modelVersion: evaluation.discoveryMetadata.modelVersion,
+              sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
+              candidateCount: evaluation.discoveryMetadata.candidateCount,
+              returnedCount: evaluation.discoveryMetadata.returnedCount,
             },
           },
         });
@@ -113,7 +119,8 @@ export async function evaluateProjectEligibility(
       staffReasonMessages: evaluation.staffReasonMessages,
       clientReasonMessages: evaluation.clientReasonMessages,
       missingRequirements: evaluation.missingRequirements,
-      grantRulesVersionId: activeRules.id,
+      discoveredGrants: evaluation.discoveredGrants,
+      discoveryMetadata: evaluation.discoveryMetadata,
       createdAt: assessment.createdAt,
     };
   } catch (error) {
@@ -137,15 +144,23 @@ export async function getLatestEligibilityAssessment(projectId: string) {
         projectId,
         isLatest: true,
       },
-      include: {
-        grantRulesVersion: true,
-      },
       orderBy: { createdAt: 'desc' },
     });
 
     if (!assessment) {
       return null;
     }
+
+    const assessmentWithDiscovery = assessment as typeof assessment & {
+      discoveredGrants?: unknown;
+      discoveryMetadata?: unknown;
+      discoveryProvider?: unknown;
+      discoveryEngineVersion?: unknown;
+      discoveryPromptVersion?: unknown;
+      discoveryScoringVersion?: unknown;
+      discoveryModelVersion?: unknown;
+      discoverySourceSnapshotId?: unknown;
+    };
 
     return {
       assessmentId: assessment.id,
@@ -154,8 +169,21 @@ export async function getLatestEligibilityAssessment(projectId: string) {
       programDecisions: assessment.programDecisions as Record<string, EligibilityDecision>,
       reasonCodes: assessment.reasonCodes as string[],
       missingRequirements: assessment.missingRequirements as string[],
-      grantRulesVersionId: assessment.grantRulesVersionId,
-      grantRulesVersionNumber: assessment.grantRulesVersion?.versionNumber,
+      discoveredGrants: (assessmentWithDiscovery.discoveredGrants as DiscoveredGrant[] | null) ?? [],
+      discoveryMetadata:
+        (assessmentWithDiscovery.discoveryMetadata as GrantDiscoveryMetadata | null) ?? null,
+      discoveryProvider:
+        ((assessmentWithDiscovery.discoveryProvider as 'OPENAI' | 'HEURISTIC' | null) ?? 'HEURISTIC'),
+      discoveryEngineVersion:
+        (assessmentWithDiscovery.discoveryEngineVersion as string | null) ?? 'unknown',
+      discoveryPromptVersion:
+        (assessmentWithDiscovery.discoveryPromptVersion as string | null) ?? 'unknown',
+      discoveryScoringVersion:
+        (assessmentWithDiscovery.discoveryScoringVersion as string | null) ?? 'unknown',
+      discoveryModelVersion:
+        (assessmentWithDiscovery.discoveryModelVersion as string | null) ?? 'unknown',
+      discoverySourceSnapshotId:
+        (assessmentWithDiscovery.discoverySourceSnapshotId as string | null) ?? null,
       createdAt: assessment.createdAt,
       updatedAt: assessment.updatedAt,
     };
@@ -172,11 +200,6 @@ export async function getEligibilityAssessmentHistory(projectId: string, limit: 
   try {
     const assessments = await prisma.eligibilityAssessment.findMany({
       where: { projectId },
-      include: {
-        grantRulesVersion: {
-          select: { versionNumber: true },
-        },
-      },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
@@ -184,7 +207,8 @@ export async function getEligibilityAssessmentHistory(projectId: string, limit: 
     return assessments.map((a) => ({
       assessmentId: a.id,
       overallDecision: a.overallDecision,
-      grantRulesVersionNumber: a.grantRulesVersion?.versionNumber,
+      discoveryProvider:
+        ((a as typeof a & { discoveryProvider?: string | null }).discoveryProvider ?? 'HEURISTIC'),
       createdAt: a.createdAt,
       isLatest: a.isLatest,
     }));

@@ -25,9 +25,7 @@ model User {
   projectAccess          ProjectAccess[]         @relation("ProjectAccessUser")
   grantedProjectAccess   ProjectAccess[]         @relation("ProjectAccessGrantedBy")
   pricingMatrixVersions  PricingMatrixVersion[]
-  grantRulesVersions     GrantRulesVersion[]
   pricingMatrixAuditLogs PricingMatrixAuditLog[]
-  grantRulesAuditLogs    GrantRulesAuditLog[]
   notifications          NotificationDelivery[]
   auditEvents            AuditEvent[]
   createdAt              DateTime                @default(now())
@@ -169,11 +167,11 @@ model Quote {
   generatedAt DateTime @default(now())
 
   pricingMatrixVersionId String
-  grantRulesVersionId    String
+  eligibilityAssessmentId String?
 
-  project              Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  pricingMatrixVersion PricingMatrixVersion @relation(fields: [pricingMatrixVersionId], references: [id])
-  grantRulesVersion    GrantRulesVersion    @relation(fields: [grantRulesVersionId], references: [id])
+  project               Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pricingMatrixVersion  PricingMatrixVersion  @relation(fields: [pricingMatrixVersionId], references: [id])
+  eligibilityAssessment EligibilityAssessment? @relation(fields: [eligibilityAssessmentId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -185,7 +183,7 @@ model Quote {
 
   @@index([projectId])
   @@index([pricingMatrixVersionId])
-  @@index([grantRulesVersionId])
+  @@index([eligibilityAssessmentId])
 }
 
 enum QuestionCategory {
@@ -304,23 +302,6 @@ model PricingMatrixVersion {
   @@index([isActive])
 }
 
-model GrantRulesVersion {
-  id              String   @id @default(cuid())
-  versionNumber   Int      @unique
-  rules           Json
-  createdAt       DateTime @default(now())
-  createdByUserId String
-  isActive        Boolean  @default(false)
-
-  createdBy User                 @relation(fields: [createdByUserId], references: [id])
-  quotes    Quote[]
-  eligibilityAssessments EligibilityAssessment[]
-  auditLogs GrantRulesAuditLog[]
-
-  @@index([versionNumber])
-  @@index([isActive])
-}
-
 enum EligibilityDecision {
   ELIGIBLE
   INELIGIBLE
@@ -331,20 +312,26 @@ enum EligibilityDecision {
 model EligibilityAssessment {
   id                  String              @id @default(cuid())
   projectId           String
-  grantRulesVersionId String
   overallDecision     EligibilityDecision
   programDecisions    Json
   reasonCodes         Json
   missingRequirements Json
+  discoveredGrants    Json?
+  discoveryMetadata   Json?
+  discoveryProvider   String?
+  discoveryEngineVersion String?
+  discoveryPromptVersion String?
+  discoveryScoringVersion String?
+  discoveryModelVersion String?
+  discoverySourceSnapshotId String?
   isLatest            Boolean             @default(true)
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
   project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  grantRulesVersion GrantRulesVersion @relation(fields: [grantRulesVersionId], references: [id], onDelete: Restrict)
+  quotes            Quote[]
 
   @@index([projectId])
-  @@index([grantRulesVersionId])
   @@index([projectId, isLatest])
   @@index([createdAt])
 }
@@ -360,22 +347,6 @@ model PricingMatrixAuditLog {
 
   version   PricingMatrixVersion @relation(fields: [versionId], references: [id])
   changedBy User                 @relation(fields: [changedByUserId], references: [id])
-
-  @@index([versionId])
-  @@index([changedAt])
-}
-
-model GrantRulesAuditLog {
-  id              String   @id @default(cuid())
-  versionId       String
-  changedByUserId String
-  changedAt       DateTime @default(now())
-  changeSummary   String?  @db.Text
-  beforeState     Json?
-  afterState      Json?
-
-  version   GrantRulesVersion @relation(fields: [versionId], references: [id])
-  changedBy User              @relation(fields: [changedByUserId], references: [id])
 
   @@index([versionId])
   @@index([changedAt])

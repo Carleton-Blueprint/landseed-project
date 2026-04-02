@@ -135,10 +135,10 @@ describe('FR-3.1 Eligibility Integration Tests', () => {
   });
 
   describe('Error resilience', () => {
-    it('should handle missing active grant rules gracefully', () => {
-      // In real test with no active rules:
+    it('should handle unavailable discovery provider gracefully', () => {
+      // In real test with unavailable discovery sources/provider:
       // 1. Attempt evaluation
-      // 2. Verify error code NO_ACTIVE_GRANT_RULES
+      // 2. Verify a structured service error is returned
       // 3. Verify error message helpful for staff
       
       expect(true).toBe(true);

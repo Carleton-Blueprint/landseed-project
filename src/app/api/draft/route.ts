@@ -36,6 +36,8 @@ const draftSchema = z.object({
   seniorName: z.string().max(120).optional().default(""),
   relationshipToSenior: z.string().max(120).optional().default(""),
   caregiverConsentConfirmed: z.boolean().optional().default(false),
+  clientConsentConfirmed: z.boolean().optional().default(false),
+  modificationItems: z.array(z.string()).optional().default([]),
 });
 
 export type DraftData = z.infer<typeof draftSchema>;
