@@ -68,7 +68,6 @@ export async function generateQuoteWithEligibility(
             metadata: {
               eligibilityAssessmentId: eligibility.assessmentId,
               eligibilityDecision: eligibility.overallDecision,
-              grantRulesVersion: eligibility.grantRulesVersionNumber,
               discoveryProvider: eligibility.discoveryProvider,
               discoveryMetadata: eligibility.discoveryMetadata,
               discoveredGrants: eligibility.discoveredGrants,

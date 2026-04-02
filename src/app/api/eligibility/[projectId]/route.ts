@@ -83,7 +83,6 @@ export async function GET(
             sourceSnapshotId: assessment.discoverySourceSnapshotId,
           },
         },
-        grantRulesVersionNumber: assessment.grantRulesVersionNumber,
       }),
       ...(!canViewDetailedReasons && {
         // Clients see only the decision and simplified message

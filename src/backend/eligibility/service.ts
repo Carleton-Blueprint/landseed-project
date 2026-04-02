@@ -48,16 +48,16 @@ export async function evaluateProjectEligibility(
   performedBy?: User
 ): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceError> {
   try {
-    // Step 1: Get active grant rules version as a version anchor for persistence
-    const activeRules = await prisma.grantRulesVersion.findFirst({
-      where: { isActive: true },
+    // Step 1: Resolve legacy version anchor for persistence compatibility.
+    // The decision logic is now discovery-driven, but the schema still requires this FK.
+    const versionAnchor = await prisma.grantRulesVersion.findFirst({
       orderBy: { versionNumber: 'desc' },
     });
 
-    if (!activeRules) {
+    if (!versionAnchor) {
       return {
         code: 'NO_ACTIVE_GRANT_RULES',
-        message: 'No active grant rules version found. Cannot persist eligibility discovery.',
+        message: 'No grant rules version anchor found. Seed one version to persist eligibility discovery.',
       };
     }
 
@@ -70,7 +70,7 @@ export async function evaluateProjectEligibility(
     // Step 4: Persist assessment snapshot
     const assessment = await createEligibilityAssessmentSnapshot({
       projectId: project.id,
-      grantRulesVersionId: activeRules.id,
+      grantRulesVersionId: versionAnchor.id,
       overallDecision: evaluation.overallDecision,
       programDecisions: evaluation.programDecisions,
       reasonCodes: evaluation.reasonCodes,
@@ -136,7 +136,7 @@ export async function evaluateProjectEligibility(
       missingRequirements: evaluation.missingRequirements,
       discoveredGrants: evaluation.discoveredGrants,
       discoveryMetadata: evaluation.discoveryMetadata,
-      grantRulesVersionId: activeRules.id,
+      grantRulesVersionId: versionAnchor.id,
       createdAt: assessment.createdAt,
     };
   } catch (error) {
@@ -159,9 +159,6 @@ export async function getLatestEligibilityAssessment(projectId: string) {
       where: {
         projectId,
         isLatest: true,
-      },
-      include: {
-        grantRulesVersion: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -189,7 +186,6 @@ export async function getLatestEligibilityAssessment(projectId: string) {
       reasonCodes: assessment.reasonCodes as string[],
       missingRequirements: assessment.missingRequirements as string[],
       grantRulesVersionId: assessment.grantRulesVersionId,
-      grantRulesVersionNumber: assessment.grantRulesVersion?.versionNumber,
       discoveredGrants: (assessmentWithDiscovery.discoveredGrants as DiscoveredGrant[] | null) ?? [],
       discoveryMetadata:
         (assessmentWithDiscovery.discoveryMetadata as GrantDiscoveryMetadata | null) ?? null,
@@ -221,11 +217,6 @@ export async function getEligibilityAssessmentHistory(projectId: string, limit: 
   try {
     const assessments = await prisma.eligibilityAssessment.findMany({
       where: { projectId },
-      include: {
-        grantRulesVersion: {
-          select: { versionNumber: true },
-        },
-      },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
@@ -233,7 +224,7 @@ export async function getEligibilityAssessmentHistory(projectId: string, limit: 
     return assessments.map((a) => ({
       assessmentId: a.id,
       overallDecision: a.overallDecision,
-      grantRulesVersionNumber: a.grantRulesVersion?.versionNumber,
+      grantRulesVersionId: a.grantRulesVersionId,
       discoveryProvider:
         ((a as typeof a & { discoveryProvider?: string | null }).discoveryProvider ?? 'HEURISTIC'),
       createdAt: a.createdAt,
