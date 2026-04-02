@@ -47,7 +47,6 @@ export async function logEligibilityAssessmentCreated(
           overallDecision: assessment.overallDecision,
           programDecisions: assessment.programDecisions,
           reasonCodes: assessment.reasonCodes,
-          grantRulesVersionId: assessment.grantRulesVersionId,
           missingRequirements: assessment.missingRequirements,
         },
       },

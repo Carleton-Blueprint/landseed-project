@@ -1,10 +1,11 @@
 /**
- * Quote generation service with audit trail for pricing matrix and grant rules versions.
- * Implements FR-2.7: Auditing logic for tracking versions used in quote generation.
+ * Quote generation service with audit trail for pricing matrix and eligibility context.
+ * Implements FR-2.7 auditing and FR-3.1 discovery-aware quote linking.
  */
 
 import { PrismaClient, Prisma, NotificationEventType } from '@prisma/client';
 import { enqueueNotification } from '@/backend/notifications/enqueue';
+import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
 
 const prisma = new PrismaClient();
 
@@ -22,13 +23,9 @@ interface QuoteResult {
   subtotal: number;
   total: number;
   pricingMatrixVersion: number;
-  grantRulesVersion: number;
+  eligibilityAssessmentId?: string;
 }
 
-/**
- * Get the currently active pricing matrix version.
- * In production, this would fetch the latest active version from the database.
- */
 async function getActivePricingMatrixVersion() {
   const activeVersion = await prisma.pricingMatrixVersion.findFirst({
     where: { isActive: true },
@@ -43,38 +40,7 @@ async function getActivePricingMatrixVersion() {
 }
 
 /**
- * Get the currently active grant rules version.
- * In production, this would fetch the latest active version from the database.
- */
-async function getActiveGrantRulesVersion() {
-  const activeVersion = await prisma.grantRulesVersion.findFirst({
-    where: { isActive: true },
-    orderBy: { versionNumber: 'desc' },
-  });
-
-  if (!activeVersion) {
-    throw new Error('No active grant rules version found');
-  }
-
-  return activeVersion;
-}
-
-/**
- * Apply grant rules to calculate adjustments/discounts.
- * This is a placeholder - implement based on logic.
- */
-function applyGrantRules(subtotal: number, grantRules: Prisma.JsonValue): number {
-  // Example: Apply percentage-based grant if rules specify
-  const rules = grantRules as { discountPercentage?: number };
-  if (rules.discountPercentage) {
-    return subtotal * (1 - rules.discountPercentage / 100);
-  }
-  return subtotal;
-}
-
-/**
- * Generate a quote for a project with full audit trail.
- * Records which pricing matrix and grant rules versions were used.
+ * Generate a quote for a project with pricing matrix audit and optional eligibility linkage.
  */
 export async function generateQuote(
   input: QuoteCalculationInput
@@ -92,33 +58,27 @@ export async function generateQuote(
     throw new Error('Project not found');
   }
 
-  // 1. Fetch active versions
   const pricingMatrixVersion = await getActivePricingMatrixVersion();
-  const grantRulesVersion = await getActiveGrantRulesVersion();
+  const latestEligibility = await getLatestEligibilityAssessment(input.projectId);
 
-  // 2. Calculate subtotal using pricing matrix data
   let subtotal = 0;
   for (const item of input.items) {
-    // In production, you'd apply pricing matrix transformations here
-    // For now, simple multiplication
     subtotal += item.quantity * item.unitPrice;
   }
 
-  // 3. Apply grant rules to calculate total
-  const total = applyGrantRules(subtotal, grantRulesVersion.rules);
+  // Total is currently equal to subtotal; grant adjustments are represented in discovery output.
+  const total = subtotal;
 
-  // 4. Create quote record with version audit trail
   const quote = await prisma.quote.create({
     data: {
       projectId: input.projectId,
       subtotal: new Prisma.Decimal(subtotal),
       total: new Prisma.Decimal(total),
       pricingMatrixVersionId: pricingMatrixVersion.id,
-      grantRulesVersionId: grantRulesVersion.id,
+      eligibilityAssessmentId: latestEligibility?.assessmentId,
     },
     include: {
       pricingMatrixVersion: true,
-      grantRulesVersion: true,
     },
   });
 
@@ -146,28 +106,23 @@ export async function generateQuote(
 
   return {
     quoteId: quote.id,
-    subtotal: subtotal,
-    total: total,
+    subtotal,
+    total,
     pricingMatrixVersion: quote.pricingMatrixVersion.versionNumber,
-    grantRulesVersion: quote.grantRulesVersion.versionNumber,
+    eligibilityAssessmentId: latestEligibility?.assessmentId,
   };
 }
 
-/**
- * Create a new pricing matrix version with audit log.
- */
 export async function createPricingMatrixVersion(
   data: Prisma.InputJsonValue,
   userId: string,
   changeSummary?: string
 ): Promise<string> {
-  // Get previous active version for audit trail
   const previousVersion = await prisma.pricingMatrixVersion.findFirst({
     where: { isActive: true },
     orderBy: { versionNumber: 'desc' },
   });
 
-  // Deactivate previous version
   if (previousVersion) {
     await prisma.pricingMatrixVersion.update({
       where: { id: previousVersion.id },
@@ -175,23 +130,20 @@ export async function createPricingMatrixVersion(
     });
   }
 
-  // Calculate next version number
   const maxVersion = await prisma.pricingMatrixVersion.findFirst({
     orderBy: { versionNumber: 'desc' },
   });
   const nextVersionNumber = (maxVersion?.versionNumber ?? 0) + 1;
 
-  // Create new version
   const newVersion = await prisma.pricingMatrixVersion.create({
     data: {
       versionNumber: nextVersionNumber,
-      data: data,
+      data,
       createdByUserId: userId,
       isActive: true,
     },
   });
 
-  // Create audit log
   await prisma.pricingMatrixAuditLog.create({
     data: {
       versionId: newVersion.id,
@@ -205,61 +157,6 @@ export async function createPricingMatrixVersion(
   return newVersion.id;
 }
 
-/**
- * Create a new grant rules version with audit log.
- */
-export async function createGrantRulesVersion(
-  rules: Prisma.InputJsonValue,
-  userId: string,
-  changeSummary?: string
-): Promise<string> {
-  // Get previous active version for audit trail
-  const previousVersion = await prisma.grantRulesVersion.findFirst({
-    where: { isActive: true },
-    orderBy: { versionNumber: 'desc' },
-  });
-
-  // Deactivate previous version
-  if (previousVersion) {
-    await prisma.grantRulesVersion.update({
-      where: { id: previousVersion.id },
-      data: { isActive: false },
-    });
-  }
-
-  // Calculate next version number
-  const maxVersion = await prisma.grantRulesVersion.findFirst({
-    orderBy: { versionNumber: 'desc' },
-  });
-  const nextVersionNumber = (maxVersion?.versionNumber ?? 0) + 1;
-
-  // Create new version
-  const newVersion = await prisma.grantRulesVersion.create({
-    data: {
-      versionNumber: nextVersionNumber,
-      rules: rules,
-      createdByUserId: userId,
-      isActive: true,
-    },
-  });
-
-  // Create audit log
-  await prisma.grantRulesAuditLog.create({
-    data: {
-      versionId: newVersion.id,
-      changedByUserId: userId,
-      changeSummary: changeSummary || 'New grant rules version created',
-      beforeState: previousVersion?.rules ?? Prisma.JsonNull,
-      afterState: rules,
-    },
-  });
-
-  return newVersion.id;
-}
-
-/**
- * Get audit history for a specific quote to see which versions were used.
- */
 export async function getQuoteAuditHistory(quoteId: string) {
   const quote = await prisma.quote.findUnique({
     where: { id: quoteId },
@@ -271,15 +168,16 @@ export async function getQuoteAuditHistory(quoteId: string) {
           },
         },
       },
-      grantRulesVersion: {
-        include: {
-          createdBy: {
-            select: { id: true, name: true, email: true },
-          },
-        },
-      },
       project: {
         select: { id: true, address: true },
+      },
+      eligibilityAssessment: {
+        select: {
+          id: true,
+          overallDecision: true,
+          discoveryProvider: true,
+          createdAt: true,
+        },
       },
     },
   });
@@ -302,38 +200,13 @@ export async function getQuoteAuditHistory(quoteId: string) {
         createdAt: quote.pricingMatrixVersion.createdAt,
         createdBy: quote.pricingMatrixVersion.createdBy,
       },
-      grantRules: {
-        versionNumber: quote.grantRulesVersion.versionNumber,
-        createdAt: quote.grantRulesVersion.createdAt,
-        createdBy: quote.grantRulesVersion.createdBy,
-      },
+      eligibilityAssessment: quote.eligibilityAssessment,
     },
   };
 }
 
-/**
- * Get full audit trail for pricing matrix changes.
- */
 export async function getPricingMatrixAuditTrail(limit = 50) {
   return prisma.pricingMatrixAuditLog.findMany({
-    take: limit,
-    orderBy: { changedAt: 'desc' },
-    include: {
-      version: {
-        select: { versionNumber: true },
-      },
-      changedBy: {
-        select: { id: true, name: true, email: true },
-      },
-    },
-  });
-}
-
-/**
- * Get full audit trail for grant rules changes.
- */
-export async function getGrantRulesAuditTrail(limit = 50) {
-  return prisma.grantRulesAuditLog.findMany({
     take: limit,
     orderBy: { changedAt: 'desc' },
     include: {

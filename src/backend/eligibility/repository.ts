@@ -4,7 +4,6 @@ import { prisma } from "lib/prisma";
 
 export interface CreateEligibilityAssessmentSnapshotInput {
   projectId: string;
-  grantRulesVersionId: string;
   overallDecision: "ELIGIBLE" | "INELIGIBLE" | "NEEDS_MORE_INFO" | "MANUAL_REVIEW";
   programDecisions: Prisma.InputJsonValue;
   reasonCodes: Prisma.InputJsonValue;
@@ -22,7 +21,6 @@ export interface CreateEligibilityAssessmentSnapshotInput {
 interface EligibilityAssessmentRow {
   id: string;
   projectId: string;
-  grantRulesVersionId: string;
   overallDecision: "ELIGIBLE" | "INELIGIBLE" | "NEEDS_MORE_INFO" | "MANUAL_REVIEW";
   programDecisions: Prisma.JsonValue;
   reasonCodes: Prisma.JsonValue;
@@ -67,7 +65,6 @@ export async function createEligibilityAssessmentSnapshot(
         INSERT INTO "EligibilityAssessment" (
           "id",
           "projectId",
-          "grantRulesVersionId",
           "overallDecision",
           "programDecisions",
           "reasonCodes",
@@ -87,7 +84,6 @@ export async function createEligibilityAssessmentSnapshot(
         VALUES (
           ${assessmentId},
           ${input.projectId},
-          ${input.grantRulesVersionId},
           ${input.overallDecision}::"EligibilityDecision",
           CAST(${programDecisionsJson} AS JSONB),
           CAST(${reasonCodesJson} AS JSONB),

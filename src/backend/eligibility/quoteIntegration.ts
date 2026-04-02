@@ -15,7 +15,6 @@ import { prisma } from 'lib/prisma';
 export interface GenerateQuoteWithEligibilityInput {
   projectId: string;
   pricingMatrixVersionId: string;
-  grantRulesVersionId: string;
   subtotal: number;
   total: number;
 }
@@ -46,7 +45,7 @@ export async function generateQuoteWithEligibility(
       data: {
         projectId: input.projectId,
         pricingMatrixVersionId: input.pricingMatrixVersionId,
-        grantRulesVersionId: input.grantRulesVersionId,
+        eligibilityAssessmentId: eligibility?.assessmentId,
         subtotal: input.subtotal,
         total: input.total,
       },

@@ -30,12 +30,11 @@ export interface EvaluateEligibilityServiceResult {
   missingRequirements: string[];
   discoveredGrants: DiscoveredGrant[];
   discoveryMetadata: GrantDiscoveryMetadata;
-  grantRulesVersionId: string;
   createdAt: Date;
 }
 
 export interface EvaluateEligibilityServiceError {
-  code: 'NO_ACTIVE_GRANT_RULES' | 'PERSISTENCE_FAILED' | 'UNKNOWN';
+  code: 'PERSISTENCE_FAILED' | 'UNKNOWN';
   message: string;
   details?: unknown;
 }
@@ -48,29 +47,15 @@ export async function evaluateProjectEligibility(
   performedBy?: User
 ): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceError> {
   try {
-    // Step 1: Resolve legacy version anchor for persistence compatibility.
-    // The decision logic is now discovery-driven, but the schema still requires this FK.
-    const versionAnchor = await prisma.grantRulesVersion.findFirst({
-      orderBy: { versionNumber: 'desc' },
-    });
-
-    if (!versionAnchor) {
-      return {
-        code: 'NO_ACTIVE_GRANT_RULES',
-        message: 'No grant rules version anchor found. Seed one version to persist eligibility discovery.',
-      };
-    }
-
-    // Step 2: Assemble EligibilityInput from project
+    // Step 1: Assemble EligibilityInput from project
     const input = assembleEligibilityInput(project);
 
-    // Step 3: Discover and rank grants from source-backed feeds
+    // Step 2: Discover and rank grants from source-backed feeds
     const evaluation = await discoverAndEvaluateGrants(input);
 
-    // Step 4: Persist assessment snapshot
+    // Step 3: Persist assessment snapshot
     const assessment = await createEligibilityAssessmentSnapshot({
       projectId: project.id,
-      grantRulesVersionId: versionAnchor.id,
       overallDecision: evaluation.overallDecision,
       programDecisions: evaluation.programDecisions,
       reasonCodes: evaluation.reasonCodes,
@@ -92,7 +77,7 @@ export async function evaluateProjectEligibility(
       };
     }
 
-    // Step 5: Audit log (if audit event creation is available)
+    // Step 4: Audit log (if audit event creation is available)
     if (performedBy) {
       try {
         await prisma.auditEvent.create({
@@ -136,7 +121,6 @@ export async function evaluateProjectEligibility(
       missingRequirements: evaluation.missingRequirements,
       discoveredGrants: evaluation.discoveredGrants,
       discoveryMetadata: evaluation.discoveryMetadata,
-      grantRulesVersionId: versionAnchor.id,
       createdAt: assessment.createdAt,
     };
   } catch (error) {
@@ -185,7 +169,6 @@ export async function getLatestEligibilityAssessment(projectId: string) {
       programDecisions: assessment.programDecisions as Record<string, EligibilityDecision>,
       reasonCodes: assessment.reasonCodes as string[],
       missingRequirements: assessment.missingRequirements as string[],
-      grantRulesVersionId: assessment.grantRulesVersionId,
       discoveredGrants: (assessmentWithDiscovery.discoveredGrants as DiscoveredGrant[] | null) ?? [],
       discoveryMetadata:
         (assessmentWithDiscovery.discoveryMetadata as GrantDiscoveryMetadata | null) ?? null,
@@ -224,7 +207,6 @@ export async function getEligibilityAssessmentHistory(projectId: string, limit: 
     return assessments.map((a) => ({
       assessmentId: a.id,
       overallDecision: a.overallDecision,
-      grantRulesVersionId: a.grantRulesVersionId,
       discoveryProvider:
         ((a as typeof a & { discoveryProvider?: string | null }).discoveryProvider ?? 'HEURISTIC'),
       createdAt: a.createdAt,
