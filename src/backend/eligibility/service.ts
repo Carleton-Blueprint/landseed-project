@@ -3,16 +3,20 @@
  * 
  * Orchestrates the eligibility evaluation workflow:
  * 1. Assemble EligibilityInput from Project + draftData
- * 2. Evaluate using active grant rules version
+ * 2. Discover and rank grants from source-backed feeds
  * 3. Persist EligibilityAssessment snapshot
  * 4. Return result with assessment ID
  */
 
-import { Project, User } from '@prisma/client';
+import { Prisma, Project, User } from '@prisma/client';
 import { assembleEligibilityInput } from './assembler';
-import { evaluateEligibility } from './evaluator';
 import { createEligibilityAssessmentSnapshot } from './repository';
 import { EligibilityDecision } from './types';
+import {
+  discoverAndEvaluateGrants,
+  DiscoveredGrant,
+  GrantDiscoveryMetadata,
+} from './discoverySearchProvider';
 import { prisma } from 'lib/prisma';
 
 export interface EvaluateEligibilityServiceResult {
@@ -24,6 +28,8 @@ export interface EvaluateEligibilityServiceResult {
   staffReasonMessages: string[];
   clientReasonMessages: string[];
   missingRequirements: string[];
+  discoveredGrants: DiscoveredGrant[];
+  discoveryMetadata: GrantDiscoveryMetadata;
   grantRulesVersionId: string;
   createdAt: Date;
 }
@@ -42,7 +48,7 @@ export async function evaluateProjectEligibility(
   performedBy?: User
 ): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceError> {
   try {
-    // Step 1: Get active grant rules version
+    // Step 1: Get active grant rules version as a version anchor for persistence
     const activeRules = await prisma.grantRulesVersion.findFirst({
       where: { isActive: true },
       orderBy: { versionNumber: 'desc' },
@@ -51,15 +57,15 @@ export async function evaluateProjectEligibility(
     if (!activeRules) {
       return {
         code: 'NO_ACTIVE_GRANT_RULES',
-        message: 'No active grant rules version found. Cannot evaluate eligibility.',
+        message: 'No active grant rules version found. Cannot persist eligibility discovery.',
       };
     }
 
     // Step 2: Assemble EligibilityInput from project
     const input = assembleEligibilityInput(project);
 
-    // Step 3: Evaluate eligibility
-    const evaluation = evaluateEligibility(input, activeRules);
+    // Step 3: Discover and rank grants from source-backed feeds
+    const evaluation = await discoverAndEvaluateGrants(input);
 
     // Step 4: Persist assessment snapshot
     const assessment = await createEligibilityAssessmentSnapshot({
@@ -69,6 +75,14 @@ export async function evaluateProjectEligibility(
       programDecisions: evaluation.programDecisions,
       reasonCodes: evaluation.reasonCodes,
       missingRequirements: evaluation.missingRequirements,
+      discoveredGrants: evaluation.discoveredGrants as unknown as Prisma.InputJsonValue,
+      discoveryMetadata: evaluation.discoveryMetadata as unknown as Prisma.InputJsonValue,
+      discoveryProvider: evaluation.discoveryMetadata.provider,
+      discoveryEngineVersion: evaluation.discoveryMetadata.engineVersion,
+      discoveryPromptVersion: evaluation.discoveryMetadata.promptVersion,
+      discoveryScoringVersion: evaluation.discoveryMetadata.scoringVersion,
+      discoveryModelVersion: evaluation.discoveryMetadata.modelVersion,
+      discoverySourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
     });
 
     if (!assessment) {
@@ -90,11 +104,18 @@ export async function evaluateProjectEligibility(
             resourceId: assessment.id,
             projectId: project.id,
             actorUserId: performedBy.id,
-            description: `Eligibility assessment: ${evaluation.overallDecision}`,
+            description: `Eligibility discovery assessment: ${evaluation.overallDecision}`,
             metadata: {
               decision: evaluation.overallDecision,
               reasonCodes: evaluation.reasonCodes,
-              grantRulesVersion: activeRules.versionNumber,
+              discoveryProvider: evaluation.discoveryMetadata.provider,
+              engineVersion: evaluation.discoveryMetadata.engineVersion,
+              promptVersion: evaluation.discoveryMetadata.promptVersion,
+              scoringVersion: evaluation.discoveryMetadata.scoringVersion,
+              modelVersion: evaluation.discoveryMetadata.modelVersion,
+              sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
+              candidateCount: evaluation.discoveryMetadata.candidateCount,
+              returnedCount: evaluation.discoveryMetadata.returnedCount,
             },
           },
         });
@@ -113,6 +134,8 @@ export async function evaluateProjectEligibility(
       staffReasonMessages: evaluation.staffReasonMessages,
       clientReasonMessages: evaluation.clientReasonMessages,
       missingRequirements: evaluation.missingRequirements,
+      discoveredGrants: evaluation.discoveredGrants,
+      discoveryMetadata: evaluation.discoveryMetadata,
       grantRulesVersionId: activeRules.id,
       createdAt: assessment.createdAt,
     };
@@ -147,6 +170,17 @@ export async function getLatestEligibilityAssessment(projectId: string) {
       return null;
     }
 
+    const assessmentWithDiscovery = assessment as typeof assessment & {
+      discoveredGrants?: unknown;
+      discoveryMetadata?: unknown;
+      discoveryProvider?: unknown;
+      discoveryEngineVersion?: unknown;
+      discoveryPromptVersion?: unknown;
+      discoveryScoringVersion?: unknown;
+      discoveryModelVersion?: unknown;
+      discoverySourceSnapshotId?: unknown;
+    };
+
     return {
       assessmentId: assessment.id,
       projectId: assessment.projectId,
@@ -156,6 +190,21 @@ export async function getLatestEligibilityAssessment(projectId: string) {
       missingRequirements: assessment.missingRequirements as string[],
       grantRulesVersionId: assessment.grantRulesVersionId,
       grantRulesVersionNumber: assessment.grantRulesVersion?.versionNumber,
+      discoveredGrants: (assessmentWithDiscovery.discoveredGrants as DiscoveredGrant[] | null) ?? [],
+      discoveryMetadata:
+        (assessmentWithDiscovery.discoveryMetadata as GrantDiscoveryMetadata | null) ?? null,
+      discoveryProvider:
+        ((assessmentWithDiscovery.discoveryProvider as 'OPENAI' | 'HEURISTIC' | null) ?? 'HEURISTIC'),
+      discoveryEngineVersion:
+        (assessmentWithDiscovery.discoveryEngineVersion as string | null) ?? 'unknown',
+      discoveryPromptVersion:
+        (assessmentWithDiscovery.discoveryPromptVersion as string | null) ?? 'unknown',
+      discoveryScoringVersion:
+        (assessmentWithDiscovery.discoveryScoringVersion as string | null) ?? 'unknown',
+      discoveryModelVersion:
+        (assessmentWithDiscovery.discoveryModelVersion as string | null) ?? 'unknown',
+      discoverySourceSnapshotId:
+        (assessmentWithDiscovery.discoverySourceSnapshotId as string | null) ?? null,
       createdAt: assessment.createdAt,
       updatedAt: assessment.updatedAt,
     };
@@ -185,6 +234,8 @@ export async function getEligibilityAssessmentHistory(projectId: string, limit: 
       assessmentId: a.id,
       overallDecision: a.overallDecision,
       grantRulesVersionNumber: a.grantRulesVersion?.versionNumber,
+      discoveryProvider:
+        ((a as typeof a & { discoveryProvider?: string | null }).discoveryProvider ?? 'HEURISTIC'),
       createdAt: a.createdAt,
       isLatest: a.isLatest,
     }));
