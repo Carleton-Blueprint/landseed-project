@@ -71,6 +71,18 @@ export async function GET(
           reasonCodes: assessment.reasonCodes,
           missingRequirements: assessment.missingRequirements,
         },
+        discovery: {
+          provider: assessment.discoveryProvider,
+          metadata: assessment.discoveryMetadata,
+          discoveredGrants: assessment.discoveredGrants,
+          version: {
+            engineVersion: assessment.discoveryEngineVersion,
+            promptVersion: assessment.discoveryPromptVersion,
+            scoringVersion: assessment.discoveryScoringVersion,
+            modelVersion: assessment.discoveryModelVersion,
+            sourceSnapshotId: assessment.discoverySourceSnapshotId,
+          },
+        },
         grantRulesVersionNumber: assessment.grantRulesVersionNumber,
       }),
       ...(!canViewDetailedReasons && {

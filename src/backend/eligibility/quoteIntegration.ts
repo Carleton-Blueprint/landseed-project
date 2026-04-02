@@ -8,7 +8,7 @@
  * - Assessment status captured for audit trail
  */
 
-import { Quote } from '@prisma/client';
+import { Prisma, Quote } from '@prisma/client';
 import { getLatestEligibilityAssessment } from './service';
 import { prisma } from 'lib/prisma';
 
@@ -24,6 +24,9 @@ export interface QuoteWithEligibility {
   quote: Quote;
   eligibilityAssessmentId?: string;
   eligibilityDecision?: string;
+  discoveryProvider?: 'OPENAI' | 'HEURISTIC';
+  discoveryMetadata?: unknown;
+  discoveredGrants?: unknown;
 }
 
 /**
@@ -66,7 +69,17 @@ export async function generateQuoteWithEligibility(
               eligibilityAssessmentId: eligibility.assessmentId,
               eligibilityDecision: eligibility.overallDecision,
               grantRulesVersion: eligibility.grantRulesVersionNumber,
-            },
+              discoveryProvider: eligibility.discoveryProvider,
+              discoveryMetadata: eligibility.discoveryMetadata,
+              discoveredGrants: eligibility.discoveredGrants,
+              discoveryVersion: {
+                engineVersion: eligibility.discoveryEngineVersion,
+                promptVersion: eligibility.discoveryPromptVersion,
+                scoringVersion: eligibility.discoveryScoringVersion,
+                modelVersion: eligibility.discoveryModelVersion,
+                sourceSnapshotId: eligibility.discoverySourceSnapshotId,
+              },
+            } as unknown as Prisma.InputJsonValue,
           },
         });
       } catch (auditError) {
@@ -78,6 +91,9 @@ export async function generateQuoteWithEligibility(
       quote,
       eligibilityAssessmentId: eligibility?.assessmentId,
       eligibilityDecision: eligibility?.overallDecision,
+      discoveryProvider: eligibility?.discoveryProvider,
+      discoveryMetadata: eligibility?.discoveryMetadata,
+      discoveredGrants: eligibility?.discoveredGrants,
     };
   } catch (error) {
     console.error('Failed to generate quote with eligibility:', error);
@@ -109,6 +125,9 @@ export async function getQuoteWithEligibility(quoteId: string) {
       quote,
       eligibilityAssessmentId: eligibility?.assessmentId,
       eligibilityDecision: eligibility?.overallDecision,
+      discoveryProvider: eligibility?.discoveryProvider,
+      discoveryMetadata: eligibility?.discoveryMetadata,
+      discoveredGrants: eligibility?.discoveredGrants,
       eligibilityDetails: eligibility,
     };
   } catch (error) {
@@ -133,6 +152,9 @@ export async function getProjectQuotesWithEligibility(projectId: string) {
       quote,
       eligibilityAssessmentId: eligibility?.assessmentId,
       eligibilityDecision: eligibility?.overallDecision,
+      discoveryProvider: eligibility?.discoveryProvider,
+      discoveryMetadata: eligibility?.discoveryMetadata,
+      discoveredGrants: eligibility?.discoveredGrants,
     }));
   } catch (error) {
     console.error('Failed to retrieve quotes with eligibility:', error);
