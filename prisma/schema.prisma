@@ -336,6 +336,14 @@ model EligibilityAssessment {
   programDecisions    Json
   reasonCodes         Json
   missingRequirements Json
+  discoveredGrants    Json?
+  discoveryMetadata   Json?
+  discoveryProvider   String?
+  discoveryEngineVersion String?
+  discoveryPromptVersion String?
+  discoveryScoringVersion String?
+  discoveryModelVersion String?
+  discoverySourceSnapshotId String?
   isLatest            Boolean             @default(true)
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
