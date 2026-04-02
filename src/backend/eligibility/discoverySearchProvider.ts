@@ -202,7 +202,7 @@ function buildSearchQuery(input: EligibilityInput): string {
 }
 
 // ---------------------------------------------------------------------------
-// Catalog / source loading (used for heuristic fallback)
+// Catalog / source loading
 // ---------------------------------------------------------------------------
 
 function parseCatalogPayload(raw: unknown, sourceHint?: string): GrantDiscoverySourceEntry[] {
@@ -263,12 +263,24 @@ function parseCatalogPayload(raw: unknown, sourceHint?: string): GrantDiscoveryS
   return parsed;
 }
 
+/** Maximum ms to wait for any catalog URL before treating it as a failure. */
+const CATALOG_FETCH_TIMEOUT_MS = 4000;
+
 async function fetchCatalogFromUrl(source: GrantDiscoverySourceEntry): Promise<GrantDiscoverySourceEntry[]> {
   debug('CATALOG', `Fetching: ${source.sourceUrl}`);
   try {
-    const response = await fetch(source.sourceUrl, {
-      headers: { Accept: 'application/json, text/plain;q=0.9, */*;q=0.1' },
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CATALOG_FETCH_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetch(source.sourceUrl, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json, text/plain;q=0.9, */*;q=0.1' },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!response.ok) {
       debug('CATALOG', `Fetch failed for ${source.sourceUrl}`, { status: response.status, statusText: response.statusText });
@@ -303,11 +315,25 @@ async function fetchCatalogFromUrl(source: GrantDiscoverySourceEntry): Promise<G
     debug('CATALOG', `HTML-backed entry for ${source.sourceUrl}`, { title: htmlEntry.title });
     return [htmlEntry];
   } catch (err) {
-    debug('CATALOG', `Exception fetching ${source.sourceUrl}`, { error: String(err) });
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    debug('CATALOG', `${isTimeout ? 'Timeout' : 'Exception'} fetching ${source.sourceUrl}`, { error: String(err) });
     return [];
   }
 }
 
+/**
+ * Load discovery sources by attempting to enrich each static catalog entry
+ * with live content from its URL.
+ *
+ * Key behaviour change vs. the original:
+ * - Every static entry is ALWAYS preserved, regardless of fetch outcome.
+ * - A successful fetch only enriches `title`, `summary`, and `content` on
+ *   the static entry — all structured fields (keywords, eligibleModificationCodes,
+ *   requiresOwnerOccupied, etc.) are kept from the static catalog.
+ * - 404s, exceptions, and empty responses silently fall back to the static entry.
+ *
+ * This means dead URLs no longer silently drop grants from heuristic scoring.
+ */
 async function loadDiscoverySources(): Promise<GrantDiscoverySourceEntry[]> {
   debug('SOURCES', `Fallback catalog size: ${DISCOVERY_FALLBACK_SOURCE_CATALOG.length}`);
 
@@ -316,15 +342,37 @@ async function loadDiscoverySources(): Promise<GrantDiscoverySourceEntry[]> {
   );
   debug('SOURCES', `Live sources with valid URLs: ${liveSources.length}`);
 
-  const fetched = (await Promise.all(liveSources.map(fetchCatalogFromUrl))).flat();
+  // Fetch all sources in parallel, tracking which static entry each belongs to
+  const fetchResults = await Promise.all(
+    liveSources.map(async (source) => {
+      const fetched = await fetchCatalogFromUrl(source);
+      return { source, fetched };
+    })
+  );
 
-  if (fetched.length > 0) {
-    debug('SOURCES', `Using ${fetched.length} fetched sources`);
-    return fetched;
-  }
+  // Merge: enrich the static entry with live content where available,
+  // but ALWAYS return the static entry as the base so no grants are dropped.
+  const merged: GrantDiscoverySourceEntry[] = fetchResults.map(({ source, fetched }) => {
+    if (fetched.length === 0) {
+      // Fetch failed (404, exception, empty) — use static entry as-is
+      debug('SOURCES', `Static fallback used for: ${source.id} (fetch returned nothing)`);
+      return source;
+    }
 
-  debug('SOURCES', `Fetch returned nothing — using static fallback catalog (${DISCOVERY_FALLBACK_SOURCE_CATALOG.length} entries)`);
-  return DISCOVERY_FALLBACK_SOURCE_CATALOG;
+    // Enrich only the content/display fields — preserve all structured eligibility fields
+    const live = fetched[0];
+    const enriched: GrantDiscoverySourceEntry = {
+      ...source,                                        // base: all structured fields from static catalog
+      title: live.title ?? source.title,                // live title if available
+      summary: live.summary ?? source.summary,          // live meta description if available
+      content: live.content ?? source.content,          // live HTML body for better text-overlap scoring
+    };
+    debug('SOURCES', `Enriched with live content: ${source.id}`);
+    return enriched;
+  });
+
+  debug('SOURCES', `Returning ${merged.length} merged source entries (${merged.length - liveSources.length} static-only)`);
+  return merged;
 }
 
 function calculateSourceSnapshotId(sources: GrantDiscoverySourceEntry[]): string {
