@@ -8,6 +8,7 @@ import { enqueueNotification } from '@/backend/notifications/enqueue';
 import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
 import {
   logPricingDecisionAuditNonBlocking,
+  normalizePricingDecisionAuditMetadata,
   type PricingAuditSourceReference,
 } from '@/backend/audit/pricing';
 
@@ -28,6 +29,15 @@ interface QuoteResult {
   total: number;
   pricingMatrixVersion: number;
   eligibilityAssessmentId?: string;
+}
+
+interface PricingDecisionAuditTrailEntry {
+  auditEventId: string;
+  action: string;
+  outcome: string;
+  createdAt: Date;
+  actor?: { id: string; name: string | null; email: string | null } | null;
+  metadata: ReturnType<typeof normalizePricingDecisionAuditMetadata>;
 }
 
 async function getActivePricingMatrixVersion() {
@@ -240,6 +250,8 @@ export async function getQuoteAuditHistory(quoteId: string) {
     throw new Error('Quote not found');
   }
 
+  const pricingDecisionAudit = await getPricingDecisionAuditTrail({ quoteId, limit: 20 });
+
   return {
     quote: {
       id: quote.id,
@@ -256,7 +268,46 @@ export async function getQuoteAuditHistory(quoteId: string) {
       },
       eligibilityAssessment: quote.eligibilityAssessment,
     },
+    pricingDecisionAudit,
   };
+}
+
+export async function getPricingDecisionAuditTrail(options: {
+  quoteId?: string;
+  projectId?: string;
+  limit?: number;
+} = {}): Promise<PricingDecisionAuditTrailEntry[]> {
+  const { quoteId, projectId, limit = 50 } = options;
+
+  const events = await prisma.auditEvent.findMany({
+    where: {
+      action: 'PRICING_DECISION_GENERATED',
+      ...(quoteId ? { quoteId } : {}),
+      ...(projectId ? { projectId } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    include: {
+      actorUser: {
+        select: { id: true, name: true, email: true },
+      },
+    },
+  });
+
+  return events.map((event) => ({
+    auditEventId: event.id,
+    action: event.action,
+    outcome: event.outcome,
+    createdAt: event.createdAt,
+    actor: event.actorUser
+      ? {
+          id: event.actorUser.id,
+          name: event.actorUser.name,
+          email: event.actorUser.email,
+        }
+      : null,
+    metadata: normalizePricingDecisionAuditMetadata(event.metadata),
+  }));
 }
 
 export async function getPricingMatrixAuditTrail(limit = 50) {

@@ -44,6 +44,71 @@ export interface PricingDecisionAuditInput {
   externalSources?: PricingAuditSourceReference[];
 }
 
+export interface PricingDecisionAuditMetadata {
+  pricing: {
+    matrixVersionId: string;
+    matrixVersionNumber?: number;
+    subtotal: number;
+    total: number;
+  };
+  eligibilityAssessmentId: string | null;
+  discoveryVersion: {
+    engineVersion?: string;
+    promptVersion?: string;
+    scoringVersion?: string;
+    modelVersion?: string;
+    sourceSnapshotId?: string | null;
+  } | null;
+  aiOutput: PricingAuditAiOutput | null;
+  externalSources: PricingAuditSourceReference[];
+  externalSourceCount: number;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+export function normalizePricingDecisionAuditMetadata(
+  metadata: unknown
+): PricingDecisionAuditMetadata | null {
+  const record = asRecord(metadata);
+  if (!record) return null;
+
+  const pricing = asRecord(record.pricing);
+  if (!pricing) return null;
+
+  const externalSources = Array.isArray(record.externalSources)
+    ? (record.externalSources as PricingAuditSourceReference[])
+    : [];
+
+  return {
+    pricing: {
+      matrixVersionId:
+        typeof pricing.matrixVersionId === 'string' ? pricing.matrixVersionId : 'unknown',
+      matrixVersionNumber:
+        typeof pricing.matrixVersionNumber === 'number'
+          ? pricing.matrixVersionNumber
+          : undefined,
+      subtotal: typeof pricing.subtotal === 'number' ? pricing.subtotal : 0,
+      total: typeof pricing.total === 'number' ? pricing.total : 0,
+    },
+    eligibilityAssessmentId:
+      typeof record.eligibilityAssessmentId === 'string'
+        ? record.eligibilityAssessmentId
+        : null,
+    discoveryVersion:
+      asRecord(record.discoveryVersion) as PricingDecisionAuditMetadata['discoveryVersion'],
+    aiOutput: asRecord(record.aiOutput) as PricingAuditAiOutput | null,
+    externalSources,
+    externalSourceCount:
+      typeof record.externalSourceCount === 'number'
+        ? record.externalSourceCount
+        : externalSources.length,
+  };
+}
+
 function dedupeExternalSources(
   sources: PricingAuditSourceReference[] | undefined
 ): PricingAuditSourceReference[] {
