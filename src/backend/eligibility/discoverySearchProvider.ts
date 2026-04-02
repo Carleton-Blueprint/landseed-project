@@ -62,6 +62,11 @@ export interface GrantDiscoveryMetadataOverrides
 
 interface LlmGrantDecision {
   grantId: string;
+  title: string;
+  scope: GrantDiscoveryScope;
+  jurisdiction: string;
+  sourceUrl: string | null;
+  summary: string;
   score: number;
   decision: EligibilityDecision;
   matchedCriteria: string[];
@@ -80,6 +85,10 @@ interface DiscoveryCandidateEvaluation {
   rationale: string;
 }
 
+// ---------------------------------------------------------------------------
+// Hashing / versioning helpers
+// ---------------------------------------------------------------------------
+
 function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex').slice(0, 12);
 }
@@ -93,9 +102,10 @@ function readVersionedFile(relativePath: string): string {
   }
 }
 
-function resolveAutomaticVersions(): Omit<GrantDiscoveryMetadata, 'provider' | 'query' | 'searchedScopes' | 'candidateCount' | 'returnedCount' | 'executedAt' | 'sourceSnapshotId'> & {
-  sourceSnapshotId: string;
-} {
+function resolveAutomaticVersions(): Omit<
+  GrantDiscoveryMetadata,
+  'provider' | 'query' | 'searchedScopes' | 'candidateCount' | 'returnedCount' | 'executedAt' | 'sourceSnapshotId'
+> & { sourceSnapshotId: string } {
   const engineSource = readVersionedFile('src/backend/eligibility/discoverySearchProvider.ts');
   const promptSource = readVersionedFile('src/backend/eligibility/discoveryPrompt.ts');
   const scoringSource = readVersionedFile('src/backend/eligibility/discoveryScoringConfig.ts');
@@ -107,14 +117,12 @@ function resolveAutomaticVersions(): Omit<GrantDiscoveryMetadata, 'provider' | '
   const modelVersion = modelSource ? hashContent(modelSource) : 'unknown';
   const sourceSnapshotId = hashContent([engineVersion, promptVersion, scoringVersion, modelVersion].join('|'));
 
-  return {
-    engineVersion,
-    promptVersion,
-    scoringVersion,
-    modelVersion,
-    sourceSnapshotId,
-  };
+  return { engineVersion, promptVersion, scoringVersion, modelVersion, sourceSnapshotId };
 }
+
+// ---------------------------------------------------------------------------
+// Text utilities
+// ---------------------------------------------------------------------------
 
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -122,62 +130,99 @@ function normalizeText(value: string): string {
 
 function tokenize(value: string): string[] {
   const normalized = normalizeText(value);
-  if (!normalized) {
-    return [];
-  }
-
+  if (!normalized) return [];
   return Array.from(new Set(normalized.split(/\s+/).filter(Boolean)));
 }
 
 function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
+  return Array.from(new Set(values.filter((v) => v.trim().length > 0)));
 }
 
+function uniqueSourceUrls(sources: GrantDiscoverySourceEntry[]): string[] {
+  return Array.from(new Set(sources.map((s) => s.sourceUrl).filter((v) => v.trim().length > 0)));
+}
+
+function extractHtmlTitle(html: string): string | null {
+  return html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() ?? null;
+}
+
+function extractMetaDescription(html: string): string | null {
+  return (
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["'][^>]*>/i)?.[1]?.trim() ?? null
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Query builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the human-readable search queries that will be handed to the AI web
+ * search tool.  We generate one query per scope so the model can search
+ * municipal, provincial, and national programs independently.
+ */
+function buildSearchQueries(input: EligibilityInput): { scope: GrantDiscoveryScope; query: string }[] {
+  const province = input.required.province ?? 'Canada';
+  const mods = input.required.modificationCodes.join(', ') || 'accessibility modifications';
+
+  return [
+    {
+      scope: 'NATIONAL' as GrantDiscoveryScope,
+      query: `Canada national home accessibility grant program ${mods} 2024 2025`,
+    },
+    {
+      scope: 'PROVINCIAL' as GrantDiscoveryScope,
+      query: `${province} provincial home accessibility grant program ${mods} 2024 2025`,
+    },
+    {
+      scope: 'MUNICIPAL' as GrantDiscoveryScope,
+      query: `${province} municipal city home accessibility grant program ${mods} 2024 2025`,
+    },
+  ];
+}
+
+/** Legacy single-string query kept for metadata / heuristic path. */
 function buildSearchQuery(input: EligibilityInput): string {
   const province = input.required.province ?? 'unknown-province';
   const ownership = input.required.ownershipStatus ?? 'unknown-ownership';
   const modifications = input.required.modificationCodes.join(',') || 'general-accessibility';
-
-  return [
-    'home accessibility grants',
-    `province:${province}`,
-    `ownership:${ownership}`,
-    `modifications:${modifications}`,
-  ].join(' | ');
+  return ['home accessibility grants', `province:${province}`, `ownership:${ownership}`, `modifications:${modifications}`].join(' | ');
 }
+
+// ---------------------------------------------------------------------------
+// Catalog / source loading (used for heuristic fallback)
+// ---------------------------------------------------------------------------
 
 function parseCatalogPayload(raw: unknown, sourceHint?: string): GrantDiscoverySourceEntry[] {
   const rawEntries = Array.isArray(raw)
     ? raw
     : raw && typeof raw === 'object' && !Array.isArray(raw)
-      ? Array.isArray((raw as { grants?: unknown }).grants)
-        ? (raw as { grants: unknown[] }).grants
-        : Array.isArray((raw as { sources?: unknown }).sources)
-          ? (raw as { sources: unknown[] }).sources
-          : []
-      : [];
+    ? Array.isArray((raw as { grants?: unknown }).grants)
+      ? (raw as { grants: unknown[] }).grants
+      : Array.isArray((raw as { sources?: unknown }).sources)
+      ? (raw as { sources: unknown[] }).sources
+      : []
+    : [];
 
   const parsed: GrantDiscoverySourceEntry[] = [];
 
   for (const candidate of rawEntries) {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-      continue;
-    }
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
 
     const record = candidate as Record<string, unknown>;
     const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : null;
     const title = typeof record.title === 'string' && record.title.trim() ? record.title.trim() : null;
     const scope = typeof record.scope === 'string' ? record.scope.trim().toUpperCase() : null;
-    const jurisdiction = typeof record.jurisdiction === 'string' && record.jurisdiction.trim()
-      ? record.jurisdiction.trim().toUpperCase()
-      : null;
-    const sourceUrl = typeof record.sourceUrl === 'string' && record.sourceUrl.trim()
-      ? record.sourceUrl.trim()
-      : sourceHint ?? null;
+    const jurisdiction =
+      typeof record.jurisdiction === 'string' && record.jurisdiction.trim()
+        ? record.jurisdiction.trim().toUpperCase()
+        : null;
+    const sourceUrl =
+      typeof record.sourceUrl === 'string' && record.sourceUrl.trim()
+        ? record.sourceUrl.trim()
+        : sourceHint ?? null;
 
-    if (!id || !title || !scope || !jurisdiction || !sourceUrl) {
-      continue;
-    }
+    if (!id || !title || !scope || !jurisdiction || !sourceUrl) continue;
 
     parsed.push({
       id,
@@ -191,10 +236,10 @@ function parseCatalogPayload(raw: unknown, sourceHint?: string): GrantDiscoveryS
           : 'Grant discovered from a source-backed catalog.',
       content: typeof record.content === 'string' ? record.content : undefined,
       keywords: Array.isArray(record.keywords)
-        ? record.keywords.filter((item): item is string => typeof item === 'string')
+        ? record.keywords.filter((k): k is string => typeof k === 'string')
         : undefined,
       eligibleModificationCodes: Array.isArray(record.eligibleModificationCodes)
-        ? record.eligibleModificationCodes.filter((item): item is string => typeof item === 'string')
+        ? record.eligibleModificationCodes.filter((k): k is string => typeof k === 'string')
         : undefined,
       requiresOwnerOccupied:
         typeof record.requiresOwnerOccupied === 'boolean' ? record.requiresOwnerOccupied : undefined,
@@ -206,94 +251,70 @@ function parseCatalogPayload(raw: unknown, sourceHint?: string): GrantDiscoveryS
   return parsed;
 }
 
-async function fetchCatalogFromUrl(url: string): Promise<GrantDiscoverySourceEntry[]> {
+async function fetchCatalogFromUrl(source: GrantDiscoverySourceEntry): Promise<GrantDiscoverySourceEntry[]> {
   try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/json, text/plain;q=0.9, */*;q=0.1',
-      },
+    const response = await fetch(source.sourceUrl, {
+      headers: { Accept: 'application/json, text/plain;q=0.9, */*;q=0.1' },
     });
-
-    if (!response.ok) {
-      return [];
-    }
+    if (!response.ok) return [];
 
     const bodyText = await response.text();
     const trimmed = bodyText.trim();
-    if (!trimmed) {
-      return [];
-    }
+    if (!trimmed) return [];
 
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       try {
-        return parseCatalogPayload(JSON.parse(trimmed), url);
+        const parsed = parseCatalogPayload(JSON.parse(trimmed), source.sourceUrl);
+        if (parsed.length > 0) return parsed;
       } catch {
-        return [];
+        // fall through
       }
     }
 
-    return [];
+    return [
+      {
+        ...source,
+        title: extractHtmlTitle(trimmed) ?? source.title,
+        summary: extractMetaDescription(trimmed) ?? source.summary,
+        content: trimmed,
+      },
+    ];
   } catch {
     return [];
   }
 }
 
 async function loadDiscoverySources(): Promise<GrantDiscoverySourceEntry[]> {
-  const sourceUrlsRaw = process.env.GRANT_DISCOVERY_SOURCE_URLS_JSON;
-  if (sourceUrlsRaw) {
-    try {
-      const parsed = JSON.parse(sourceUrlsRaw) as unknown;
-      const urls = Array.isArray(parsed)
-        ? parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-        : [];
-
-      const fetched = (
-        await Promise.all(urls.map(async (url) => fetchCatalogFromUrl(url.trim())))
-      ).flat();
-
-      if (fetched.length > 0) {
-        return fetched;
-      }
-    } catch {
-      // Fall through to the local catalog.
-    }
-  }
-
-  const catalogRaw = process.env.GRANT_DISCOVERY_SOURCE_CATALOG_JSON;
-  if (catalogRaw) {
-    try {
-      const parsed = JSON.parse(catalogRaw) as unknown;
-      const catalog = parseCatalogPayload(parsed);
-      if (catalog.length > 0) {
-        return catalog;
-      }
-    } catch {
-      // Fall through to the local catalog.
-    }
-  }
-
-  return DISCOVERY_FALLBACK_SOURCE_CATALOG;
+  const liveSources = DISCOVERY_FALLBACK_SOURCE_CATALOG.filter(
+    (source) => uniqueSourceUrls([source]).length > 0
+  );
+  const fetched = (await Promise.all(liveSources.map(fetchCatalogFromUrl))).flat();
+  return fetched.length > 0 ? fetched : DISCOVERY_FALLBACK_SOURCE_CATALOG;
 }
 
 function calculateSourceSnapshotId(sources: GrantDiscoverySourceEntry[]): string {
   const normalized = sources
-    .map((source) => ({
-      id: source.id,
-      title: source.title,
-      scope: source.scope,
-      jurisdiction: source.jurisdiction,
-      sourceUrl: source.sourceUrl,
-      summary: source.summary,
-      content: source.content ?? '',
-      keywords: uniqueStrings(source.keywords ?? []).sort(),
-      eligibleModificationCodes: uniqueStrings(source.eligibleModificationCodes ?? []).sort(),
-      requiresOwnerOccupied: source.requiresOwnerOccupied ?? false,
-      requiresConsentConfirmed: source.requiresConsentConfirmed ?? true,
+    .map((s) => ({
+      id: s.id,
+      title: s.title,
+      scope: s.scope,
+      jurisdiction: s.jurisdiction,
+      sourceUrl: s.sourceUrl,
+      summary: s.summary,
+      content: s.content ?? '',
+      keywords: uniqueStrings(s.keywords ?? []).sort(),
+      eligibleModificationCodes: uniqueStrings(s.eligibleModificationCodes ?? []).sort(),
+      requiresOwnerOccupied: s.requiresOwnerOccupied ?? false,
+      requiresConsentConfirmed: s.requiresConsentConfirmed ?? true,
     }))
     .sort((a, b) => a.id.localeCompare(b.id));
 
   return hashContent(JSON.stringify(normalized));
 }
+
+// ---------------------------------------------------------------------------
+// Heuristic scorer (used when AI is disabled / unavailable)
+// ---------------------------------------------------------------------------
 
 function scoreCandidate(
   input: EligibilityInput,
@@ -308,7 +329,7 @@ function scoreCandidate(
   const candidateText = tokenize(
     [source.title, source.summary, source.content ?? '', ...(source.keywords ?? [])].join(' ')
   );
-  const textOverlap = queryTokens.filter((token) => candidateText.includes(token));
+  const textOverlap = queryTokens.filter((t) => candidateText.includes(t));
 
   if (source.scope === 'NATIONAL') {
     score += DISCOVERY_SCORING_CONFIG.nationalScopePoints;
@@ -334,8 +355,8 @@ function scoreCandidate(
     missingCriteria.push('no_text_overlap');
   }
 
-  const keywordOverlapCount = uniqueStrings(source.keywords ?? []).filter((keyword) =>
-    queryTokens.includes(normalizeText(keyword))
+  const keywordOverlapCount = uniqueStrings(source.keywords ?? []).filter((kw) =>
+    queryTokens.includes(normalizeText(kw))
   ).length;
 
   if (keywordOverlapCount > 0) {
@@ -420,24 +441,136 @@ function scoreCandidate(
       decision === EligibilityDecision.ELIGIBLE
         ? 'High criteria overlap across jurisdiction, scope, text search, ownership, consent, and requested modifications.'
         : decision === EligibilityDecision.NEEDS_MORE_INFO
-          ? 'Partial eligibility indicators found, but additional data or criteria alignment is required.'
-          : 'Current project profile does not meet enough grant criteria to recommend eligibility.',
+        ? 'Partial eligibility indicators found, but additional data or criteria alignment is required.'
+        : 'Current project profile does not meet enough grant criteria to recommend eligibility.',
   };
 }
 
+// ---------------------------------------------------------------------------
+// AI web-search discovery  ← THE KEY CHANGE
+// ---------------------------------------------------------------------------
+
+/**
+ * Uses the OpenAI `web_search_preview` tool so the model actively searches the
+ * web for real grant programs instead of re-scoring a static catalog.
+ *
+ * The model is asked to return a JSON object with a `decisions` array whose
+ * shape matches `LlmGrantDecision`.  Each element represents one real grant
+ * program it found online, complete with a live `sourceUrl`.
+ */
+async function tryOpenAiWebSearch(
+  input: EligibilityInput,
+  fallbackCandidates: DiscoveryCandidateEvaluation[]
+): Promise<LlmGrantDecision[] | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const enabled = (process.env.GRANT_DISCOVERY_AI_ENABLED ?? 'true').toLowerCase();
+  if (enabled === 'false') return null;
+
+  const scopedQueries = buildSearchQueries(input);
+
+  const profile = {
+    province: input.required.province,
+    ownershipStatus: input.required.ownershipStatus,
+    consentConfirmed: input.required.clientConsentConfirmed,
+    modificationCodes: input.required.modificationCodes,
+    missingFields: input.missingRequiredFields,
+  };
+
+  /**
+   * The system prompt (imported from discoveryPrompt.ts) should instruct the
+   * model to:
+   *   1. Use the web_search tool to search for grants matching the queries.
+   *   2. Evaluate each found grant against the applicant profile.
+   *   3. Return ONLY a JSON object: { "decisions": [ ...LlmGrantDecision ] }
+   *
+   * The queries are embedded in the user message so the model knows exactly
+   * what to search for at each scope level.
+   */
+  const userMessage = JSON.stringify({
+    profile,
+    searchQueries: scopedQueries,
+    instructions:
+      'Search the web using each query in searchQueries. For every real grant program you find, ' +
+      'evaluate it against the applicant profile and include it in the decisions array. ' +
+      'Assign a unique grantId (snake_case), set scope to MUNICIPAL/PROVINCIAL/NATIONAL, ' +
+      'set jurisdiction to the ISO province code (e.g. "ON") or "CA" for national programs, ' +
+      'and include the live sourceUrl where the grant was found. ' +
+      'Return ONLY valid JSON: { "decisions": [ ...grant objects ] }',
+    // Provide fallback catalog IDs so the model can also re-assess known sources
+    knownCandidates: fallbackCandidates.map((c) => ({
+      grantId: c.source.id,
+      title: c.source.title,
+      scope: c.source.scope,
+      jurisdiction: c.source.jurisdiction,
+      sourceUrl: c.source.sourceUrl,
+      baselineScore: c.score,
+    })),
+  });
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: DISCOVERY_MODEL_NAME, // Should be "gpt-4o" or "gpt-4o-mini" — must support tools
+      temperature: 0,
+      // ↓ This is the critical addition: give the model a real web search tool
+      tools: [
+        {
+          type: 'web_search_preview',
+        },
+      ],
+      tool_choice: 'auto',
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: DISCOVERY_SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
+    }),
+  });
+
+  if (!response.ok) return null;
+
+  const body = (await response.json().catch(() => null)) as {
+    choices?: Array<{ message?: { content?: string | null } }>;
+  } | null;
+
+  const content = body?.choices?.[0]?.message?.content;
+  if (!content) return null;
+
+  let parsed: { decisions?: LlmGrantDecision[] } | null = null;
+  try {
+    parsed = JSON.parse(content) as { decisions?: LlmGrantDecision[] };
+  } catch {
+    return null;
+  }
+
+  if (!Array.isArray(parsed.decisions)) return null;
+
+  return parsed.decisions.filter(
+    (item) =>
+      typeof item.grantId === 'string' &&
+      typeof item.score === 'number' &&
+      typeof item.decision === 'string' &&
+      Array.isArray(item.matchedCriteria) &&
+      Array.isArray(item.missingCriteria) &&
+      typeof item.rationale === 'string'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Result assembly
+// ---------------------------------------------------------------------------
+
 function summarizeOverallDecision(grants: DiscoveryCandidateEvaluation[]): EligibilityDecision {
-  if (grants.some((grant) => grant.decision === EligibilityDecision.ELIGIBLE)) {
-    return EligibilityDecision.ELIGIBLE;
-  }
-
-  if (grants.some((grant) => grant.decision === EligibilityDecision.NEEDS_MORE_INFO)) {
+  if (grants.some((g) => g.decision === EligibilityDecision.ELIGIBLE)) return EligibilityDecision.ELIGIBLE;
+  if (grants.some((g) => g.decision === EligibilityDecision.NEEDS_MORE_INFO))
     return EligibilityDecision.NEEDS_MORE_INFO;
-  }
-
-  if (grants.length === 0) {
-    return EligibilityDecision.MANUAL_REVIEW;
-  }
-
+  if (grants.length === 0) return EligibilityDecision.MANUAL_REVIEW;
   return EligibilityDecision.INELIGIBLE;
 }
 
@@ -454,11 +587,10 @@ function buildMessages(
   } else {
     reasonCodes.push('GRANTS_DISCOVERED');
     reasonCodes.push(
-      discovered.some((grant) => grant.decision === EligibilityDecision.ELIGIBLE)
+      discovered.some((g) => g.decision === EligibilityDecision.ELIGIBLE)
         ? 'AT_LEAST_ONE_GRANT_ELIGIBLE'
         : 'NO_IMMEDIATE_GRANT_MATCHES'
     );
-
     staff.push(`Discovered ${discovered.length} grant programs across municipal/provincial/national scopes.`);
   }
 
@@ -466,108 +598,12 @@ function buildMessages(
     overallDecision === EligibilityDecision.ELIGIBLE
       ? ['We found grant programs that match your project profile.']
       : overallDecision === EligibilityDecision.NEEDS_MORE_INFO
-        ? ['We found possible grants, but we need more information to confirm eligibility.']
-        : overallDecision === EligibilityDecision.MANUAL_REVIEW
-          ? ['Your grant eligibility requires manual review by staff.']
-          : ['We could not find a strong grant eligibility match based on current details.'];
+      ? ['We found possible grants, but we need more information to confirm eligibility.']
+      : overallDecision === EligibilityDecision.MANUAL_REVIEW
+      ? ['Your grant eligibility requires manual review by staff.']
+      : ['We could not find a strong grant eligibility match based on current details.'];
 
   return { staff, client, reasonCodes };
-}
-
-async function tryOpenAiRefinement(
-  input: EligibilityInput,
-  candidates: DiscoveryCandidateEvaluation[]
-): Promise<LlmGrantDecision[] | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
-
-  const enabled = (process.env.GRANT_DISCOVERY_AI_ENABLED ?? 'true').toLowerCase();
-  if (enabled === 'false') {
-    return null;
-  }
-
-  const prompt = {
-    profile: {
-      province: input.required.province,
-      ownershipStatus: input.required.ownershipStatus,
-      consentConfirmed: input.required.clientConsentConfirmed,
-      modificationCodes: input.required.modificationCodes,
-      missingFields: input.missingRequiredFields,
-    },
-    candidates: candidates.map((candidate) => ({
-      grantId: candidate.source.id,
-      title: candidate.source.title,
-      scope: candidate.source.scope,
-      jurisdiction: candidate.source.jurisdiction,
-      sourceUrl: candidate.source.sourceUrl,
-      summary: candidate.source.summary,
-      eligibleModificationCodes: candidate.source.eligibleModificationCodes,
-      baselineScore: candidate.score,
-      baselineDecision: candidate.decision,
-      baselineMatchedCriteria: candidate.matchedCriteria,
-      baselineMissingCriteria: candidate.missingCriteria,
-    })),
-  };
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DISCOVERY_MODEL_NAME,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: DISCOVERY_SYSTEM_PROMPT,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(prompt),
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const body = (await response.json().catch(() => null)) as {
-    choices?: Array<{ message?: { content?: string | null } }>;
-  } | null;
-
-  const content = body?.choices?.[0]?.message?.content;
-  if (!content) {
-    return null;
-  }
-
-  let parsed: { decisions?: LlmGrantDecision[] } | null = null;
-  try {
-    parsed = JSON.parse(content) as { decisions?: LlmGrantDecision[] };
-  } catch {
-    return null;
-  }
-
-  if (!Array.isArray(parsed.decisions)) {
-    return null;
-  }
-
-  return parsed.decisions.filter((item) => {
-    return (
-      typeof item.grantId === 'string' &&
-      typeof item.score === 'number' &&
-      typeof item.decision === 'string' &&
-      Array.isArray(item.matchedCriteria) &&
-      Array.isArray(item.missingCriteria) &&
-      typeof item.rationale === 'string'
-    );
-  });
 }
 
 function buildDiscoveryResult(
@@ -603,7 +639,7 @@ function buildDiscoveryResult(
   });
 
   const programDecisions = Object.fromEntries(
-    discoveredGrants.map((grant) => [grant.grantId, grant.decision])
+    discoveredGrants.map((g) => [g.grantId, g.decision])
   );
 
   return {
@@ -612,7 +648,7 @@ function buildDiscoveryResult(
     reasonCodes: messageSet.reasonCodes,
     staffReasonMessages: [
       ...messageSet.staff,
-      ...discoveredGrants.map((grant) => `${grant.title}: ${grant.decision} (${grant.relevanceScore}/100)`),
+      ...discoveredGrants.map((g) => `${g.title}: ${g.decision} (${g.relevanceScore}/100)`),
     ],
     clientReasonMessages: messageSet.client,
     missingRequirements: input.missingRequiredFields.map(String),
@@ -621,14 +657,20 @@ function buildDiscoveryResult(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
 export async function discoverAndEvaluateGrants(
   input: EligibilityInput
 ): Promise<GrantDiscoveryEvaluationResult> {
+  // Step 1: Load static/catalog sources for heuristic baseline
   const sources = await loadDiscoverySources();
   const query = buildSearchQuery(input);
   const queryTokens = tokenize(query);
 
-  const initial = sources
+  // Step 2: Heuristic scoring of catalog sources (always runs, used as fallback)
+  const heuristicCandidates = sources
     .map((source) => scoreCandidate(input, source, queryTokens))
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
@@ -636,51 +678,59 @@ export async function discoverAndEvaluateGrants(
   const sourceSnapshotId = calculateSourceSnapshotId(sources);
 
   let provider: GrantDiscoveryProvider = 'HEURISTIC';
-  let enriched = initial;
+  let finalCandidates = heuristicCandidates;
 
   try {
-    const llmDecisions = await tryOpenAiRefinement(input, initial);
+    // Step 3: AI web search — finds REAL grants from the live web
+    const llmDecisions = await tryOpenAiWebSearch(input, heuristicCandidates);
+
     if (llmDecisions && llmDecisions.length > 0) {
       provider = 'OPENAI';
-      const llmMap = new Map(llmDecisions.map((decision) => [decision.grantId, decision]));
 
-      enriched = initial.map((item) => {
-        const llm = llmMap.get(item.source.id);
-        if (!llm) {
-          return item;
-        }
+      // Convert AI-discovered grants into DiscoveryCandidateEvaluation shape
+      // so the rest of the pipeline stays unchanged.
+      const aiCandidates: DiscoveryCandidateEvaluation[] = llmDecisions.map((llm) => ({
+        source: {
+          // Synthesize a GrantDiscoverySourceEntry from the AI response
+          id: llm.grantId,
+          title: llm.title ?? llm.grantId,
+          scope: (llm.scope as GrantDiscoveryScope) ?? 'NATIONAL',
+          jurisdiction: llm.jurisdiction ?? 'CA',
+          sourceUrl: llm.sourceUrl ?? '',
+          summary: llm.summary ?? llm.rationale,
+        },
+        score: Math.max(0, Math.min(100, Math.round(llm.score))),
+        decision: llm.decision,
+        matchedCriteria: llm.matchedCriteria,
+        missingCriteria: llm.missingCriteria,
+        confidence: llm.confidence ?? 'MEDIUM',
+        rationale: llm.rationale,
+      }));
 
-        return {
-          ...item,
-          score: Math.max(0, Math.min(100, Math.round(llm.score))),
-          decision: llm.decision,
-          matchedCriteria: llm.matchedCriteria,
-          missingCriteria: llm.missingCriteria,
-          confidence: llm.confidence,
-          rationale: llm.rationale,
-        };
-      });
+      // Merge: prefer AI results; keep heuristic results for any grantId not
+      // returned by the AI (so known catalog entries aren't silently dropped).
+      const aiIds = new Set(aiCandidates.map((c) => c.source.id));
+      const heuristicOnly = heuristicCandidates.filter((c) => !aiIds.has(c.source.id));
+
+      finalCandidates = [...aiCandidates, ...heuristicOnly].sort((a, b) => b.score - a.score);
     }
   } catch {
+    // AI unavailable — heuristic results are already in finalCandidates
     provider = 'HEURISTIC';
   }
 
-  enriched = enriched.sort((a, b) => b.score - a.score);
-
-  return buildDiscoveryResult(input, enriched, {
+  return buildDiscoveryResult(input, finalCandidates, {
     provider,
     query,
     sourceSnapshotId,
     candidateCount: sources.length,
-    returnedCount: enriched.length,
+    returnedCount: finalCandidates.length,
     executedAt: new Date().toISOString(),
   });
 }
 
 export function createGrantDiscoverySearchProvider(): GrantDiscoverySearchProvider {
-  return {
-    discover: discoverAndEvaluateGrants,
-  };
+  return { discover: discoverAndEvaluateGrants };
 }
 
 export function resolveGrantDiscoveryMetadata(

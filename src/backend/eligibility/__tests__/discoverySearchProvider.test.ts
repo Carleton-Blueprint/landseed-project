@@ -1,8 +1,23 @@
 /// <reference types="jest" />
 
-import { describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { discoverAndEvaluateGrants, resolveGrantDiscoveryMetadata } from '../discoverySearchProvider';
 import { EligibilityDecision } from '../types';
+
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  const globalWithOptionalFetch = globalThis as typeof globalThis & {
+    fetch?: typeof fetch;
+  };
+
+  if (typeof originalFetch === 'undefined') {
+    Reflect.deleteProperty(globalWithOptionalFetch, 'fetch');
+  } else {
+    globalThis.fetch = originalFetch;
+  }
+  jest.restoreAllMocks();
+});
 
 describe('resolveGrantDiscoveryMetadata', () => {
   it('fills versioned metadata defaults', () => {
@@ -51,41 +66,56 @@ describe('resolveGrantDiscoveryMetadata', () => {
 });
 
 describe('discoverAndEvaluateGrants', () => {
-  it('loads a source catalog and ranks matching grants', async () => {
-    const originalEnv = {
-      sourceCatalog: process.env.GRANT_DISCOVERY_SOURCE_CATALOG_JSON,
-    };
+  it('fetches the built-in source URLs and ranks matching grants', async () => {
+    const originalAiEnabled = process.env.GRANT_DISCOVERY_AI_ENABLED;
+    const originalOpenAiKey = process.env.OPENAI_API_KEY;
 
-    process.env.GRANT_DISCOVERY_SOURCE_CATALOG_JSON = JSON.stringify({
-      grants: [
-        {
-          id: 'municipal-home-accessibility',
-          title: 'Municipal Home Accessibility Improvement Program',
-          scope: 'MUNICIPAL',
-          jurisdiction: 'ON',
-          sourceUrl: 'https://feeds.example.test/municipal',
-          summary: 'Municipal matching grant for low-barrier home accessibility upgrades.',
-          content: 'Supports grab bars and handrails for accessible home modifications.',
-          keywords: ['accessibility', 'home'],
-          eligibleModificationCodes: ['GRAB_BARS', 'HANDRAILS'],
-          requiresConsentConfirmed: true,
-        },
-        {
-          id: 'provincial-assistive-home',
-          title: 'Provincial Assistive Home Modification Grant',
-          scope: 'PROVINCIAL',
-          jurisdiction: 'ON',
-          sourceUrl: 'https://feeds.example.test/provincial',
-          summary: 'Provincial grant for accessibility modifications.',
-          content: 'Supports raised toilets and walk-in showers for qualifying households.',
-          keywords: ['seniors', 'accessibility'],
-          eligibleModificationCodes: ['GRAB_BARS', 'RAISED_TOILET', 'WALK_IN_SHOWER'],
-          requiresConsentConfirmed: true,
-        },
-      ],
-    });
+    process.env.GRANT_DISCOVERY_AI_ENABLED = 'false';
+    delete process.env.OPENAI_API_KEY;
 
     try {
+      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const htmlByUrl: Record<string, string> = {
+          'https://www.ontario.ca/page/accessibility': `
+            <html>
+              <head>
+                <title>Municipal Home Accessibility Improvement Program</title>
+                <meta name="description" content="Municipal matching grant for low-barrier home accessibility upgrades.">
+              </head>
+              <body>Supports grab bars and handrails for accessible home modifications.</body>
+            </html>
+          `,
+          'https://www.ontario.ca/page/home-and-community-care': `
+            <html>
+              <head>
+                <title>Provincial Assistive Home Modification Grant</title>
+                <meta name="description" content="Provincial grant for accessibility modifications.">
+              </head>
+              <body>Supports raised toilets and walk-in showers for qualifying households.</body>
+            </html>
+          `,
+          'https://www.canada.ca/en/services/benefits/disability.html': `
+            <html>
+              <head>
+                <title>National Disability and Home Accessibility Benefit</title>
+                <meta name="description" content="Federal support for medically necessary residential accessibility improvements.">
+              </head>
+              <body>Supports accessibility improvements for eligible Canadians requiring residential modifications.</body>
+            </html>
+          `,
+        };
+
+        return new Response(htmlByUrl[url] ?? '<html><head><title>Fallback</title></head><body></body></html>', {
+          status: 200,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+        });
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
       const result = await discoverAndEvaluateGrants({
         project: {
           projectId: 'project-1',
@@ -116,21 +146,28 @@ describe('discoverAndEvaluateGrants', () => {
         malformedDraftFields: [],
       });
 
+      expect(fetchMock).toHaveBeenCalledTimes(3);
       expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
-      expect(result.discoveryMetadata.candidateCount).toBe(2);
-      expect(result.discoveryMetadata.returnedCount).toBe(2);
+      expect(result.discoveryMetadata.candidateCount).toBe(3);
+      expect(result.discoveryMetadata.returnedCount).toBe(3);
       expect(result.discoveryMetadata.sourceSnapshotId).toMatch(/^[a-f0-9]{12}$/);
       expect(result.discoveredGrants.map((grant) => grant.grantId)).toEqual(
-        expect.arrayContaining(['municipal-home-accessibility', 'provincial-assistive-home'])
+        expect.arrayContaining(['municipal-home-accessibility', 'provincial-assistive-home', 'national-disability-home'])
       );
       expect(result.discoveredGrants.some((grant) => grant.decision === EligibilityDecision.ELIGIBLE)).toBe(true);
       expect(result.reasonCodes).toContain('GRANTS_DISCOVERED');
       expect(result.reasonCodes).toContain('AT_LEAST_ONE_GRANT_ELIGIBLE');
     } finally {
-      if (typeof originalEnv.sourceCatalog === 'undefined') {
-        delete process.env.GRANT_DISCOVERY_SOURCE_CATALOG_JSON;
+      if (typeof originalAiEnabled === 'undefined') {
+        delete process.env.GRANT_DISCOVERY_AI_ENABLED;
       } else {
-        process.env.GRANT_DISCOVERY_SOURCE_CATALOG_JSON = originalEnv.sourceCatalog;
+        process.env.GRANT_DISCOVERY_AI_ENABLED = originalAiEnabled;
+      }
+
+      if (typeof originalOpenAiKey === 'undefined') {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = originalOpenAiKey;
       }
     }
   });
