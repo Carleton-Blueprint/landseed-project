@@ -11,7 +11,10 @@
 import { Quote } from '@prisma/client';
 import { getLatestEligibilityAssessment } from './service';
 import { prisma } from 'lib/prisma';
-import { logPricingDecisionAuditNonBlocking } from '@/backend/audit/pricing';
+import {
+  logPricingDecisionAuditNonBlocking,
+  type PricingAuditSourceReference,
+} from '@/backend/audit/pricing';
 
 export interface GenerateQuoteWithEligibilityInput {
   projectId: string;
@@ -55,15 +58,22 @@ export async function generateQuoteWithEligibility(
       },
     });
 
-    const externalSources = (eligibility?.discoveredGrants ?? [])
-      .map((grant) => ({
+    const externalSources: PricingAuditSourceReference[] = [
+      ...(eligibility?.discoveredGrants ?? []).map((grant) => ({
         sourceType: 'DISCOVERY_GRANT_SOURCE' as const,
         sourceId: grant.grantId,
         title: grant.title,
         jurisdiction: grant.jurisdiction,
         scope: grant.scope,
         sourceUrl: grant.sourceUrl ?? null,
-      }));
+      })),
+      {
+        sourceType: 'PRICING_MATRIX' as const,
+        sourceId: input.pricingMatrixVersionId,
+        title: `Pricing Matrix v${quote.pricingMatrixVersion.versionNumber}`,
+        sourceUrl: null,
+      },
+    ];
 
     await logPricingDecisionAuditNonBlocking({
       projectId: input.projectId,
@@ -85,6 +95,14 @@ export async function generateQuoteWithEligibility(
         overallDecision: eligibility?.overallDecision,
         rationaleSummary: (eligibility?.reasonCodes ?? []).join(', '),
         resultCount: (eligibility?.discoveredGrants ?? []).length,
+        consideredPrograms: (eligibility?.discoveredGrants ?? []).map((grant) => ({
+          grantId: grant.grantId,
+          decision: grant.decision,
+          relevanceScore: grant.relevanceScore,
+          rationale: grant.rationale,
+          sourceUrl: grant.sourceUrl,
+        })),
+        rawDiscoveryMetadata: eligibility?.discoveryMetadata ?? null,
       },
       externalSources,
     });

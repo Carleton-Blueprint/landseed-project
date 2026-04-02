@@ -14,6 +14,14 @@ export interface PricingAuditAiOutput {
   overallDecision?: string;
   rationaleSummary?: string;
   resultCount?: number;
+  consideredPrograms?: Array<{
+    grantId: string;
+    decision?: string;
+    relevanceScore?: number;
+    rationale?: string;
+    sourceUrl?: string | null;
+  }>;
+  rawDiscoveryMetadata?: unknown;
 }
 
 export interface PricingDecisionAuditInput {
@@ -36,9 +44,31 @@ export interface PricingDecisionAuditInput {
   externalSources?: PricingAuditSourceReference[];
 }
 
+function dedupeExternalSources(
+  sources: PricingAuditSourceReference[] | undefined
+): PricingAuditSourceReference[] {
+  if (!sources || sources.length === 0) return [];
+
+  const unique = new Map<string, PricingAuditSourceReference>();
+  for (const source of sources) {
+    const key = [
+      source.sourceType,
+      source.sourceId ?? '',
+      source.sourceUrl ?? '',
+    ].join('|');
+    if (!unique.has(key)) {
+      unique.set(key, source);
+    }
+  }
+
+  return Array.from(unique.values());
+}
+
 export async function logPricingDecisionAuditNonBlocking(
   input: PricingDecisionAuditInput
 ): Promise<void> {
+  const externalSources = dedupeExternalSources(input.externalSources);
+
   await logAuditEventNonBlocking({
     category: 'MANUAL_CHANGE',
     action: 'PRICING_DECISION_GENERATED',
@@ -59,7 +89,8 @@ export async function logPricingDecisionAuditNonBlocking(
       eligibilityAssessmentId: input.eligibilityAssessmentId ?? null,
       discoveryVersion: input.discoveryVersion ?? null,
       aiOutput: input.aiOutput ?? null,
-      externalSources: input.externalSources ?? [],
+      externalSources,
+      externalSourceCount: externalSources.length,
     },
   });
 }
