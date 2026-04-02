@@ -6,6 +6,7 @@
 import { PrismaClient, Prisma, NotificationEventType } from '@prisma/client';
 import { enqueueNotification } from '@/backend/notifications/enqueue';
 import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
+import { logPricingDecisionAuditNonBlocking } from '@/backend/audit/pricing';
 
 const prisma = new PrismaClient();
 
@@ -80,6 +81,41 @@ export async function generateQuote(
     include: {
       pricingMatrixVersion: true,
     },
+  });
+
+  const externalSources = (latestEligibility?.discoveredGrants ?? [])
+    .map((grant) => ({
+      sourceType: 'DISCOVERY_GRANT_SOURCE' as const,
+      sourceId: grant.grantId,
+      title: grant.title,
+      jurisdiction: grant.jurisdiction,
+      scope: grant.scope,
+      sourceUrl: grant.sourceUrl ?? null,
+    }));
+
+  await logPricingDecisionAuditNonBlocking({
+    projectId: input.projectId,
+    quoteId: quote.id,
+    actorUserId: projectWithUser.user.id,
+    pricingMatrixVersionId: pricingMatrixVersion.id,
+    pricingMatrixVersionNumber: pricingMatrixVersion.versionNumber,
+    subtotal,
+    total,
+    eligibilityAssessmentId: latestEligibility?.assessmentId,
+    discoveryVersion: {
+      engineVersion: latestEligibility?.discoveryEngineVersion,
+      promptVersion: latestEligibility?.discoveryPromptVersion,
+      scoringVersion: latestEligibility?.discoveryScoringVersion,
+      modelVersion: latestEligibility?.discoveryModelVersion,
+      sourceSnapshotId: latestEligibility?.discoverySourceSnapshotId,
+    },
+    aiOutput: {
+      provider: latestEligibility?.discoveryProvider ?? 'UNKNOWN',
+      overallDecision: latestEligibility?.overallDecision,
+      rationaleSummary: (latestEligibility?.reasonCodes ?? []).join(', '),
+      resultCount: (latestEligibility?.discoveredGrants ?? []).length,
+    },
+    externalSources,
   });
 
   await prisma.project.update({

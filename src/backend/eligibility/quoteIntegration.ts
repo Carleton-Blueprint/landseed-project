@@ -8,9 +8,10 @@
  * - Assessment status captured for audit trail
  */
 
-import { Prisma, Quote } from '@prisma/client';
+import { Quote } from '@prisma/client';
 import { getLatestEligibilityAssessment } from './service';
 import { prisma } from 'lib/prisma';
+import { logPricingDecisionAuditNonBlocking } from '@/backend/audit/pricing';
 
 export interface GenerateQuoteWithEligibilityInput {
   projectId: string;
@@ -49,41 +50,44 @@ export async function generateQuoteWithEligibility(
         subtotal: input.subtotal,
         total: input.total,
       },
+      include: {
+        pricingMatrixVersion: true,
+      },
     });
 
-    // Create audit event linking quote to eligibility assessment
-    if (eligibility) {
-      try {
-        await prisma.auditEvent.create({
-          data: {
-            category: 'MANUAL_CHANGE',
-            action: 'QUOTE_GENERATED_WITH_ELIGIBILITY',
-            outcome: 'SUCCESS',
-            projectId: input.projectId,
-            quoteId: quote.id,
-            resourceType: 'Quote',
-            resourceId: quote.id,
-            description: `Quote created; eligibility decision: ${eligibility.overallDecision}`,
-            metadata: {
-              eligibilityAssessmentId: eligibility.assessmentId,
-              eligibilityDecision: eligibility.overallDecision,
-              discoveryProvider: eligibility.discoveryProvider,
-              discoveryMetadata: eligibility.discoveryMetadata,
-              discoveredGrants: eligibility.discoveredGrants,
-              discoveryVersion: {
-                engineVersion: eligibility.discoveryEngineVersion,
-                promptVersion: eligibility.discoveryPromptVersion,
-                scoringVersion: eligibility.discoveryScoringVersion,
-                modelVersion: eligibility.discoveryModelVersion,
-                sourceSnapshotId: eligibility.discoverySourceSnapshotId,
-              },
-            } as unknown as Prisma.InputJsonValue,
-          },
-        });
-      } catch (auditError) {
-        console.warn('Failed to create audit event for quote+eligibility linkage:', auditError);
-      }
-    }
+    const externalSources = (eligibility?.discoveredGrants ?? [])
+      .map((grant) => ({
+        sourceType: 'DISCOVERY_GRANT_SOURCE' as const,
+        sourceId: grant.grantId,
+        title: grant.title,
+        jurisdiction: grant.jurisdiction,
+        scope: grant.scope,
+        sourceUrl: grant.sourceUrl ?? null,
+      }));
+
+    await logPricingDecisionAuditNonBlocking({
+      projectId: input.projectId,
+      quoteId: quote.id,
+      pricingMatrixVersionId: input.pricingMatrixVersionId,
+      pricingMatrixVersionNumber: quote.pricingMatrixVersion.versionNumber,
+      subtotal: input.subtotal,
+      total: input.total,
+      eligibilityAssessmentId: eligibility?.assessmentId,
+      discoveryVersion: {
+        engineVersion: eligibility?.discoveryEngineVersion,
+        promptVersion: eligibility?.discoveryPromptVersion,
+        scoringVersion: eligibility?.discoveryScoringVersion,
+        modelVersion: eligibility?.discoveryModelVersion,
+        sourceSnapshotId: eligibility?.discoverySourceSnapshotId,
+      },
+      aiOutput: {
+        provider: eligibility?.discoveryProvider ?? 'UNKNOWN',
+        overallDecision: eligibility?.overallDecision,
+        rationaleSummary: (eligibility?.reasonCodes ?? []).join(', '),
+        resultCount: (eligibility?.discoveredGrants ?? []).length,
+      },
+      externalSources,
+    });
 
     return {
       quote,
