@@ -29,6 +29,9 @@ export async function POST(request: Request) {
       where: { id: projectId },
     });
 
+    // TEMPORARY DEBUG — remove after diagnosis
+    console.log('[DEBUG] draftData:', JSON.stringify(project?.draftData, null, 2));
+
     if (!project) {
       return Response.json({ error: 'Project not found' }, { status: 404 });
     }

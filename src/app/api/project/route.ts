@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { NotificationEventType, ProjectAccessRole } from "@prisma/client";
+import { NotificationEventType, Prisma, ProjectAccessRole } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { address } = body;
+    const { address, draftData } = body;
 
     if (!address || typeof address !== "string") {
       return NextResponse.json(
@@ -35,6 +35,9 @@ export async function POST(req: NextRequest) {
         address,
         status: "draft",
         userId: session.user.id,
+        ...(draftData !== undefined
+          ? { draftData: draftData as Prisma.InputJsonValue }
+          : {}),
         projectAccess: {
           create: {
             userId: session.user.id,

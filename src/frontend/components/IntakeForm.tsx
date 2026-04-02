@@ -281,6 +281,24 @@ export function IntakeForm() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 address: `${values.addressLine1}, ${values.city}, ${values.province} ${values.postalCode}`,
+                draftData: {
+                name: values.name,
+                email: values.email,
+                phone: values.phone,
+                city: values.city,
+                postalCode: values.postalCode,
+                province: values.province,
+                ownershipStatus: values.ownershipStatus,
+                ownershipOtherDetails: values.ownershipOtherDetails ?? null,
+                landlordName: values.landlordName ?? null,
+                landlordPhone: values.landlordPhone ?? null,
+                isCaregiver: values.isCaregiver,
+                seniorName: values.seniorName ?? null,
+                relationshipToSenior: values.relationshipToSenior ?? null,
+                caregiverConsentConfirmed: values.caregiverConsentConfirmed,
+                clientConsentConfirmed: values.clientConsentConfirmed,
+                modificationItems: values.modificationItems,
+              },
               }),
             });
             if (!projectResponse.ok) {
