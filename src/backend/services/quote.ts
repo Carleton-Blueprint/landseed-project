@@ -6,6 +6,11 @@
 import { PrismaClient, Prisma, NotificationEventType } from '@prisma/client';
 import { enqueueNotification } from '@/backend/notifications/enqueue';
 import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
+import {
+  logPricingDecisionAuditNonBlocking,
+  normalizePricingDecisionAuditMetadata,
+  type PricingAuditSourceReference,
+} from '@/backend/audit/pricing';
 
 const prisma = new PrismaClient();
 
@@ -24,6 +29,15 @@ interface QuoteResult {
   total: number;
   pricingMatrixVersion: number;
   eligibilityAssessmentId?: string;
+}
+
+interface PricingDecisionAuditTrailEntry {
+  auditEventId: string;
+  action: string;
+  outcome: string;
+  createdAt: Date;
+  actor?: { id: string; name: string | null; email: string | null } | null;
+  metadata: ReturnType<typeof normalizePricingDecisionAuditMetadata>;
 }
 
 async function getActivePricingMatrixVersion() {
@@ -80,6 +94,56 @@ export async function generateQuote(
     include: {
       pricingMatrixVersion: true,
     },
+  });
+
+  const externalSources: PricingAuditSourceReference[] = [
+    ...(latestEligibility?.discoveredGrants ?? []).map((grant) => ({
+      sourceType: 'DISCOVERY_GRANT_SOURCE' as const,
+      sourceId: grant.grantId,
+      title: grant.title,
+      jurisdiction: grant.jurisdiction,
+      scope: grant.scope,
+      sourceUrl: grant.sourceUrl ?? null,
+    })),
+    {
+      sourceType: 'PRICING_MATRIX' as const,
+      sourceId: pricingMatrixVersion.id,
+      title: `Pricing Matrix v${pricingMatrixVersion.versionNumber}`,
+      sourceUrl: null,
+    },
+  ];
+
+  await logPricingDecisionAuditNonBlocking({
+    projectId: input.projectId,
+    quoteId: quote.id,
+    actorUserId: projectWithUser.user.id,
+    pricingMatrixVersionId: pricingMatrixVersion.id,
+    pricingMatrixVersionNumber: pricingMatrixVersion.versionNumber,
+    subtotal,
+    total,
+    eligibilityAssessmentId: latestEligibility?.assessmentId,
+    discoveryVersion: {
+      engineVersion: latestEligibility?.discoveryEngineVersion,
+      promptVersion: latestEligibility?.discoveryPromptVersion,
+      scoringVersion: latestEligibility?.discoveryScoringVersion,
+      modelVersion: latestEligibility?.discoveryModelVersion,
+      sourceSnapshotId: latestEligibility?.discoverySourceSnapshotId,
+    },
+    aiOutput: {
+      provider: latestEligibility?.discoveryProvider ?? 'UNKNOWN',
+      overallDecision: latestEligibility?.overallDecision,
+      rationaleSummary: (latestEligibility?.reasonCodes ?? []).join(', '),
+      resultCount: (latestEligibility?.discoveredGrants ?? []).length,
+      consideredPrograms: (latestEligibility?.discoveredGrants ?? []).map((grant) => ({
+        grantId: grant.grantId,
+        decision: grant.decision,
+        relevanceScore: grant.relevanceScore,
+        rationale: grant.rationale,
+        sourceUrl: grant.sourceUrl,
+      })),
+      rawDiscoveryMetadata: latestEligibility?.discoveryMetadata ?? null,
+    },
+    externalSources,
   });
 
   await prisma.project.update({
@@ -186,6 +250,8 @@ export async function getQuoteAuditHistory(quoteId: string) {
     throw new Error('Quote not found');
   }
 
+  const pricingDecisionAudit = await getPricingDecisionAuditTrail({ quoteId, limit: 20 });
+
   return {
     quote: {
       id: quote.id,
@@ -202,7 +268,46 @@ export async function getQuoteAuditHistory(quoteId: string) {
       },
       eligibilityAssessment: quote.eligibilityAssessment,
     },
+    pricingDecisionAudit,
   };
+}
+
+export async function getPricingDecisionAuditTrail(options: {
+  quoteId?: string;
+  projectId?: string;
+  limit?: number;
+} = {}): Promise<PricingDecisionAuditTrailEntry[]> {
+  const { quoteId, projectId, limit = 50 } = options;
+
+  const events = await prisma.auditEvent.findMany({
+    where: {
+      action: 'PRICING_DECISION_GENERATED',
+      ...(quoteId ? { quoteId } : {}),
+      ...(projectId ? { projectId } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    include: {
+      actorUser: {
+        select: { id: true, name: true, email: true },
+      },
+    },
+  });
+
+  return events.map((event) => ({
+    auditEventId: event.id,
+    action: event.action,
+    outcome: event.outcome,
+    createdAt: event.createdAt,
+    actor: event.actorUser
+      ? {
+          id: event.actorUser.id,
+          name: event.actorUser.name,
+          email: event.actorUser.email,
+        }
+      : null,
+    metadata: normalizePricingDecisionAuditMetadata(event.metadata),
+  }));
 }
 
 export async function getPricingMatrixAuditTrail(limit = 50) {
