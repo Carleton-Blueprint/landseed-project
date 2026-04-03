@@ -25,8 +25,40 @@ function getGrantSummary(project: { grantDocumentKey: string | null }) {
   };
 }
 
-export default async function DashboardPage() {
+function getEstimateSummary(project: {
+  status: string;
+  estimateMin?: number | null;
+  estimateMax?: number | null;
+}) {
+  const isFinalized = project.status !== "draft";
 
+  if (!isFinalized) {
+    return {
+      title: "Initial estimate range",
+      value: "Available after intake finalization",
+      explanation:
+        "Once your intake is finalized, an initial estimate range will appear here. Pricing is dynamically generated from real-time external retail data.",
+    };
+  }
+
+  if (project.estimateMin != null && project.estimateMax != null) {
+    return {
+      title: "Initial estimate range",
+      value: `$${project.estimateMin.toLocaleString()} - $${project.estimateMax.toLocaleString()}`,
+      explanation:
+        "This pricing is dynamically generated from real-time external retail data and may change as retailer pricing and product availability update.",
+    };
+  }
+
+  return {
+    title: "Initial estimate range",
+    value: "Generating estimate...",
+    explanation:
+      "We are generating your estimate using real-time external retail data.",
+  };
+}
+
+export default async function DashboardPage() {
   const projects = await prisma.project.findMany({
     orderBy: { createdAt: "desc" },
     include: { photos: true },
@@ -47,7 +79,13 @@ export default async function DashboardPage() {
           ) : (
             <div className="space-y-4">
               {projects.map((project) => {
+                const typedProject = project as typeof project & {
+                  estimateMin?: number | null;
+                  estimateMax?: number | null;
+                };
+
                 const grantSummary = getGrantSummary(project);
+                const estimateSummary = getEstimateSummary(typedProject);
 
                 return (
                   <div
@@ -75,6 +113,15 @@ export default async function DashboardPage() {
                         <span className="text-sm text-gray-500">
                           {project.photos.length} photo{project.photos.length === 1 ? "" : "s"}
                         </span>
+                      </div>
+
+                      <div className="mt-3 rounded-md border bg-gray-50 p-3">
+                        <p className="text-sm font-medium text-gray-900">
+                          {estimateSummary.title}: {estimateSummary.value}
+                        </p>
+                        <p className="mt-1 text-sm text-gray-500">
+                          {estimateSummary.explanation}
+                        </p>
                       </div>
 
                       <div className="mt-3 rounded-md border bg-gray-50 p-3">

@@ -105,9 +105,8 @@ export function GuidedIntakeForm({ onSubmitSuccess }: { onSubmitSuccess?: (value
                 <div className="bg-white p-6 rounded-lg border shadow-sm mb-6">
                     <h3 className="text-lg font-semibold text-gray-800 mb-2">Initial Estimate</h3>
                     <p className="text-gray-500 text-sm mb-4">
-                        Based on your selections, here is a preliminary price range for your modifications.
-                        A formal quote will be provided after further review.
-                    </p>
+                        This estimate range is dynamically generated from real-time external retail data based on your selected modifications. A formal quote will be provided after further review.
+                        </p>
                     <div className="text-3xl font-bold text-blue-600">
                         ${estimateRange.min.toLocaleString()} - ${estimateRange.max.toLocaleString()}
                     </div>
