@@ -3,6 +3,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { prisma } from "lib/prisma";
+import { auth } from "@/auth";
+import { redirect } from "next/navigation";
 
 function modificationItemsFromDraft(draftData: unknown): string[] {
   if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) {
@@ -19,13 +21,25 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const resolvedParams = await params;
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    redirect(`/api/auth/signin?callbackUrl=/dashboard/${resolvedParams.id}`);
+  }
 
   const project = await prisma.project.findUnique({
     where: { id: resolvedParams.id },
-    include: { photos: true },
+    include: {
+      photos: true,
+      projectAccess: {
+        where: { userId: session.user.id },
+        select: { userId: true },
+      },
+    },
   });
 
   if (!project) return notFound();
+  if (project.projectAccess.length === 0) return notFound();
 
   const modificationItems = modificationItemsFromDraft(project.draftData);
 

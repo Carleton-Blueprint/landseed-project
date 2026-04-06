@@ -1,6 +1,8 @@
 import { prisma } from "lib/prisma";
 import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
+import { auth } from "@/auth";
+import { redirect } from "next/navigation";
 
 function getStatusLabel(status: string) {
   if (status === "draft") return "Pending";
@@ -26,8 +28,17 @@ function getGrantSummary(project: { grantDocumentKey: string | null }) {
 }
 
 export default async function DashboardPage() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect("/api/auth/signin?callbackUrl=/dashboard");
+  }
 
   const projects = await prisma.project.findMany({
+    where: {
+      projectAccess: {
+        some: { userId: session.user.id },
+      },
+    },
     orderBy: { createdAt: "desc" },
     include: { photos: true },
   });

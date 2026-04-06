@@ -5,6 +5,7 @@
  */
 
 import { auth } from '@/auth';
+import { hasProjectAccess } from '@/backend/auth/projectAccess';
 import { evaluateProjectEligibility } from '@/backend/eligibility/service';
 import { prisma } from 'lib/prisma';
 
@@ -29,11 +30,16 @@ export async function POST(request: Request) {
       where: { id: projectId },
     });
 
-    // TEMPORARY DEBUG — remove after diagnosis
-    console.log('[DEBUG] draftData:', JSON.stringify(project?.draftData, null, 2));
-
     if (!project) {
       return Response.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    const canAssessProject =
+      project.userId === session.user.id ||
+      (await hasProjectAccess(session.user.id, projectId));
+
+    if (!canAssessProject) {
+      return Response.json({ error: 'Forbidden: You do not have access to this project' }, { status: 403 });
     }
 
     // Evaluate eligibility
