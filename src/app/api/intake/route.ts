@@ -13,14 +13,24 @@ export async function POST(request: Request) {
       typeof email === "string" ? email.trim().toLowerCase() : "";
     const normalizedPhone = typeof phone === "string" ? phone.trim() : "";
 
-    // Create a new user in the database
-    const user = await prisma.user.create({
-      data: {
-        name: normalizedName || null,
-        email: normalizedEmail || null,  // Optional field
-        phone: normalizedPhone || null,  // Optional field
-      }
-    });
+    let user;
+
+    if (normalizedEmail) {
+      // If this email already exists, reuse that user instead of creating a duplicate.
+      const existingUser = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+
+      user =
+        existingUser ??
+        (await prisma.user.create({
+          data: {
+            name: normalizedName || null,
+            email: normalizedEmail,
+            phone: normalizedPhone || null,
+          },
+        }));
+    }
 
     // Return success response
     return NextResponse.json({ 
