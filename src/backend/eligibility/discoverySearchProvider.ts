@@ -838,7 +838,7 @@ export async function discoverAndEvaluateGrants(
   debug('MAIN', `Step 1 complete — loaded ${sources.length} source entries`);
 
   const query = buildSearchQuery(input);
-  const queryTokens = tokenize(query);
+  const queryTokens = tokenize(query); // extra security in case we allow for more flexible input in frontend
   debug('MAIN', `Heuristic query: "${query}"`, { queryTokens });
 
   // Step 2: Heuristic scoring
