@@ -1,214 +1,255 @@
 "use client";
 
-import React, { useCallback, useState, useRef } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 
 export interface PhotoUploadInterfaceProps {
-    onUpload?: (files: File[]) => void;
-    maxFiles?: number;
-    maxSizeMB?: number;
+  onUpload?: (files: File[]) => void;
+  maxFiles?: number;
+  maxSizeMB?: number;
+}
+
+const ACCEPTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".heic"];
+const ACCEPTED_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/heic",
+  "image/heif",
+];
+
+function isAcceptedFileType(file: File) {
+  const fileName = file.name.toLowerCase();
+  return (
+    ACCEPTED_MIME_TYPES.includes(file.type) ||
+    ACCEPTED_EXTENSIONS.some((ext) => fileName.endsWith(ext))
+  );
 }
 
 export function PhotoUploadInterface({
-    onUpload,
-    maxFiles = 10,
-    maxSizeMB = 10,
+  onUpload,
+  maxFiles = 10,
+  maxSizeMB = 10,
 }: PhotoUploadInterfaceProps) {
-    const [files, setFiles] = useState<File[]>([]);
-    const [error, setError] = useState<string | null>(null);
-    const [replaceIndex, setReplaceIndex] = useState<number | null>(null);
-    const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
-    const fileInputRef = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [replaceIndex, setReplaceIndex] = useState<number | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const simulateProgress = (file: File) => {
-        const fileKey = `${file.name}-${file.size}`;
-        setUploadProgress((prev) => ({ ...prev, [fileKey]: 0 }));
+  const simulateProgress = (file: File) => {
+    const fileKey = `${file.name}-${file.size}`;
+    setUploadProgress((prev) => ({ ...prev, [fileKey]: 0 }));
 
-        let progress = 0;
-        const interval = setInterval(() => {
-            progress += Math.random() * 30 + 10;
-            if (progress >= 100) {
-                progress = 100;
-                clearInterval(interval);
-            }
-            setUploadProgress((prev) => ({ ...prev, [fileKey]: Math.min(progress, 100) }));
-        }, 250);
-    };
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 30 + 10;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+      }
+      setUploadProgress((prev) => ({
+        ...prev,
+        [fileKey]: Math.min(progress, 100),
+      }));
+    }, 250);
+  };
 
-    const handleReplaceClick = (index: number) => {
-        setReplaceIndex(index);
-        if (fileInputRef.current) {
-            fileInputRef.current.click();
+  const handleReplaceClick = (index: number) => {
+    setReplaceIndex(index);
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleReplaceFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0 || replaceIndex === null) return;
+
+    const newFile = e.target.files[0];
+
+    if (!isAcceptedFileType(newFile)) {
+      setError("Only JPG, JPEG, PNG, and HEIC files are allowed.");
+      return;
+    }
+
+    if (newFile.size > maxSizeMB * 1024 * 1024) {
+      setError(`File is too large. Max size is ${maxSizeMB}MB.`);
+      return;
+    }
+
+    const updatedFiles = [...files];
+    updatedFiles[replaceIndex] = newFile;
+    setFiles(updatedFiles);
+    simulateProgress(newFile);
+
+    if (onUpload) {
+      onUpload(updatedFiles);
+    }
+
+    setReplaceIndex(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    setError(null);
+  };
+
+  const onDrop = useCallback(
+    (acceptedFiles: File[], fileRejections: import("react-dropzone").FileRejection[]) => {
+      setError(null);
+
+      if (fileRejections.length > 0) {
+        const rejection = fileRejections[0];
+        const firstError = rejection.errors[0];
+
+        if (firstError?.code === "file-too-large") {
+          setError(`File is too large. Max size is ${maxSizeMB}MB.`);
+        } else if (firstError?.code === "too-many-files") {
+          setError(`You can only upload up to ${maxFiles} files.`);
+        } else if (firstError?.code === "file-invalid-type") {
+          setError("Only JPG, JPEG, PNG, and HEIC files are allowed.");
+        } else {
+          setError(firstError?.message || "Invalid file.");
         }
-    };
+        return;
+      }
 
-    const handleReplaceFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || e.target.files.length === 0 || replaceIndex === null) return;
-        const newFile = e.target.files[0];
+      if (files.length + acceptedFiles.length > maxFiles) {
+        setError(`You can only upload up to ${maxFiles} files total.`);
+        return;
+      }
 
-        // validate size
-        if (newFile.size > maxSizeMB * 1024 * 1024) {
-            setError(`File is too large. Max size is ${maxSizeMB}MB.`);
-            return;
-        }
+      const invalidFile = acceptedFiles.find((file) => !isAcceptedFileType(file));
+      if (invalidFile) {
+        setError("Only JPG, JPEG, PNG, and HEIC files are allowed.");
+        return;
+      }
 
-        const updatedFiles = [...files];
-        updatedFiles[replaceIndex] = newFile;
-        setFiles(updatedFiles);
-        simulateProgress(newFile);
-        
-        if (onUpload) {
-            onUpload(updatedFiles);
-        }
+      const updatedFiles = [...files, ...acceptedFiles];
+      setFiles(updatedFiles);
 
-        // reset
-        setReplaceIndex(null);
-        if (fileInputRef.current) {
-            fileInputRef.current.value = "";
-        }
-        setError(null);
-    };
+      acceptedFiles.forEach(simulateProgress);
 
-    const onDrop = useCallback(
-        (acceptedFiles: File[], fileRejections: import("react-dropzone").FileRejection[]) => {
-            setError(null);
+      if (onUpload) {
+        onUpload(updatedFiles);
+      }
+    },
+    [files, maxFiles, maxSizeMB, onUpload]
+  );
 
-            // check if there are errors
-            if (fileRejections.length > 0) {
-                const rej = fileRejections[0];
-                if (rej.errors[0]?.code === "file-too-large") {
-                    setError("File is too large. Max size is " + maxSizeMB + "MB.");
-                } else if (rej.errors[0]?.code === "too-many-files") {
-                    setError("You can only upload up to " + maxFiles + " files.");
-                } else {
-                    setError(rej.errors[0]?.message || "Invalid file.");
-                }
-                return;
-            }
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "image/jpeg": [".jpg", ".jpeg"],
+      "image/png": [".png"],
+      "image/heic": [".heic"],
+      "image/heif": [".heic"],
+    },
+    maxSize: maxSizeMB * 1024 * 1024,
+    maxFiles,
+  });
 
-            // make sure we don't go over max files
-            if (files.length + acceptedFiles.length > maxFiles) {
-                setError("You can only upload up to " + maxFiles + " files total.");
-                return;
-            }
+  const removeFile = (index: number) => {
+    const filteredFiles = files.filter((_, i) => i !== index);
+    setFiles(filteredFiles);
+    if (onUpload) {
+      onUpload(filteredFiles);
+    }
+    setError(null);
+  };
 
-            const updatedFiles = [...files, ...acceptedFiles];
-            setFiles(updatedFiles);
-            
-            acceptedFiles.forEach(simulateProgress);
-            
-            if (onUpload) {
-                onUpload(updatedFiles);
-            }
-        },
-        [files, maxFiles, maxSizeMB, onUpload]
-    );
-
-    const { getRootProps, getInputProps, isDragActive } = useDropzone({
-        onDrop,
-        accept: {
-            "image/*": [".jpeg", ".jpg", ".png", ".webp"],
-        },
-        maxSize: maxSizeMB * 1024 * 1024,
-        maxFiles,
-    });
-
-    const removeFile = (index: number) => {
-        const filteredFiles = files.filter((_, i) => i !== index);
-        setFiles(filteredFiles);
-        if (onUpload) {
-            onUpload(filteredFiles);
-        }
-    };
-
-    return (
-        <div className="w-full space-y-4">
-            <div
-                {...getRootProps()}
-                className={`border-2 border-dashed rounded p-8 text-center cursor-pointer ${isDragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-blue-400"
-                    }`}
-            >
-                <input {...getInputProps()} />
-                <div>
-                    <p className="font-semibold text-gray-700">
-                        {isDragActive
-                            ? "Drop here..."
-                            : "Click or drag files here to upload"}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-2">
-                        Max {maxFiles} files (Up to {maxSizeMB}MB each)
-                    </p>
-                </div>
-            </div>
-
-            {error && (
-                <div className="text-red-500 text-sm font-semibold">
-                    {error}
-                </div>
-            )}
-
-            {files.length > 0 && (
-                <div className="mt-4">
-                    <p className="font-semibold mb-2">Uploaded Files ({files.length})</p>
-                    <ul className="space-y-2">
-                        {files.map((file, i) => (
-                            <li
-                                key={i}
-                                className="flex justify-between items-center p-2 border rounded bg-white shadow-sm"
-                            >
-                                <div className="flex flex-col flex-1 mr-4">
-                                    <span className="text-sm font-medium">{file.name}</span>
-                                    <span className="text-xs text-gray-500 mb-2">
-                                        {(file.size / 1024 / 1024).toFixed(2)} MB
-                                    </span>
-                                    <div className="w-full bg-gray-200 rounded-full h-2">
-                                        <div
-                                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                            style={{ width: `${uploadProgress[`${file.name}-${file.size}`] ?? 100}%` }}
-                                        ></div>
-                                    </div>
-                                    {(uploadProgress[`${file.name}-${file.size}`] ?? 100) < 100 ? (
-                                        <span className="text-xs text-gray-500 mt-1">
-                                            Uploading... {Math.round(uploadProgress[`${file.name}-${file.size}`] ?? 0)}%
-                                        </span>
-                                    ) : (
-                                        <span className="text-xs text-green-600 mt-1 font-semibold">Ready</span>
-                                    )}
-                                </div>
-                                <div className="flex gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleReplaceClick(i);
-                                        }}
-                                        className="text-blue-500 hover:bg-blue-50 p-2 text-sm rounded font-medium transition-colors"
-                                    >
-                                        Replace
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            removeFile(i);
-                                        }}
-                                        className="text-red-500 hover:bg-red-50 p-2 text-sm rounded font-medium transition-colors"
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        className="hidden"
-                        accept="image/jpeg, image/jpg, image/png, image/webp"
-                        onChange={handleReplaceFile}
-                    />
-                </div>
-            )}
+  return (
+    <div className="w-full space-y-4">
+      <div
+        {...getRootProps()}
+        className={`cursor-pointer rounded border-2 border-dashed p-8 text-center ${
+          isDragActive
+            ? "border-blue-500 bg-blue-50"
+            : "border-gray-300 hover:border-blue-400"
+        }`}
+      >
+        <input {...getInputProps()} />
+        <div>
+          <p className="font-semibold text-gray-700">
+            {isDragActive ? "Drop here..." : "Click or drag files here to upload"}
+          </p>
+          <p className="mt-2 text-sm text-gray-500">
+            Accepted formats: JPG, JPEG, PNG, HEIC
+          </p>
+          <p className="mt-1 text-sm text-gray-500">
+            Max {maxFiles} files (up to {maxSizeMB}MB each)
+          </p>
         </div>
-    );
+      </div>
+
+      {error && <div className="text-sm font-semibold text-red-500">{error}</div>}
+
+      {files.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-2 font-semibold">Uploaded Files ({files.length})</p>
+          <ul className="space-y-2">
+            {files.map((file, i) => (
+              <li
+                key={`${file.name}-${file.size}-${i}`}
+                className="flex items-center justify-between rounded border bg-white p-2 shadow-sm"
+              >
+                <div className="mr-4 flex flex-1 flex-col">
+                  <span className="text-sm font-medium">{file.name}</span>
+                  <span className="mb-2 text-xs text-gray-500">
+                    {(file.size / 1024 / 1024).toFixed(2)} MB
+                  </span>
+
+                  <div className="h-2 w-full rounded-full bg-gray-200">
+                    <div
+                      className="h-2 rounded-full bg-blue-600 transition-all duration-300"
+                      style={{ width: `${uploadProgress[`${file.name}-${file.size}`] ?? 100}%` }}
+                    />
+                  </div>
+
+                  {(uploadProgress[`${file.name}-${file.size}`] ?? 100) < 100 ? (
+                    <span className="mt-1 text-xs text-gray-500">
+                      Uploading...{" "}
+                      {Math.round(uploadProgress[`${file.name}-${file.size}`] ?? 0)}%
+                    </span>
+                  ) : (
+                    <span className="mt-1 text-xs font-semibold text-green-600">Ready</span>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleReplaceClick(i);
+                    }}
+                    className="rounded p-2 text-sm font-medium text-blue-500 transition-colors hover:bg-blue-50"
+                  >
+                    Replace
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFile(i);
+                    }}
+                    className="rounded p-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept=".jpg,.jpeg,.png,.heic,image/jpeg,image/png,image/heic,image/heif"
+            onChange={handleReplaceFile}
+          />
+        </div>
+      )}
+    </div>
+  );
 }

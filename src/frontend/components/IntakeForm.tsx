@@ -14,7 +14,21 @@ import { signIn } from "next-auth/react";
 import { PhotoUploadInterface } from "./PhotoUploadInterface";
 import { useQuery, useMutation } from "@tanstack/react-query";
 
-const provinces = ["AB","BC","MB","NB","NL","NS","NT","NU","ON","PE","QC","SK","YT",] as const;
+const provinces = [
+  "AB",
+  "BC",
+  "MB",
+  "NB",
+  "NL",
+  "NS",
+  "NT",
+  "NU",
+  "ON",
+  "PE",
+  "QC",
+  "SK",
+  "YT",
+] as const;
 
 const modificationOptions = [
   "Grab bars",
@@ -25,14 +39,15 @@ const modificationOptions = [
   "Handrails",
 ] as const;
 
-const intakeSchema = z.object({
-  name: z.string().min(1, "Name is required").max(120, "Name is too long"),
-  email: z.string().min(1, "Email is required").email("Enter a valid email"),
-  phone: z
-    .string()
-    .min(1, "Phone is required")
-    .regex(/^[\d\s\-+()]*$/, "Phone can only contain digits and + - ( )")
-    .max(24, "Phone number is too long"),
+const intakeSchema = z
+  .object({
+    name: z.string().min(1, "Name is required").max(120, "Name is too long"),
+    email: z.string().min(1, "Email is required").email("Enter a valid email"),
+    phone: z
+      .string()
+      .min(1, "Phone is required")
+      .regex(/^[\d\s\-+()]*$/, "Phone can only contain digits and + - ( )")
+      .max(24, "Phone number is too long"),
 
     // Service address
     addressLine1: z.string().min(1, "Street address is required").max(200),
@@ -43,10 +58,15 @@ const intakeSchema = z.object({
       .string()
       .min(1, "Postal code is required")
       .max(10, "Postal code is too long")
-      .regex(/^[A-Za-z0-9 ]+$/, "Postal code can only contain letters, numbers, and spaces"),
+      .regex(
+        /^[A-Za-z0-9 ]+$/,
+        "Postal code can only contain letters, numbers, and spaces"
+      ),
 
     // Ownership
-    ownershipStatus: z.enum(["owner", "tenant", "other"], { message: "Please select owner, tenant, or other" }),
+    ownershipStatus: z.enum(["owner", "tenant", "other"], {
+      message: "Please select owner, tenant, or other",
+    }),
     ownershipOtherDetails: z.string().max(200).optional().or(z.literal("")),
     landlordName: z.string().max(120).optional().or(z.literal("")),
     landlordPhone: z
@@ -66,72 +86,73 @@ const intakeSchema = z.object({
     clientConsentConfirmed: z.boolean().default(false),
 
     // Modification items
-    modificationItems: z.array(z.string()).min(1, "Select at least one modification item"),
+    modificationItems: z
+      .array(z.string())
+      .min(1, "Select at least one modification item"),
   })
   .superRefine((data, ctx) => {
-  if (data.ownershipStatus === "tenant") {
-    if (!data.landlordName?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["landlordName"],
-        message: "Landlord name is required for tenants",
-      });
+    if (data.ownershipStatus === "tenant") {
+      if (!data.landlordName?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["landlordName"],
+          message: "Landlord name is required for tenants",
+        });
+      }
+
+      if (!data.landlordPhone?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["landlordPhone"],
+          message: "Landlord phone is required for tenants",
+        });
+      }
     }
 
-    if (!data.landlordPhone?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["landlordPhone"],
-        message: "Landlord phone is required for tenants",
-      });
-    }
-  }
-
-  if (data.ownershipStatus === "other") {
-    if (!data.ownershipOtherDetails?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["ownershipOtherDetails"],
-        message: "Please explain your ownership status",
-      });
-    }
-  }
-
-  if (data.isCaregiver) {
-    if (!data.seniorName?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["seniorName"],
-        message: "Senior name is required when submitting as a caregiver",
-      });
+    if (data.ownershipStatus === "other") {
+      if (!data.ownershipOtherDetails?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["ownershipOtherDetails"],
+          message: "Please explain your ownership status",
+        });
+      }
     }
 
-    if (!data.relationshipToSenior?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["relationshipToSenior"],
-        message: "Relationship to the senior is required",
-      });
+    if (data.isCaregiver) {
+      if (!data.seniorName?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["seniorName"],
+          message: "Senior name is required when submitting as a caregiver",
+        });
+      }
+
+      if (!data.relationshipToSenior?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["relationshipToSenior"],
+          message: "Relationship to the senior is required",
+        });
+      }
+
+      if (data.caregiverConsentConfirmed !== true) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["caregiverConsentConfirmed"],
+          message: "You must confirm your authority and the senior’s consent",
+        });
+      }
     }
 
-    if (data.caregiverConsentConfirmed !== true) {
+    if (data.clientConsentConfirmed !== true) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["caregiverConsentConfirmed"],
-        message: "You must confirm your authority and the seniorâ€™s consent",
+        path: ["clientConsentConfirmed"],
+        message: "You must consent before submitting this request",
       });
     }
-  }
-
-  if (data.clientConsentConfirmed !== true) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["clientConsentConfirmed"],
-      message: "You must consent before submitting this request",
-    });
-  }
-  
-});
+  });
 
 export type IntakeFormValues = z.infer<typeof intakeSchema>;
 
@@ -176,6 +197,7 @@ export function IntakeForm() {
   const [uploadedPhotos, setUploadedPhotos] = React.useState<File[]>([]);
   const [photoKey, setPhotoKey] = React.useState(0);
   const [draftBanner, setDraftBanner] = React.useState<string | null>(null);
+  const [photoError, setPhotoError] = React.useState<string | null>(null);
 
   // ── Load draft on mount ────────────────────────────────────
   const { data: draftResponse } = useQuery({
@@ -183,7 +205,10 @@ export function IntakeForm() {
     queryFn: async () => {
       const res = await fetch("/api/draft");
       if (!res.ok) return null;
-      return res.json() as Promise<{ draft: Record<string, unknown> | null; savedAt?: string }>;
+      return res.json() as Promise<{
+        draft: Record<string, unknown> | null;
+        savedAt?: string;
+      }>;
     },
     staleTime: Infinity,
     retry: false,
@@ -235,53 +260,61 @@ export function IntakeForm() {
     setLastSaved(null);
     setSaveError(null);
     setDraftBanner(null);
+    setPhotoError(null);
   };
 
   async function onSubmit(values: IntakeFormValues) {
+    if (uploadedPhotos.length < 1) {
+      setPhotoError("Please upload at least 1 photo before submitting.");
+      return;
+    }
+
+    setPhotoError(null);
+
     try {
       const response = await fetch("/api/intake", {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(values),
-        });
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(values),
+      });
 
-        if (!response.ok) {
-          let errorMessage = `Request failed (${response.status})`;
-          try {
-            const body = await response.json();
-            if (body?.error && typeof body.error === "string") {
-              errorMessage = body.error;
-            } else if (body && Object.keys(body).length > 0) {
-              errorMessage = JSON.stringify(body);
-            }
-          } catch {
-            /* response body wasn't JSON */
+      if (!response.ok) {
+        let errorMessage = `Request failed (${response.status})`;
+        try {
+          const body = await response.json();
+          if (body?.error && typeof body.error === "string") {
+            errorMessage = body.error;
+          } else if (body && Object.keys(body).length > 0) {
+            errorMessage = JSON.stringify(body);
           }
-          console.error("Intake error:", errorMessage);
-          return;
+        } catch {
+          /* response body wasn't JSON */
         }
+        console.error("Intake error:", errorMessage);
+        return;
+      }
 
-        const data = await response.json();
-        console.log('User created:', data);
+      const data = await response.json();
+      console.log("User created:", data);
 
-        const result = await signIn('credentials', {
-          email: values.email,
-          name: values.name,
-          phone: values.phone,
-          redirect: false,
-        });
+      const result = await signIn("credentials", {
+        email: values.email,
+        name: values.name,
+        phone: values.phone,
+        redirect: false,
+      });
 
-        if (result?.ok) {
-          console.log('Signed in successfully!');
-          try {
-            const projectResponse = await fetch('/api/project', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                address: `${values.addressLine1}, ${values.city}, ${values.province} ${values.postalCode}`,
-                draftData: {
+      if (result?.ok) {
+        console.log("Signed in successfully");
+        try {
+          const projectResponse = await fetch("/api/project", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              address: `${values.addressLine1}, ${values.city}, ${values.province} ${values.postalCode}`,
+              draftData: {
                 name: values.name,
                 email: values.email,
                 phone: values.phone,
@@ -299,38 +332,43 @@ export function IntakeForm() {
                 clientConsentConfirmed: values.clientConsentConfirmed,
                 modificationItems: values.modificationItems,
               },
-              }),
-            });
-            if (!projectResponse.ok) {
-              console.error('Failed to create project');
-              return;
-            }
-            const { project } = await projectResponse.json();
-            console.log('Project created:', project.id);
-            if (uploadedPhotos.length > 0) {
-              for (const file of uploadedPhotos) {
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('projectId', project.id);
-                const uploadResponse = await fetch('/api/upload', {
-                  method: 'POST',
-                  body: formData,
-                });
-                if (uploadResponse.ok) {
-                  const uploadData = await uploadResponse.json();
-                  console.log('Photo uploaded:', uploadData.photo?.id);
-                } else {
-                  console.error('Failed to upload photo:', file.name);
-                }
-              }
-              console.log('All photos uploaded!');
-            }
-          } catch (error) {
-            console.error('Error creating project or uploading photos:', error);
+            }),
+          });
+
+          if (!projectResponse.ok) {
+            console.error("Failed to create project");
+            return;
           }
+
+          const { project } = await projectResponse.json();
+          console.log("Project created:", project.id);
+
+          if (uploadedPhotos.length > 0) {
+            for (const file of uploadedPhotos) {
+              const formData = new FormData();
+              formData.append("file", file);
+              formData.append("projectId", project.id);
+
+              const uploadResponse = await fetch("/api/upload", {
+                method: "POST",
+                body: formData,
+              });
+
+              if (uploadResponse.ok) {
+                const uploadData = await uploadResponse.json();
+                console.log("Photo uploaded:", uploadData.photo?.id);
+              } else {
+                console.error("Failed to upload photo:", file.name);
+              }
+            }
+            console.log("All photos uploaded!");
+          }
+        } catch (error) {
+          console.error("Error creating project or uploading photos:", error);
         }
+      }
     } catch (error) {
-      console.error('Network error:', error);
+      console.error("Network error:", error);
     }
   }
 
@@ -346,14 +384,22 @@ export function IntakeForm() {
       {draftBanner && (
         <div className="flex items-start justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
           <span>📋 {draftBanner}</span>
-          <button type="button" onClick={() => setDraftBanner(null)} className="shrink-0 font-medium hover:underline">Dismiss</button>
+          <button
+            type="button"
+            onClick={() => setDraftBanner(null)}
+            className="shrink-0 font-medium hover:underline"
+          >
+            Dismiss
+          </button>
         </div>
       )}
+
       <section className="space-y-3">
         <h2 className="text-base font-semibold mb-3">Contact</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Please provide your contact information.
         </p>
+
         <div className="flex flex-col gap-2">
           <label htmlFor="intake-name" className="mb-1 block text-sm font-medium">
             Name
@@ -372,6 +418,7 @@ export function IntakeForm() {
             </p>
           )}
         </div>
+
         <div className="flex flex-col gap-2">
           <label htmlFor="intake-email" className="mb-1 block text-sm font-medium">
             Email
@@ -382,7 +429,7 @@ export function IntakeForm() {
             {...register("email")}
             className="rounded border border-input bg-background px-3 py-2 text-sm"
             aria-invalid={!!errors.email}
-            aria-describedby={errors.email ? "intake-name-error" : undefined}
+            aria-describedby={errors.email ? "intake-email-error" : undefined}
           />
           {errors.email && (
             <p id="intake-email-error" className="mt-1 text-sm text-destructive" role="alert">
@@ -390,6 +437,7 @@ export function IntakeForm() {
             </p>
           )}
         </div>
+
         <div className="flex flex-col gap-2">
           <label htmlFor="intake-phone" className="mb-1 block text-sm font-medium">
             Phone
@@ -408,6 +456,7 @@ export function IntakeForm() {
             </p>
           )}
         </div>
+
         <div className="flex items-center gap-2 mt-4">
           <input
             id="intake-caregiver"
@@ -425,8 +474,10 @@ export function IntakeForm() {
         <section className="space-y-3">
           <h2 className="text-base font-semibold mb-3">Caregiver</h2>
           <p className="text-sm text-muted-foreground mb-3">
-            You are submitting on behalf of a senior. Please provide their details and confirm consent.
+            You are submitting on behalf of a senior. Please provide their details and confirm
+            consent.
           </p>
+
           <div className="flex flex-col gap-2">
             <label htmlFor="intake-senior-name" className="mb-1 block text-sm font-medium">
               Senior name
@@ -440,13 +491,21 @@ export function IntakeForm() {
               aria-describedby={errors.seniorName ? "intake-senior-name-error" : undefined}
             />
             {errors.seniorName && (
-              <p id="intake-senior-name-error" className="mt-1 text-sm text-destructive" role="alert">
+              <p
+                id="intake-senior-name-error"
+                className="mt-1 text-sm text-destructive"
+                role="alert"
+              >
                 {errors.seniorName.message}
               </p>
             )}
           </div>
+
           <div className="flex flex-col gap-2">
-            <label htmlFor="intake-relationship-to-senior" className="mb-1 block text-sm font-medium">
+            <label
+              htmlFor="intake-relationship-to-senior"
+              className="mb-1 block text-sm font-medium"
+            >
               Relationship to senior
             </label>
             <input
@@ -455,7 +514,9 @@ export function IntakeForm() {
               {...register("relationshipToSenior")}
               className="rounded border border-input bg-background px-3 py-2 text-sm"
               aria-invalid={!!errors.relationshipToSenior}
-              aria-describedby={errors.relationshipToSenior ? "intake-relationship-error" : undefined}
+              aria-describedby={
+                errors.relationshipToSenior ? "intake-relationship-error" : undefined
+              }
             />
             {errors.relationshipToSenior && (
               <p id="intake-relationship-error" className="mt-1 text-sm text-destructive" role="alert">
@@ -463,6 +524,7 @@ export function IntakeForm() {
               </p>
             )}
           </div>
+
           <div className="flex items-center gap-2">
             <input
               id="intake-caregiver-consent"
@@ -474,6 +536,7 @@ export function IntakeForm() {
               I confirm I have authority to submit this form and the senior has consented.
             </label>
           </div>
+
           {errors.caregiverConsentConfirmed && (
             <p className="mt-1 text-sm text-destructive" role="alert">
               {errors.caregiverConsentConfirmed.message}
@@ -487,6 +550,7 @@ export function IntakeForm() {
         <p className="text-sm text-muted-foreground mb-3">
           Street address, city, province, and postal code.
         </p>
+
         <div className="flex flex-col gap-2">
           <label htmlFor="intake-address1" className="mb-1 block text-sm font-medium">
             Street address
@@ -505,6 +569,7 @@ export function IntakeForm() {
             </p>
           )}
         </div>
+
         <div className="flex flex-col gap-2">
           <label htmlFor="intake-address2" className="mb-1 block text-sm font-medium">
             Address line 2 (optional)
@@ -523,6 +588,7 @@ export function IntakeForm() {
             </p>
           )}
         </div>
+
         <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
           <div className="flex flex-col gap-2 flex-1">
             <label htmlFor="intake-city" className="mb-1 block text-sm font-medium">
@@ -542,6 +608,7 @@ export function IntakeForm() {
               </p>
             )}
           </div>
+
           <div className="flex flex-col gap-2 flex-1">
             <label htmlFor="intake-province" className="mb-1 block text-sm font-medium">
               Province
@@ -565,6 +632,7 @@ export function IntakeForm() {
               </p>
             )}
           </div>
+
           <div className="flex flex-col gap-2 w-32">
             <label htmlFor="intake-postal" className="mb-1 block text-sm font-medium">
               Postal code
@@ -591,6 +659,7 @@ export function IntakeForm() {
         <p className="text-sm text-muted-foreground mb-3">
           Are you the owner, tenant, or something else?
         </p>
+
         <div className="flex flex-col gap-2">
           <label htmlFor="intake-ownership" className="mb-1 block text-sm font-medium">
             Ownership
@@ -612,6 +681,7 @@ export function IntakeForm() {
             </p>
           )}
         </div>
+
         {ownershipStatus === "tenant" && (
           <div className="space-y-3">
             <div className="flex flex-col gap-2">
@@ -627,11 +697,16 @@ export function IntakeForm() {
                 aria-describedby={errors.landlordName ? "intake-landlord-name-error" : undefined}
               />
               {errors.landlordName && (
-                <p id="intake-landlord-name-error" className="mt-1 text-sm text-destructive" role="alert">
+                <p
+                  id="intake-landlord-name-error"
+                  className="mt-1 text-sm text-destructive"
+                  role="alert"
+                >
                   {errors.landlordName.message}
                 </p>
               )}
             </div>
+
             <div className="flex flex-col gap-2">
               <label htmlFor="intake-landlord-phone" className="mb-1 block text-sm font-medium">
                 Landlord phone
@@ -642,16 +717,23 @@ export function IntakeForm() {
                 {...register("landlordPhone")}
                 className="rounded border border-input bg-background px-3 py-2 text-sm"
                 aria-invalid={!!errors.landlordPhone}
-                aria-describedby={errors.landlordPhone ? "intake-landlord-phone-error" : undefined}
+                aria-describedby={
+                  errors.landlordPhone ? "intake-landlord-phone-error" : undefined
+                }
               />
               {errors.landlordPhone && (
-                <p id="intake-landlord-phone-error" className="mt-1 text-sm text-destructive" role="alert">
+                <p
+                  id="intake-landlord-phone-error"
+                  className="mt-1 text-sm text-destructive"
+                  role="alert"
+                >
                   {errors.landlordPhone.message}
                 </p>
               )}
             </div>
           </div>
         )}
+
         {ownershipStatus === "other" && (
           <div className="flex flex-col gap-2">
             <label htmlFor="intake-ownership-other" className="mb-1 block text-sm font-medium">
@@ -663,10 +745,16 @@ export function IntakeForm() {
               {...register("ownershipOtherDetails")}
               className="rounded border border-input bg-background px-3 py-2 text-sm"
               aria-invalid={!!errors.ownershipOtherDetails}
-              aria-describedby={errors.ownershipOtherDetails ? "intake-ownership-other-error" : undefined}
+              aria-describedby={
+                errors.ownershipOtherDetails ? "intake-ownership-other-error" : undefined
+              }
             />
             {errors.ownershipOtherDetails && (
-              <p id="intake-ownership-other-error" className="mt-1 text-sm text-destructive" role="alert">
+              <p
+                id="intake-ownership-other-error"
+                className="mt-1 text-sm text-destructive"
+                role="alert"
+              >
                 {errors.ownershipOtherDetails.message}
               </p>
             )}
@@ -674,7 +762,7 @@ export function IntakeForm() {
         )}
       </section>
 
-            <section className="space-y-3">
+      <section className="space-y-3">
         <h2 className="text-base font-semibold mb-3">Modification items</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Select all modifications needed for this request.
@@ -682,7 +770,10 @@ export function IntakeForm() {
 
         <div className="grid gap-2 sm:grid-cols-2">
           {modificationOptions.map((item) => (
-            <label key={item} className="flex items-center gap-2 rounded border border-input px-3 py-2 text-sm">
+            <label
+              key={item}
+              className="flex items-center gap-2 rounded border border-input px-3 py-2 text-sm"
+            >
               <input
                 type="checkbox"
                 value={item}
@@ -702,24 +793,37 @@ export function IntakeForm() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-base font-semibold mb-3">Photos (Optional)</h2>
+        <h2 className="text-base font-semibold mb-3">Photos</h2>
         <p className="text-sm text-muted-foreground mb-3">
-          Upload 1-10 photos of your property to help us understand your needs.
+          Upload between 1 and 10 photos of the space requiring modification. Accepted file types:
+          JPG, JPEG, PNG, and HEIC. Maximum file size: 10MB per photo.
         </p>
+
         <PhotoUploadInterface
           key={photoKey}
-          onUpload={setUploadedPhotos}
+          onUpload={(files) => {
+            setUploadedPhotos(files);
+            if (files.length > 0) {
+              setPhotoError(null);
+            }
+          }}
           maxFiles={10}
           maxSizeMB={10}
         />
+
+        {photoError && (
+          <p className="text-sm text-destructive" role="alert">
+            {photoError}
+          </p>
+        )}
       </section>
 
       <section className="space-y-3">
         <h2 className="text-base font-semibold mb-3">Consent</h2>
         <div className="rounded-md border border-input bg-muted/30 p-4 space-y-3">
           <p className="text-sm text-muted-foreground">
-            We collect your contact details, address, photos, and other information in this form
-            so we can review your modification request, prepare estimates, and support your project.
+            We collect your contact details, address, photos, and other information in this form so
+            we can review your modification request, prepare estimates, and support your project.
           </p>
           <p className="text-sm text-muted-foreground">
             Your information will be stored securely and only used for processing your request and
@@ -761,6 +865,7 @@ export function IntakeForm() {
           ✓ Draft saved at {lastSaved}
         </p>
       )}
+
       {saveError && (
         <p className="text-sm text-destructive" role="alert">
           {saveError}
@@ -771,6 +876,7 @@ export function IntakeForm() {
         <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmitting}>
           Cancel
         </Button>
+
         <Button
           type="button"
           variant="outline"
@@ -779,6 +885,7 @@ export function IntakeForm() {
         >
           {saveDraftMutation.isPending ? "Saving…" : "Save as Draft"}
         </Button>
+
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Submitting…" : "Submit"}
         </Button>
@@ -786,4 +893,3 @@ export function IntakeForm() {
     </form>
   );
 }
-
