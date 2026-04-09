@@ -371,7 +371,9 @@ async function loadDiscoverySources(): Promise<GrantDiscoverySourceEntry[]> {
     return enriched;
   });
 
-  debug('SOURCES', `Returning ${merged.length} merged source entries (${merged.length - liveSources.length} static-only)`);
+  const staticOnlyCount = fetchResults.filter(({ fetched }) => fetched.length === 0).length;
+  debug('SOURCES', `Returning ${merged.length} merged source entries (${staticOnlyCount} static-only)`);
+  
   return merged;
 }
 
