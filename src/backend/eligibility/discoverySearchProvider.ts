@@ -554,6 +554,57 @@ async function tryOpenAiWebSearch(
     return null;
   }
 
+  // -----------------------------------------------------------
+  // MOCK MODE — set GRANT_DISCOVERY_MOCK_AI=true in .env to use
+  // -----------------------------------------------------------
+  if ((process.env.GRANT_DISCOVERY_MOCK_AI ?? 'false').toLowerCase() === 'true') {
+    debug('AI', 'MOCK MODE — returning hardcoded decisions instead of calling OpenAI');
+    return [
+      {
+        grantId: 'mock_hatc_canada',
+        title: 'Home Accessibility Tax Credit (HATC) [MOCK]',
+        scope: 'NATIONAL',
+        jurisdiction: 'CA',
+        sourceUrl: 'https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/deductions-credits-expenses/line-31285-home-accessibility-expenses.html',
+        summary: 'Federal tax credit on up to $20,000 of eligible accessibility renovation expenses.',
+        score: 85,
+        decision: EligibilityDecision.ELIGIBLE,
+        matchedCriteria: ['jurisdiction_match', 'modification_overlap', 'owner_occupied'],
+        missingCriteria: [],
+        confidence: 'HIGH',
+        rationale: 'Mock: applicant meets federal HATC criteria based on province, ownership, and modification codes.',
+      },
+      {
+        grantId: 'mock_on_rrap',
+        title: 'Ontario RRAP / IAH [MOCK]',
+        scope: 'PROVINCIAL',
+        jurisdiction: 'ON',
+        sourceUrl: 'https://www.ontario.ca/page/investment-affordable-housing-program',
+        summary: 'Ontario provincial funding for accessibility modifications for low-income homeowners.',
+        score: 60,
+        decision: EligibilityDecision.NEEDS_MORE_INFO,
+        matchedCriteria: ['jurisdiction_match', 'modification_overlap'],
+        missingCriteria: ['income_verification_required'],
+        confidence: 'MEDIUM',
+        rationale: 'Mock: jurisdiction and modifications match but income eligibility unconfirmed.',
+      },
+      {
+        grantId: 'mock_municipal_toronto',
+        title: 'City of Toronto Home Improvement Program [MOCK]',
+        scope: 'MUNICIPAL',
+        jurisdiction: 'ON',
+        sourceUrl: 'https://www.toronto.ca/community-people/housing-shelter/housing-support/home-improvement-programs-for-homeowners/',
+        summary: 'Toronto forgivable loan for seniors and persons with disabilities.',
+        score: 30,
+        decision: EligibilityDecision.INELIGIBLE,
+        matchedCriteria: ['modification_overlap'],
+        missingCriteria: ['municipal_residency_unconfirmed', 'income_threshold_not_met'],
+        confidence: 'LOW',
+        rationale: 'Mock: modification codes match but residency and income criteria not confirmed.',
+      },
+    ];
+  }
+
   const scopedQueries = buildSearchQueries(input);
   debug('AI', `Built ${scopedQueries.length} scoped queries`, scopedQueries);
 
