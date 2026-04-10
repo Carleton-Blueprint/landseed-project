@@ -74,6 +74,7 @@ model Project {
   photos    Photo[]
   documents Document[]
   quotes    Quote[]
+  builderTrendTransfers BuilderTrendTransfer[]
   eligibilityAssessments EligibilityAssessment[]
   notifications NotificationDelivery[]
   auditEvents   AuditEvent[]
@@ -180,10 +181,39 @@ model Quote {
   declinedReason String?     @db.Text
   auditEvents    AuditEvent[]
   questions      QuoteQuestion[]
+  builderTrendTransfers BuilderTrendTransfer[]
 
   @@index([projectId])
   @@index([pricingMatrixVersionId])
   @@index([eligibilityAssessmentId])
+}
+
+enum BuilderTrendTransferStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model BuilderTrendTransfer {
+  id                String                    @id @default(cuid())
+  projectId         String
+  quoteId           String
+  status            BuilderTrendTransferStatus @default(PENDING)
+  payload           Json?
+  attempts          Int                       @default(0)
+  externalReference String?
+  lastError         String?                   @db.Text
+  requestedAt       DateTime                  @default(now())
+  sentAt            DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quote   Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId])
+  @@index([projectId])
+  @@index([status])
 }
 
 enum QuestionCategory {

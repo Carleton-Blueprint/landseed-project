@@ -110,6 +110,29 @@ export async function evaluateProjectEligibility(
       }
     }
 
+    // Step 5: Trigger quote generation in background (non-blocking)
+    setImmediate(async () => {
+      try {
+        // Dynamically import to avoid circular dependencies
+        const { generateQuote } = await import('@/backend/services/quote');
+        await generateQuote({
+          projectId: project.id,
+          items: [
+            // TODO: Replace placeholder pricing with BuilderTrend-derived scope item pricing.
+            {
+              description: 'Home modifications (auto-quoted from eligibility assessment)',
+              quantity: 1,
+              unitPrice: 5000,
+            },
+          ],
+        });
+        console.log(`Auto-generated quote after eligibility assessment for project ${project.id}`);
+      } catch (error) {
+        console.warn(`Failed to auto-generate quote after eligibility assessment:`, error);
+        // Non-blocking: eligibility assessment success is not affected by quote generation failure
+      }
+    });
+
     return {
       assessmentId: assessment.id,
       projectId: project.id,

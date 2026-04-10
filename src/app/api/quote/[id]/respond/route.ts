@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
 
 export async function POST(
   req: NextRequest,
@@ -142,7 +144,83 @@ export async function POST(
         throw new Error("Quote update failed");
       }
 
-      return updatedRows[0];
+      let builderTrendTransfer: {
+        id: string;
+        status: string;
+        isNew: boolean;
+      } | null = null;
+
+      if (status === "ACCEPTED") {
+        const payloadJson = JSON.stringify({
+          projectId: quote.projectId,
+          quoteId: quote.id,
+          projectAddress: quote.project.address,
+          scopeDetails: quote.project.draftData ?? null,
+          estimate: {
+            status,
+            approvedAt: new Date().toISOString(),
+          },
+        });
+
+        const insertedTransferRows = await tx.$queryRaw<
+          Array<{ id: string; status: string }>
+        >(
+          Prisma.sql`
+            INSERT INTO "BuilderTrendTransfer" (
+              "id",
+              "projectId",
+              "quoteId",
+              "status",
+              "payload",
+              "requestedAt",
+              "createdAt",
+              "updatedAt"
+            )
+            VALUES (
+              ${randomUUID()},
+              ${quote.projectId},
+              ${quote.id},
+              'PENDING'::"BuilderTrendTransferStatus",
+              CAST(${payloadJson} AS JSONB),
+              CURRENT_TIMESTAMP,
+              CURRENT_TIMESTAMP,
+              CURRENT_TIMESTAMP
+            )
+            ON CONFLICT ("quoteId") DO NOTHING
+            RETURNING "id", "status"
+          `
+        );
+
+        if (insertedTransferRows.length > 0) {
+          builderTrendTransfer = {
+            ...insertedTransferRows[0],
+            isNew: true,
+          };
+        } else {
+          const existingTransferRows = await tx.$queryRaw<
+            Array<{ id: string; status: string }>
+          >(
+            Prisma.sql`
+              SELECT "id", "status"
+              FROM "BuilderTrendTransfer"
+              WHERE "quoteId" = ${quote.id}
+              LIMIT 1
+            `
+          );
+
+          if (existingTransferRows.length > 0) {
+            builderTrendTransfer = {
+              ...existingTransferRows[0],
+              isNew: false,
+            };
+          }
+        }
+      }
+
+      return {
+        ...updatedRows[0],
+        builderTrendTransfer,
+      };
     });
 
     await logAuditEventNonBlocking({
@@ -167,6 +245,67 @@ export async function POST(
       },
       ...requestContext,
     });
+
+    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew) {
+      await logAuditEventNonBlocking({
+        category: "MANUAL_CHANGE",
+        action: "BUILDERTREND_TRANSFER_REQUESTED",
+        outcome: "SUCCESS",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: session.user.id,
+        projectId: quote.projectId,
+        quoteId: quote.id,
+        resourceType: "buildertrend_transfer",
+        resourceId: updatedQuote.builderTrendTransfer.id,
+        description: "Created pending BuilderTrend transfer record after estimate approval",
+        metadata: {
+          transferStatus: updatedQuote.builderTrendTransfer.status,
+        },
+        ...requestContext,
+      });
+    }
+
+    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer && !updatedQuote.builderTrendTransfer.isNew) {
+      await logAuditEventNonBlocking({
+        category: "MANUAL_CHANGE",
+        action: "BUILDERTREND_TRANSFER_ALREADY_EXISTS",
+        outcome: "SUCCESS",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: session.user.id,
+        projectId: quote.projectId,
+        quoteId: quote.id,
+        resourceType: "buildertrend_transfer",
+        resourceId: updatedQuote.builderTrendTransfer.id,
+        description: "Skipped creating duplicate BuilderTrend transfer record after estimate approval",
+        metadata: {
+          transferStatus: updatedQuote.builderTrendTransfer.status,
+        },
+        ...requestContext,
+      });
+    }
+
+    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew) {
+      try {
+        await enqueueBuilderTrendTransfer(updatedQuote.builderTrendTransfer.id);
+      } catch (enqueueError) {
+        await logAuditEventNonBlocking({
+          category: "MANUAL_CHANGE",
+          action: "BUILDERTREND_TRANSFER_ENQUEUE_FAILED",
+          outcome: "FAILURE",
+          sensitivityLevel: "RESTRICTED",
+          actorUserId: session.user.id,
+          projectId: quote.projectId,
+          quoteId: quote.id,
+          resourceType: "buildertrend_transfer",
+          resourceId: updatedQuote.builderTrendTransfer.id,
+          description: "Failed to enqueue BuilderTrend transfer after estimate approval",
+          metadata: {
+            errorMessage: enqueueError instanceof Error ? enqueueError.message : "Unknown enqueue error",
+          },
+          ...requestContext,
+        });
+      }
+    }
 
     return NextResponse.json({ success: true, quote: updatedQuote }, { status: 200 });
   } catch (error: unknown) {
