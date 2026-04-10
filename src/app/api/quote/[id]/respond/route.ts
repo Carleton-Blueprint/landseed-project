@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
 
 export async function POST(
   req: NextRequest,
@@ -287,6 +288,30 @@ export async function POST(
         },
         ...requestContext,
       });
+    }
+
+    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew) {
+      try {
+        await enqueueBuilderTrendTransfer(updatedQuote.builderTrendTransfer.id);
+      } catch (enqueueError) {
+        await logAuditEventNonBlocking({
+          category: "MANUAL_CHANGE",
+          action: "BUILDERTREND_TRANSFER_ENQUEUE_FAILED",
+          outcome: "FAILURE",
+          sensitivityLevel: "RESTRICTED",
+          actorUserId: session.user.id,
+          projectId: quote.projectId,
+          quoteId: quote.id,
+          resourceType: "buildertrend_transfer",
+          resourceId: updatedQuote.builderTrendTransfer.id,
+          description: "Failed to enqueue BuilderTrend transfer after estimate approval",
+          metadata: {
+            idempotencyKey: updatedQuote.builderTrendTransfer.idempotencyKey,
+            errorMessage: enqueueError instanceof Error ? enqueueError.message : "Unknown enqueue error",
+          },
+          ...requestContext,
+        });
+      }
     }
 
     return NextResponse.json({ success: true, quote: updatedQuote }, { status: 200 });
