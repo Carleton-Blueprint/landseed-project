@@ -147,12 +147,10 @@ export async function POST(
       let builderTrendTransfer: {
         id: string;
         status: string;
-        idempotencyKey: string;
         isNew: boolean;
       } | null = null;
 
       if (status === "ACCEPTED") {
-        const idempotencyKey = `buildertrend-transfer:${quote.id}`;
         const payloadJson = JSON.stringify({
           projectId: quote.projectId,
           quoteId: quote.id,
@@ -165,7 +163,7 @@ export async function POST(
         });
 
         const insertedTransferRows = await tx.$queryRaw<
-          Array<{ id: string; status: string; idempotencyKey: string }>
+          Array<{ id: string; status: string }>
         >(
           Prisma.sql`
             INSERT INTO "BuilderTrendTransfer" (
@@ -173,7 +171,6 @@ export async function POST(
               "projectId",
               "quoteId",
               "status",
-              "idempotencyKey",
               "payload",
               "requestedAt",
               "createdAt",
@@ -184,14 +181,13 @@ export async function POST(
               ${quote.projectId},
               ${quote.id},
               'PENDING'::"BuilderTrendTransferStatus",
-              ${idempotencyKey},
               CAST(${payloadJson} AS JSONB),
               CURRENT_TIMESTAMP,
               CURRENT_TIMESTAMP,
               CURRENT_TIMESTAMP
             )
             ON CONFLICT ("quoteId") DO NOTHING
-            RETURNING "id", "status", "idempotencyKey"
+            RETURNING "id", "status"
           `
         );
 
@@ -202,10 +198,10 @@ export async function POST(
           };
         } else {
           const existingTransferRows = await tx.$queryRaw<
-            Array<{ id: string; status: string; idempotencyKey: string }>
+            Array<{ id: string; status: string }>
           >(
             Prisma.sql`
-              SELECT "id", "status", "idempotencyKey"
+              SELECT "id", "status"
               FROM "BuilderTrendTransfer"
               WHERE "quoteId" = ${quote.id}
               LIMIT 1
@@ -264,7 +260,6 @@ export async function POST(
         description: "Created pending BuilderTrend transfer record after estimate approval",
         metadata: {
           transferStatus: updatedQuote.builderTrendTransfer.status,
-          idempotencyKey: updatedQuote.builderTrendTransfer.idempotencyKey,
         },
         ...requestContext,
       });
@@ -284,7 +279,6 @@ export async function POST(
         description: "Skipped creating duplicate BuilderTrend transfer record after estimate approval",
         metadata: {
           transferStatus: updatedQuote.builderTrendTransfer.status,
-          idempotencyKey: updatedQuote.builderTrendTransfer.idempotencyKey,
         },
         ...requestContext,
       });
@@ -306,7 +300,6 @@ export async function POST(
           resourceId: updatedQuote.builderTrendTransfer.id,
           description: "Failed to enqueue BuilderTrend transfer after estimate approval",
           metadata: {
-            idempotencyKey: updatedQuote.builderTrendTransfer.idempotencyKey,
             errorMessage: enqueueError instanceof Error ? enqueueError.message : "Unknown enqueue error",
           },
           ...requestContext,

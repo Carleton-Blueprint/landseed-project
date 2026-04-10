@@ -8,12 +8,11 @@ type TransferRow = {
   projectId: string;
   quoteId: string;
   status: string;
-  idempotencyKey: string;
   attempts: number;
   payload: unknown;
 };
 
-async function sendMockedBuilderTrendTransfer(payload: unknown): Promise<{ externalReference: string }> {
+async function sendMockedBuilderTrendTransfer(): Promise<{ externalReference: string }> {
   const shouldFail = (process.env.BUILDERTREND_MOCK_FAIL ?? "false").toLowerCase() === "true";
   if (shouldFail) {
     throw new Error("Mocked BuilderTrend failure (BUILDERTREND_MOCK_FAIL=true)");
@@ -50,7 +49,6 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
         "projectId",
         "quoteId",
         "status",
-        "idempotencyKey",
         "attempts",
         "payload"
       FROM "BuilderTrendTransfer"
@@ -69,7 +67,7 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
   }
 
   try {
-    const result = await sendMockedBuilderTrendTransfer(transfer.payload);
+    const result = await sendMockedBuilderTrendTransfer();
 
     await prisma.$executeRaw(
       Prisma.sql`

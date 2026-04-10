@@ -199,7 +199,6 @@ model BuilderTrendTransfer {
   projectId         String
   quoteId           String
   status            BuilderTrendTransferStatus @default(PENDING)
-  idempotencyKey    String                    @unique
   payload           Json?
   attempts          Int                       @default(0)
   externalReference String?
