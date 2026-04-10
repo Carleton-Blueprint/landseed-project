@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
@@ -142,7 +143,87 @@ export async function POST(
         throw new Error("Quote update failed");
       }
 
-      return updatedRows[0];
+      let builderTrendTransfer: {
+        id: string;
+        status: string;
+        idempotencyKey: string;
+        isNew: boolean;
+      } | null = null;
+
+      if (status === "ACCEPTED") {
+        const idempotencyKey = `buildertrend-transfer:${quote.id}`;
+        const payloadJson = JSON.stringify({
+          projectId: quote.projectId,
+          quoteId: quote.id,
+          projectAddress: quote.project.address,
+          scopeDetails: quote.project.draftData ?? null,
+          estimate: {
+            status,
+            approvedAt: new Date().toISOString(),
+          },
+        });
+
+        const insertedTransferRows = await tx.$queryRaw<
+          Array<{ id: string; status: string; idempotencyKey: string }>
+        >(
+          Prisma.sql`
+            INSERT INTO "BuilderTrendTransfer" (
+              "id",
+              "projectId",
+              "quoteId",
+              "status",
+              "idempotencyKey",
+              "payload",
+              "requestedAt",
+              "createdAt",
+              "updatedAt"
+            )
+            VALUES (
+              ${randomUUID()},
+              ${quote.projectId},
+              ${quote.id},
+              'PENDING'::"BuilderTrendTransferStatus",
+              ${idempotencyKey},
+              CAST(${payloadJson} AS JSONB),
+              CURRENT_TIMESTAMP,
+              CURRENT_TIMESTAMP,
+              CURRENT_TIMESTAMP
+            )
+            ON CONFLICT ("quoteId") DO NOTHING
+            RETURNING "id", "status", "idempotencyKey"
+          `
+        );
+
+        if (insertedTransferRows.length > 0) {
+          builderTrendTransfer = {
+            ...insertedTransferRows[0],
+            isNew: true,
+          };
+        } else {
+          const existingTransferRows = await tx.$queryRaw<
+            Array<{ id: string; status: string; idempotencyKey: string }>
+          >(
+            Prisma.sql`
+              SELECT "id", "status", "idempotencyKey"
+              FROM "BuilderTrendTransfer"
+              WHERE "quoteId" = ${quote.id}
+              LIMIT 1
+            `
+          );
+
+          if (existingTransferRows.length > 0) {
+            builderTrendTransfer = {
+              ...existingTransferRows[0],
+              isNew: false,
+            };
+          }
+        }
+      }
+
+      return {
+        ...updatedRows[0],
+        builderTrendTransfer,
+      };
     });
 
     await logAuditEventNonBlocking({
@@ -167,6 +248,46 @@ export async function POST(
       },
       ...requestContext,
     });
+
+    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew) {
+      await logAuditEventNonBlocking({
+        category: "MANUAL_CHANGE",
+        action: "BUILDERTREND_TRANSFER_REQUESTED",
+        outcome: "SUCCESS",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: session.user.id,
+        projectId: quote.projectId,
+        quoteId: quote.id,
+        resourceType: "buildertrend_transfer",
+        resourceId: updatedQuote.builderTrendTransfer.id,
+        description: "Created pending BuilderTrend transfer record after estimate approval",
+        metadata: {
+          transferStatus: updatedQuote.builderTrendTransfer.status,
+          idempotencyKey: updatedQuote.builderTrendTransfer.idempotencyKey,
+        },
+        ...requestContext,
+      });
+    }
+
+    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer && !updatedQuote.builderTrendTransfer.isNew) {
+      await logAuditEventNonBlocking({
+        category: "MANUAL_CHANGE",
+        action: "BUILDERTREND_TRANSFER_ALREADY_EXISTS",
+        outcome: "SUCCESS",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: session.user.id,
+        projectId: quote.projectId,
+        quoteId: quote.id,
+        resourceType: "buildertrend_transfer",
+        resourceId: updatedQuote.builderTrendTransfer.id,
+        description: "Skipped creating duplicate BuilderTrend transfer record after estimate approval",
+        metadata: {
+          transferStatus: updatedQuote.builderTrendTransfer.status,
+          idempotencyKey: updatedQuote.builderTrendTransfer.idempotencyKey,
+        },
+        ...requestContext,
+      });
+    }
 
     return NextResponse.json({ success: true, quote: updatedQuote }, { status: 200 });
   } catch (error: unknown) {
