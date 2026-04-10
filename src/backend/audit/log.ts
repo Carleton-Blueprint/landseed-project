@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 
 export type AuditEventCategory = "MANUAL_CHANGE" | "SENSITIVE_ACCESS";
@@ -58,6 +59,7 @@ function toJsonText(value: unknown): string | null {
 }
 
 export async function logAuditEvent(input: AuditEventInput): Promise<void> {
+  const auditEventId = randomUUID();
   const beforeStateJson = toJsonText(input.beforeState);
   const afterStateJson = toJsonText(input.afterState);
   const metadataJson = toJsonText(input.metadata);
@@ -65,6 +67,7 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
   await prisma.$executeRaw(
     Prisma.sql`
       INSERT INTO "AuditEvent" (
+        "id",
         "category",
         "action",
         "outcome",
@@ -83,6 +86,7 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
         "userAgent"
       )
       VALUES (
+        ${auditEventId},
         ${input.category}::"AuditEventCategory",
         ${input.action},
         ${input.outcome}::"AuditEventOutcome",
