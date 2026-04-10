@@ -6,11 +6,20 @@ const worker = createBuilderTrendTransferWorker(async (job) => {
 });
 
 worker.on("completed", (job) => {
-  console.log(`BuilderTrend transfer job ${job.id} completed`);
+  console.log("BuilderTrend transfer job completed", {
+    jobId: job.id,
+    transferId: job.data.transferId,
+    attemptsMade: job.attemptsMade,
+  });
 });
 
 worker.on("failed", (job, err) => {
-  console.error(`BuilderTrend transfer job ${job?.id} failed:`, err.message);
+  console.error("BuilderTrend transfer job failed", {
+    jobId: job?.id,
+    transferId: job?.data.transferId,
+    attemptsMade: job?.attemptsMade,
+    message: err.message,
+  });
 });
 
 worker.on("error", (err) => {

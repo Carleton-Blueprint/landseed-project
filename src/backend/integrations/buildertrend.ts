@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 import { builderTrendTransferQueue } from "@/backend/queue";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
 
 type TransferRow = {
   id: string;
@@ -41,6 +42,53 @@ export async function enqueueBuilderTrendTransfer(transferId: string): Promise<v
   );
 }
 
+export async function retryBuilderTrendTransfer(input: {
+  transferId: string;
+}): Promise<{ previousStatus: string; alreadyQueued: boolean }> {
+  const rows = await prisma.$queryRaw<
+    Array<{ id: string; status: string; projectId: string; quoteId: string }>
+  >(
+    Prisma.sql`
+      SELECT "id", "status", "projectId", "quoteId"
+      FROM "BuilderTrendTransfer"
+      WHERE "id" = ${input.transferId}
+      LIMIT 1
+    `
+  );
+
+  if (rows.length === 0) {
+    throw new Error(`BuilderTrend transfer ${input.transferId} not found`);
+  }
+
+  const transfer = rows[0];
+  if (transfer.status === "SENT") {
+    throw new Error("Cannot retry a transfer that has already been sent");
+  }
+
+  const existingJob = await builderTrendTransferQueue.getJob(transfer.id);
+  const alreadyQueued = Boolean(existingJob);
+
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE "BuilderTrendTransfer"
+      SET
+        "status" = 'PENDING'::"BuilderTrendTransferStatus",
+        "lastError" = NULL,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${transfer.id}
+    `
+  );
+
+  if (!alreadyQueued) {
+    await enqueueBuilderTrendTransfer(transfer.id);
+  }
+
+  return {
+    previousStatus: transfer.status,
+    alreadyQueued,
+  };
+}
+
 export async function processBuilderTrendTransfer(transferId: string): Promise<void> {
   const rows = await prisma.$queryRaw<TransferRow[]>(
     Prisma.sql`
@@ -66,6 +114,8 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
     return;
   }
 
+  const startedAtMs = Date.now();
+
   try {
     const result = await sendMockedBuilderTrendTransfer();
 
@@ -82,6 +132,24 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
         WHERE "id" = ${transfer.id}
       `
     );
+
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "BUILDERTREND_TRANSFER_SENT",
+      outcome: "SUCCESS",
+      sensitivityLevel: "RESTRICTED",
+      projectId: transfer.projectId,
+      quoteId: transfer.quoteId,
+      resourceType: "buildertrend_transfer",
+      resourceId: transfer.id,
+      description: "BuilderTrend transfer processed successfully",
+      metadata: {
+        transferStatus: "SENT",
+        attemptNumber: transfer.attempts + 1,
+        durationMs: Date.now() - startedAtMs,
+        externalReference: result.externalReference,
+      },
+    });
   } catch (error) {
     await prisma.$executeRaw(
       Prisma.sql`
@@ -94,6 +162,24 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
         WHERE "id" = ${transfer.id}
       `
     );
+
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "BUILDERTREND_TRANSFER_FAILED",
+      outcome: "FAILURE",
+      sensitivityLevel: "RESTRICTED",
+      projectId: transfer.projectId,
+      quoteId: transfer.quoteId,
+      resourceType: "buildertrend_transfer",
+      resourceId: transfer.id,
+      description: "BuilderTrend transfer processing failed",
+      metadata: {
+        transferStatus: "FAILED",
+        attemptNumber: transfer.attempts + 1,
+        durationMs: Date.now() - startedAtMs,
+        errorMessage: error instanceof Error ? error.message : "Unknown BuilderTrend transfer error",
+      },
+    });
 
     throw error;
   }
