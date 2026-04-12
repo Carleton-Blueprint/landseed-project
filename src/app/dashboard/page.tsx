@@ -4,28 +4,26 @@ import { Button } from "@/frontend/components/ui/button";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
+/* ------------------------------------------------------------------ */
+/* Status helpers                                                      */
+/* ------------------------------------------------------------------ */
+
 function getStatusLabel(status: string) {
   if (status === "draft") return "Pending";
   return status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function getGrantSummary(project: { grantDocumentKey: string | null }) {
-  if (project.grantDocumentKey) {
-    return {
-      applicableGrant: "Grant assessment available",
-      estimatedFunding: "See generated grant PDF",
-      explanation:
-        "A grant assessment has been prepared for this request. Open the PDF to review applicable grants and estimated funding details.",
-    };
-  }
-
-  return {
-    applicableGrant: "Grant review in progress",
-    estimatedFunding: "Estimate not ready yet",
-    explanation:
-      "We are still reviewing this request to determine which grants may apply and the estimated funding amount.",
-  };
+function getStatusStyle(status: string) {
+  if (status === "draft")
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "submitted")
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
+
+/* ------------------------------------------------------------------ */
+/* Estimate helpers                                                    */
+/* ------------------------------------------------------------------ */
 
 function getEstimateSummary(project: {
   status: string;
@@ -46,7 +44,7 @@ function getEstimateSummary(project: {
   if (project.estimateMin != null && project.estimateMax != null) {
     return {
       title: "Initial estimate range",
-      value: `$${project.estimateMin.toLocaleString()} - $${project.estimateMax.toLocaleString()}`,
+      value: `$${project.estimateMin.toLocaleString()} – $${project.estimateMax.toLocaleString()}`,
       explanation:
         "This pricing is dynamically generated from real-time external retail data and may change as retailer pricing and product availability update.",
     };
@@ -54,11 +52,80 @@ function getEstimateSummary(project: {
 
   return {
     title: "Initial estimate range",
-    value: "Generating estimate...",
+    value: "Generating estimate…",
     explanation:
       "We are generating your estimate using real-time external retail data.",
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* AI Grant Discovery helpers                                          */
+/* ------------------------------------------------------------------ */
+
+type DiscoveredGrantSummary = {
+  grantId: string;
+  title: string;
+  scope: string;
+  decision: string;
+  relevanceScore: number;
+  confidence: string;
+};
+
+type ProjectEligibility = {
+  overallDecision: string;
+  discoveredGrants: DiscoveredGrantSummary[];
+  provider: string | null;
+  assessedAt: Date;
+};
+
+const DECISION_DISPLAY: Record<string, { label: string; icon: string; color: string; bg: string; border: string }> = {
+  ELIGIBLE: {
+    label: "Grants Found",
+    icon: "✅",
+    color: "text-emerald-700",
+    bg: "bg-emerald-50",
+    border: "border-emerald-200",
+  },
+  NEEDS_MORE_INFO: {
+    label: "More Info Needed",
+    icon: "📋",
+    color: "text-amber-700",
+    bg: "bg-amber-50",
+    border: "border-amber-200",
+  },
+  MANUAL_REVIEW: {
+    label: "Manual Review",
+    icon: "👁️",
+    color: "text-orange-700",
+    bg: "bg-orange-50",
+    border: "border-orange-200",
+  },
+  INELIGIBLE: {
+    label: "No Matches",
+    icon: "ℹ️",
+    color: "text-gray-600",
+    bg: "bg-gray-50",
+    border: "border-gray-200",
+  },
+};
+
+const SCOPE_ICONS: Record<string, string> = {
+  NATIONAL: "🇨🇦",
+  PROVINCIAL: "🏛️",
+  MUNICIPAL: "🏘️",
+};
+
+function countByScope(grants: DiscoveredGrantSummary[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const g of grants) {
+    counts[g.scope] = (counts[g.scope] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/* ------------------------------------------------------------------ */
+/* Page Component                                                      */
+/* ------------------------------------------------------------------ */
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -76,107 +143,277 @@ export default async function DashboardPage() {
     include: { photos: true },
   });
 
+  /* ---- Batch-fetch latest eligibility assessments for all projects ---- */
+  const projectIds = projects.map((p) => p.id);
+  const assessments = projectIds.length > 0
+    ? await prisma.eligibilityAssessment.findMany({
+        where: {
+          projectId: { in: projectIds },
+          isLatest: true,
+        },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+
+  const eligibilityByProject = new Map<string, ProjectEligibility>();
+  for (const a of assessments) {
+    if (eligibilityByProject.has(a.projectId)) continue; // already have latest
+    const aExtended = a as typeof a & {
+      discoveredGrants?: unknown;
+      discoveryProvider?: string | null;
+    };
+    const grants = Array.isArray(aExtended.discoveredGrants)
+      ? (aExtended.discoveredGrants as DiscoveredGrantSummary[])
+      : [];
+    eligibilityByProject.set(a.projectId, {
+      overallDecision: a.overallDecision,
+      discoveredGrants: grants,
+      provider: aExtended.discoveryProvider ?? null,
+      assessedAt: a.createdAt,
+    });
+  }
+
   return (
-    <main className="min-h-screen max-w-4xl mx-auto p-6 md:p-8">
-      <h1 className="mb-6 border-b pb-4 text-3xl font-bold tracking-tight text-gray-900">
-        Your Dashboard
-      </h1>
+    <main className="min-h-screen bg-gray-50/60">
+      {/* Dashboard header */}
+      <div className="border-b bg-white">
+        <div className="mx-auto max-w-5xl px-6 py-5 md:px-8">
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+            Your Dashboard
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Track your home modification projects and AI-discovered grant eligibility.
+          </p>
+        </div>
+      </div>
 
-      <div className="space-y-6">
-        <div className="rounded-lg border bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-xl font-semibold">Your Projects</h2>
+      <div className="mx-auto max-w-5xl px-6 py-6 md:px-8">
+        {projects.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm">
+            <span className="text-4xl">🏠</span>
+            <h2 className="mt-3 text-lg font-semibold text-gray-900">No Projects Yet</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Submit an intake form to start a new home modification project.
+            </p>
+            <Link href="/">
+              <Button variant="default" className="mt-4">
+                Start New Intake
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {projects.map((project) => {
+              const typedProject = project as typeof project & {
+                estimateMin?: number | null;
+                estimateMax?: number | null;
+              };
 
-          {projects.length === 0 ? (
-            <p className="text-gray-500">You don&apos;t have any projects yet.</p>
-          ) : (
-            <div className="space-y-4">
-              {projects.map((project) => {
-                const typedProject = project as typeof project & {
-                  estimateMin?: number | null;
-                  estimateMax?: number | null;
-                };
+              const estimateSummary = getEstimateSummary(typedProject);
+              const eligibility = eligibilityByProject.get(project.id);
 
-                const grantSummary = getGrantSummary(project);
-                const estimateSummary = getEstimateSummary(typedProject);
+              /* Score breakdown for eligible grants */
+              const eligibleGrants = eligibility
+                ? eligibility.discoveredGrants.filter((g) => g.decision === "ELIGIBLE")
+                : [];
+              const scopeCounts = eligibility
+                ? countByScope(eligibility.discoveredGrants)
+                : {};
+              const decisionDisplay = eligibility
+                ? DECISION_DISPLAY[eligibility.overallDecision] ?? DECISION_DISPLAY.MANUAL_REVIEW
+                : null;
 
-                return (
+              return (
+                <div
+                  key={project.id}
+                  className="overflow-hidden rounded-xl border bg-white shadow-sm transition-shadow duration-200 hover:shadow-md"
+                  id={`project-card-${project.id}`}
+                >
+                  {/* Accent bar */}
                   <div
-                    key={project.id}
-                    className="flex flex-col gap-4 rounded-md border p-4 transition-colors hover:bg-gray-50 sm:flex-row sm:items-start sm:justify-between"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <h3 className="text-lg font-medium text-gray-900">{project.address}</h3>
+                    className={`h-1 w-full ${
+                      eligibility?.overallDecision === "ELIGIBLE"
+                        ? "bg-gradient-to-r from-emerald-400 to-teal-500"
+                        : eligibility?.overallDecision === "NEEDS_MORE_INFO"
+                        ? "bg-gradient-to-r from-amber-400 to-orange-400"
+                        : "bg-gradient-to-r from-gray-300 to-gray-400"
+                    }`}
+                  />
 
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
-                            project.status === "draft"
-                              ? "border-amber-200 bg-amber-50 text-amber-700"
-                              : "border-blue-200 bg-blue-50 text-blue-700"
-                          }`}
-                        >
-                          {getStatusLabel(project.status)}
-                        </span>
+                  <div className="p-5 sm:p-6">
+                    <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                      {/* Left: Project info */}
+                      <div className="min-w-0 flex-1 space-y-4">
+                        {/* Title + metadata */}
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900">{project.address}</h3>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getStatusStyle(
+                                project.status
+                              )}`}
+                            >
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${
+                                  project.status === "draft" ? "bg-amber-500" : "bg-emerald-500"
+                                }`}
+                              />
+                              {getStatusLabel(project.status)}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {new Date(project.createdAt).toLocaleDateString("en-CA", {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              📷 {project.photos.length} photo{project.photos.length === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                        </div>
 
-                        <span className="text-sm text-gray-500">
-                          {new Date(project.createdAt).toLocaleDateString()}
-                        </span>
+                        {/* Estimate summary */}
+                        <div className="rounded-lg border bg-gray-50/80 p-3.5">
+                          <p className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
+                            <svg className="h-4 w-4 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            {estimateSummary.title}: {estimateSummary.value}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+                            {estimateSummary.explanation}
+                          </p>
+                        </div>
 
-                        <span className="text-sm text-gray-500">
-                          {project.photos.length} photo{project.photos.length === 1 ? "" : "s"}
-                        </span>
-                      </div>
-
-                      <div className="mt-3 rounded-md border bg-gray-50 p-3">
-                        <p className="text-sm font-medium text-gray-900">
-                          {estimateSummary.title}: {estimateSummary.value}
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {estimateSummary.explanation}
-                        </p>
-                      </div>
-
-                      <div className="mt-3 rounded-md border bg-gray-50 p-3">
-                        <p className="text-sm font-medium text-gray-900">
-                          Applicable grants: {grantSummary.applicableGrant}
-                        </p>
-                        <p className="mt-1 text-sm text-gray-700">
-                          Estimated funding: {grantSummary.estimatedFunding}
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {grantSummary.explanation}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex shrink-0 flex-col gap-2 sm:w-auto">
-                      <Link href={`/dashboard/${project.id}`}>
-                        <Button variant="outline" className="w-full sm:w-auto">
-                          View Details
-                        </Button>
-                      </Link>
-
-                      {project.grantDocumentKey ? (
-                        <Link href={`/api/documents/${project.id}/download`} target="_blank">
-                          <Button
-                            variant="default"
-                            className="flex w-full items-center gap-2 sm:w-auto"
+                        {/* ═══ AI-Discovered Grant Eligibility ═══ */}
+                        {eligibility ? (
+                          <div
+                            className={`rounded-lg border p-3.5 ${decisionDisplay!.bg} ${decisionDisplay!.border}`}
                           >
-                            Download Grant PDF
+                            {/* Header row */}
+                            <div className="flex items-start gap-2.5">
+                              <span className="text-lg leading-none mt-0.5">{decisionDisplay!.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className={`text-sm font-bold ${decisionDisplay!.color}`}>
+                                    {decisionDisplay!.label}
+                                  </p>
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-white/80 border border-violet-200 px-2 py-0.5 text-[10px] font-medium text-violet-600">
+                                    <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                                    </svg>
+                                    AI‑Discovered
+                                  </span>
+                                </div>
+
+                                {/* Grant counts by scope */}
+                                {eligibility.discoveredGrants.length > 0 ? (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {Object.entries(scopeCounts).map(([scope, count]) => (
+                                      <span
+                                        key={scope}
+                                        className="inline-flex items-center gap-1 rounded-md bg-white/70 border border-gray-200 px-2 py-0.5 text-xs text-gray-700"
+                                      >
+                                        <span>{SCOPE_ICONS[scope] ?? "📋"}</span>
+                                        {count} {scope.charAt(0) + scope.slice(1).toLowerCase()}
+                                      </span>
+                                    ))}
+                                    {eligibleGrants.length > 0 && (
+                                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                                        ✓ {eligibleGrants.length} eligible
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <p className="mt-1 text-xs text-gray-600">
+                                    No grant programs matched the current project profile.
+                                  </p>
+                                )}
+
+                                {/* Top eligible grant preview */}
+                                {eligibleGrants.length > 0 && (
+                                  <p className="mt-2 text-xs text-gray-600 leading-relaxed">
+                                    Top match: <span className="font-medium text-gray-800">{eligibleGrants[0].title}</span>
+                                    {eligibleGrants.length > 1 && (
+                                      <span className="text-gray-500">
+                                        {" "}and {eligibleGrants.length - 1} more
+                                      </span>
+                                    )}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Provider & date footer */}
+                            <div className="mt-2.5 flex items-center gap-3 border-t border-gray-200/60 pt-2 text-[10px] text-gray-400">
+                              <span>
+                                Provider: {eligibility.provider === "OPENAI" ? "AI Web Search" : "Heuristic Engine"}
+                              </span>
+                              <span>
+                                Assessed: {new Date(eligibility.assessedAt).toLocaleDateString("en-CA", {
+                                  month: "short",
+                                  day: "numeric",
+                                })}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          /* No assessment yet — show pending state */
+                          <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3.5">
+                            <div className="flex items-center gap-2.5">
+                              <span className="text-lg">🔍</span>
+                              <div>
+                                <p className="text-sm font-medium text-gray-700">
+                                  AI Grant Discovery Pending
+                                </p>
+                                <p className="mt-0.5 text-xs text-gray-500">
+                                  Grant eligibility will be automatically assessed once intake is finalized.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right: Action buttons */}
+                      <div className="flex shrink-0 flex-col gap-2 sm:w-auto">
+                        <Link href={`/dashboard/${project.id}`}>
+                          <Button variant="outline" className="w-full gap-1.5 sm:w-auto">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            View Details
                           </Button>
                         </Link>
-                      ) : (
-                        <Button variant="outline" disabled className="w-full sm:w-auto">
-                          Generating PDF...
-                        </Button>
-                      )}
+
+                        {project.grantDocumentKey ? (
+                          <Link href={`/api/documents/${project.id}/download`} target="_blank">
+                            <Button
+                              variant="default"
+                              className="flex w-full items-center gap-2 sm:w-auto"
+                            >
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                              </svg>
+                              Grant PDF
+                            </Button>
+                          </Link>
+                        ) : (
+                          <Button variant="outline" disabled className="w-full gap-1.5 sm:w-auto">
+                            <div className="h-3.5 w-3.5 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
+                            Generating PDF…
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </main>
   );
