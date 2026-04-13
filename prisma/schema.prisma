@@ -26,6 +26,7 @@ model User {
   grantedProjectAccess   ProjectAccess[]         @relation("ProjectAccessGrantedBy")
   pricingMatrixVersions  PricingMatrixVersion[]
   pricingMatrixAuditLogs PricingMatrixAuditLog[]
+  grantApplicationStatusHistory GrantApplicationStatusHistory[]
   notifications          NotificationDelivery[]
   auditEvents            AuditEvent[]
   createdAt              DateTime                @default(now())
@@ -68,6 +69,7 @@ model Project {
   id        String   @id @default(cuid())
   address   String
   status    String   @default("draft")
+  grantApplicationStatus GrantApplicationStatus @default(DRAFT)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectAccess ProjectAccess[]
@@ -76,12 +78,38 @@ model Project {
   quotes    Quote[]
   builderTrendTransfers BuilderTrendTransfer[]
   eligibilityAssessments EligibilityAssessment[]
+  grantApplicationStatusHistory GrantApplicationStatusHistory[]
   notifications NotificationDelivery[]
   auditEvents   AuditEvent[]
   draftData        Json?
   grantDocumentKey String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum GrantApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model GrantApplicationStatusHistory {
+  id              String                 @id @default(cuid())
+  projectId       String
+  fromStatus      GrantApplicationStatus?
+  toStatus        GrantApplicationStatus
+  changedAt       DateTime               @default(now())
+  changedByUserId String
+  reason          String?                @db.Text
+  metadata        Json?
+
+  project       Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changedByUser User    @relation(fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, changedAt(sort: Desc)])
+  @@index([changedByUserId, changedAt(sort: Desc)])
 }
 
 enum DocumentType {
