@@ -5,6 +5,27 @@ import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { getSignedDownloadUrl } from "lib/s3";
 import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
 
+const DEFAULT_DOWNLOAD_EXPIRY_SECONDS = 3600;
+const MIN_DOWNLOAD_EXPIRY_SECONDS = 60;
+const MAX_DOWNLOAD_EXPIRY_SECONDS = 86400;
+
+function getDownloadExpirySeconds(): number {
+  const raw = process.env.GRANT_DOCUMENT_DOWNLOAD_URL_EXPIRY_SECONDS;
+  if (!raw) {
+    return DEFAULT_DOWNLOAD_EXPIRY_SECONDS;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) {
+    return DEFAULT_DOWNLOAD_EXPIRY_SECONDS;
+  }
+
+  return Math.min(
+    MAX_DOWNLOAD_EXPIRY_SECONDS,
+    Math.max(MIN_DOWNLOAD_EXPIRY_SECONDS, parsed)
+  );
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -83,7 +104,8 @@ export async function GET(
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 
-    const signedUrl = await getSignedDownloadUrl(project.grantDocumentKey, 3600); // 1 hour link
+    const expiresInSeconds = getDownloadExpirySeconds();
+    const signedUrl = await getSignedDownloadUrl(project.grantDocumentKey, expiresInSeconds);
 
     await logAuditEventNonBlocking({
       category: "SENSITIVE_ACCESS",
@@ -96,7 +118,7 @@ export async function GET(
       resourceId: project.id,
       description: "Signed project document download URL generated",
       metadata: {
-        expiresInSeconds: 3600,
+        expiresInSeconds,
       },
       ...requestContext,
     });
