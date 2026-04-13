@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { NotificationEventType, Prisma, ProjectAccessRole } from "@prisma/client";
+import {
+  GrantApplicationStatus,
+  NotificationEventType,
+  Prisma,
+  ProjectAccessRole,
+} from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
@@ -34,6 +39,7 @@ export async function POST(req: NextRequest) {
       data: {
         address,
         status: "draft",
+        grantApplicationStatus: GrantApplicationStatus.DRAFT,
         userId: session.user.id,
         ...(draftData !== undefined
           ? { draftData: draftData as Prisma.InputJsonValue }
@@ -43,6 +49,16 @@ export async function POST(req: NextRequest) {
             userId: session.user.id,
             role: ProjectAccessRole.OWNER,
             grantedByUserId: session.user.id,
+          },
+        },
+        grantApplicationStatusHistory: {
+          create: {
+            fromStatus: null,
+            toStatus: GrantApplicationStatus.DRAFT,
+            changedByUserId: session.user.id,
+            metadata: {
+              source: "project_create",
+            } as Prisma.InputJsonValue,
           },
         },
       },

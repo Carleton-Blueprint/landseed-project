@@ -10,7 +10,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
-import { ProjectAccessRole } from "@prisma/client";
+import { GrantApplicationStatus, Prisma, ProjectAccessRole } from "@prisma/client";
 import { z } from "zod";
 
 const EDITABLE_ROLES: ProjectAccessRole[] = [
@@ -138,13 +138,24 @@ export async function PATCH(request: Request) {
       data: {
         userId: session.user.id,
         status: "draft",
+        grantApplicationStatus: GrantApplicationStatus.DRAFT,
         address,
-        draftData,
+        draftData: draftData as Prisma.InputJsonValue,
         projectAccess: {
           create: {
             userId: session.user.id,
             role: ProjectAccessRole.OWNER,
             grantedByUserId: session.user.id,
+          },
+        },
+        grantApplicationStatusHistory: {
+          create: {
+            fromStatus: null,
+            toStatus: GrantApplicationStatus.DRAFT,
+            changedByUserId: session.user.id,
+            metadata: {
+              source: "draft_create",
+            } as Prisma.InputJsonValue,
           },
         },
       },
