@@ -1,5 +1,5 @@
 -- DropIndex
-DROP INDEX "BuilderTrendTransfer_idempotencyKey_key";
+DROP INDEX IF EXISTS "BuilderTrendTransfer_idempotencyKey_key";
 
 -- AlterTable
-ALTER TABLE "BuilderTrendTransfer" DROP COLUMN "idempotencyKey";
+ALTER TABLE IF EXISTS "BuilderTrendTransfer" DROP COLUMN IF EXISTS "idempotencyKey";
