@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { prisma } from "lib/prisma";
+import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
@@ -85,6 +86,32 @@ export default async function ProjectDetailPage({
 
   const estimateSummary = getEstimateSummary(typedProject);
 
+  const photosWithSignedUrls = await Promise.all(
+    project.photos.map(async (photo) => {
+      const imageUrl = "imageUrl" in photo
+        ? ((photo as { imageUrl?: string | null }).imageUrl ?? photo.url)
+        : photo.url;
+
+      const generatedImageUrl = "generatedImageUrl" in photo
+        ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
+        : null;
+
+      const signedImageUrl = imageUrl
+        ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
+        : null;
+
+      const signedGeneratedImageUrl = generatedImageUrl
+        ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
+        : null;
+
+      return {
+        id: photo.id,
+        imageUrl: signedImageUrl,
+        generatedImageUrl: signedGeneratedImageUrl,
+      };
+    })
+  );
+
   return (
     <main className="min-h-screen max-w-3xl mx-auto p-6 md:p-8">
       <Link href="/dashboard">
@@ -124,14 +151,7 @@ export default async function ProjectDetailPage({
         )}
 
         <ProjectVisualizationGallery
-          photos={project.photos.map((photo) => ({
-            id: photo.id,
-            imageUrl: ("imageUrl" in photo ? (photo as { imageUrl?: string | null }).imageUrl : null) ?? photo.url,
-            generatedImageUrl:
-              "generatedImageUrl" in photo
-                ? (photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null
-                : null,
-          }))}
+          photos={photosWithSignedUrls}
         />
 
         <div className="rounded-md border p-4 bg-white shadow-sm">
