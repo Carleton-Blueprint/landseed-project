@@ -50,6 +50,20 @@ export async function getSignedDownloadUrl(key: string, expiresIn: number = 3600
   return await getSignedUrl(client, command, { expiresIn });
 }
 
+export async function getSignedDownloadUrlFromS3Url(
+  s3Url: string,
+  expiresIn: number = 3600
+): Promise<string> {
+  const parsedUrl = new URL(s3Url);
+  const key = decodeURIComponent(parsedUrl.pathname.replace(/^\/+/, ""));
+
+  if (!key) {
+    throw new Error("Cannot sign S3 URL without an object key");
+  }
+
+  return getSignedDownloadUrl(key, expiresIn);
+}
+
 // Helper function to test connection
 export async function testS3Connection(): Promise<boolean> {
   try {
