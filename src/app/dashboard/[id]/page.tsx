@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { prisma } from "lib/prisma";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
+import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
 
 function getStatusLabel(status: string) {
   if (status === "draft") return "Pending Review";
@@ -42,10 +43,11 @@ function getEstimateSummary(project: {
 export default async function ProjectDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   const project = await prisma.project.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: { photos: true },
   });
 
@@ -104,6 +106,8 @@ export default async function ProjectDetailPage({
               "generatedImageUrl" in photo ? (photo as any).generatedImageUrl : null,
           }))}
         />
+
+        <SupportingDocumentsSection grantApplicationId={project.id} />
 
         <div className="rounded-md border p-4 bg-white shadow-sm">
           <h2 className="text-lg font-semibold mb-2">Grant Assessment</h2>
