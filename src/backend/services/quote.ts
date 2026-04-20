@@ -5,6 +5,7 @@
 
 import { PrismaClient, Prisma, NotificationEventType } from '@prisma/client';
 import { enqueueNotification } from '@/backend/notifications/enqueue';
+import { buildEstimateReadyIdempotencyKey } from '@/backend/notifications/estimateReadyContract';
 import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
 import {
   logPricingDecisionAuditNonBlocking,
@@ -156,9 +157,12 @@ export async function generateQuote(
       process.env.APP_BASE_URL ??
       process.env.NEXTAUTH_URL ??
       'http://localhost:3000';
+
+    // Legacy trigger path: Phase 2 will move this to the Advisory Team
+    // Ready-for-Review transition flow as the single source of truth.
     await enqueueNotification({
       eventType: NotificationEventType.ESTIMATE_READY,
-      idempotencyKey: `estimate-ready:${quote.id}`,
+      idempotencyKey: buildEstimateReadyIdempotencyKey(quote.id),
       recipientEmail: projectWithUser.user.email,
       recipientName: projectWithUser.user.name,
       userId: projectWithUser.user.id,
