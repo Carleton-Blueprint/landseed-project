@@ -97,6 +97,7 @@ const QUOTE_STATUS_STYLES: Record<string, { label: string; color: string }> = {
   PENDING: { label: "Pending", color: "text-amber-700" },
   ACCEPTED: { label: "Accepted", color: "text-emerald-700" },
   DECLINED: { label: "Declined", color: "text-red-600" },
+  EXPIRED: { label: "Expired", color: "text-orange-700" },
 };
 
 const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {

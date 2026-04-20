@@ -88,6 +88,7 @@ export async function generateQuote(
       projectId: input.projectId,
       subtotal: new Prisma.Decimal(subtotal),
       total: new Prisma.Decimal(total),
+      lastClientActivityAt: new Date(),
       pricingMatrixVersionId: pricingMatrixVersion.id,
       eligibilityAssessmentId: latestEligibility?.assessmentId,
     },

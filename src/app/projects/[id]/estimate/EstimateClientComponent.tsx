@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 
-type QuoteStatus = "PENDING" | "ACCEPTED" | "DECLINED";
+type QuoteStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED";
 
 interface EstimateClientProps {
   quoteId: string;
@@ -71,6 +71,15 @@ export function EstimateClientComponent({ quoteId, initialStatus, initialReason 
         {declineReason && (
            <p className="italic text-gray-600 border-l-4 pl-4 mt-4">&quot;{declineReason}&quot;</p>
         )}
+      </div>
+    );
+  }
+
+  if (status === "EXPIRED") {
+    return (
+      <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-6 shadow-sm">
+        <h3 className="text-xl font-semibold mb-2">Estimate Expired</h3>
+        <p>This estimate is no longer active. Please contact the team if you need it reactivated.</p>
       </div>
     );
   }

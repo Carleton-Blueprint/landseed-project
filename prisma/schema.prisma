@@ -194,6 +194,7 @@ model Quote {
   subtotal    Decimal  @db.Decimal(10, 2)
   total       Decimal  @db.Decimal(10, 2)
   generatedAt DateTime @default(now())
+  lastClientActivityAt DateTime @default(now())
 
   pricingMatrixVersionId String
   eligibilityAssessmentId String?
@@ -342,6 +343,7 @@ enum QuoteStatus {
   PENDING
   ACCEPTED
   DECLINED
+  EXPIRED
 }
 
 model PricingMatrixVersion {
