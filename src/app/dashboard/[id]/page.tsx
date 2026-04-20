@@ -7,6 +7,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
+import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -95,7 +96,7 @@ function getModLabel(item: string) {
 export default async function ProjectDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const resolvedParams = await params;
   const session = await auth();
@@ -265,6 +266,8 @@ export default async function ProjectDetailPage({
 
         {/* ═══════ AI-Sourced Grant Discovery Summary ═══════ */}
         <GrantDiscoverySummary projectId={project.id} />
+
+        <SupportingDocumentsSection grantApplicationId={project.id} />
 
         {/* ═══════ Grant PDF Download Card ═══════ */}
         <div className="rounded-xl border bg-white p-5 shadow-sm">

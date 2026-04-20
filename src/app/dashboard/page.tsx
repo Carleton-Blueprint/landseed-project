@@ -3,6 +3,10 @@ import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import {
+  NotificationCenter,
+  NotificationItem,
+} from "@/frontend/components/NotificationCenter";
 
 /* ------------------------------------------------------------------ */
 /* Status helpers                                                      */
@@ -56,6 +60,43 @@ function getEstimateSummary(project: {
     explanation:
       "We are generating your estimate using real-time external retail data.",
   };
+}
+
+// TODO: replace with a real query once in-app notifications are persisted.
+function getMockNotifications(projects: { id: string; address: string }[]): NotificationItem[] {
+  const now = Date.now();
+  const first = projects[0];
+  const items: NotificationItem[] = [];
+
+  if (first) {
+    items.push({
+      id: `mock-estimate-${first.id}`,
+      kind: "estimate_ready",
+      title: "Refined estimate ready for review",
+      body: `Your refined estimate for ${first.address} is ready. Review the updated pricing and grant details.`,
+      href: `/dashboard/${first.id}`,
+      createdAt: new Date(now - 1000 * 60 * 12),
+    });
+    items.push({
+      id: `mock-docs-${first.id}`,
+      kind: "documents_requested",
+      title: "Supporting documents requested",
+      body: "Please upload proof of income and property ownership to continue your grant application.",
+      href: `/dashboard/${first.id}`,
+      createdAt: new Date(now - 1000 * 60 * 60 * 3),
+    });
+  }
+
+  items.push({
+    id: "mock-welcome",
+    kind: "info",
+    title: "Welcome to Landseed",
+    body: "You can track every project you submit from this dashboard.",
+    createdAt: new Date(now - 1000 * 60 * 60 * 26),
+    read: true,
+  });
+
+  return items;
 }
 
 /* ------------------------------------------------------------------ */
@@ -143,6 +184,10 @@ export default async function DashboardPage() {
     include: { photos: true },
   });
 
+  const notifications = getMockNotifications(
+    projects.map((p) => ({ id: p.id, address: p.address }))
+  );
+
   /* ---- Batch-fetch latest eligibility assessments for all projects ---- */
   const projectIds = projects.map((p) => p.id);
   const assessments = projectIds.length > 0
@@ -177,13 +222,18 @@ export default async function DashboardPage() {
     <main className="min-h-screen bg-gray-50/60">
       {/* Dashboard header */}
       <div className="border-b bg-white">
-        <div className="mx-auto max-w-5xl px-6 py-5 md:px-8">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-            Your Dashboard
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Track your home modification projects and AI-discovered grant eligibility.
-          </p>
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-start sm:justify-between md:px-8">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+              Your Dashboard
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Track your home modification projects and AI-discovered grant eligibility.
+            </p>
+          </div>
+          <div className="shrink-0 self-end sm:self-start">
+            <NotificationCenter notifications={notifications} />
+          </div>
         </div>
       </div>
 
