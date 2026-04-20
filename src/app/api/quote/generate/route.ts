@@ -50,6 +50,9 @@ export async function POST(req: NextRequest) {
       projectId,
       quoteId: result.quoteId,
       triggerSource: ESTIMATE_READY_TRIGGER_SOURCE.ADVISORY_TEAM_MARK_READY_FOR_REVIEW,
+      actorUserId: session.user.id,
+      ipAddress: requestContext.ipAddress,
+      userAgent: requestContext.userAgent,
     });
 
     await logAuditEventNonBlocking({

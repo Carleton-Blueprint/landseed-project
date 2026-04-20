@@ -18,6 +18,97 @@ export type NotificationJobPayload = {
   estimateLink?: string | null;
 };
 
+export interface NotificationDeliveryMetricsInput {
+  eventType?: NotificationEventType;
+  projectId?: string;
+  since?: Date;
+  failedLimit?: number;
+}
+
+export interface NotificationDeliveryMetrics {
+  eventType?: NotificationEventType;
+  projectId?: string;
+  since?: Date;
+  totalDeliveries: number;
+  pendingDeliveries: number;
+  sentDeliveries: number;
+  failedDeliveries: number;
+  recentFailures: Array<{
+    idempotencyKey: string;
+    recipientEmail: string;
+    eventType: NotificationEventType;
+    lastError: string | null;
+    attempts: number;
+    updatedAt: Date;
+  }>;
+}
+
+export async function getNotificationDeliveryMetrics(
+  input: NotificationDeliveryMetricsInput = {}
+): Promise<NotificationDeliveryMetrics> {
+  const { eventType, projectId, since, failedLimit = 25 } = input;
+  const whereBase: Prisma.NotificationDeliveryWhereInput = {
+    ...(eventType ? { eventType } : {}),
+    ...(projectId ? { projectId } : {}),
+    ...(since ? { createdAt: { gte: since } } : {}),
+  };
+
+  const [
+    totalDeliveries,
+    pendingDeliveries,
+    sentDeliveries,
+    failedDeliveries,
+    recentFailures,
+  ] = await Promise.all([
+    prisma.notificationDelivery.count({ where: whereBase }),
+    prisma.notificationDelivery.count({
+      where: {
+        ...whereBase,
+        status: NotificationDeliveryStatus.PENDING,
+      },
+    }),
+    prisma.notificationDelivery.count({
+      where: {
+        ...whereBase,
+        status: NotificationDeliveryStatus.SENT,
+      },
+    }),
+    prisma.notificationDelivery.count({
+      where: {
+        ...whereBase,
+        status: NotificationDeliveryStatus.FAILED,
+      },
+    }),
+    prisma.notificationDelivery.findMany({
+      where: {
+        ...whereBase,
+        status: NotificationDeliveryStatus.FAILED,
+      },
+      select: {
+        idempotencyKey: true,
+        recipientEmail: true,
+        eventType: true,
+        lastError: true,
+        attempts: true,
+        updatedAt: true,
+      },
+      orderBy: { updatedAt: "desc" },
+      take: failedLimit,
+    }),
+  ]);
+
+  return {
+    eventType,
+    projectId,
+    since,
+    totalDeliveries,
+    pendingDeliveries,
+    sentDeliveries,
+    failedDeliveries,
+    recentFailures,
+  };
+}
+
 export async function queueNotification(payload: NotificationJobPayload): Promise<void> {
   const existing = await prisma.notificationDelivery.findUnique({
     where: { idempotencyKey: payload.idempotencyKey },

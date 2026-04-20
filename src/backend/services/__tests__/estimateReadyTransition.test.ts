@@ -1,10 +1,15 @@
 import { markEstimateReadyForReview } from "../estimateReadyTransition";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { prisma } from "lib/prisma";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 
 jest.mock("@/backend/notifications/enqueue", () => ({
   enqueueNotification: jest.fn(),
+}));
+
+jest.mock("@/backend/audit/log", () => ({
+  logAuditEventNonBlocking: jest.fn(),
 }));
 
 jest.mock("lib/prisma", () => ({
@@ -30,6 +35,8 @@ describe("markEstimateReadyForReview", () => {
     };
   };
   const mockedEnqueue = enqueueNotification as jest.MockedFunction<typeof enqueueNotification>;
+  const mockedLogAuditEvent =
+    logAuditEventNonBlocking as jest.MockedFunction<typeof logAuditEventNonBlocking>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -69,8 +76,18 @@ describe("markEstimateReadyForReview", () => {
     expect(result).toEqual(
       expect.objectContaining({
         notified: true,
+        notificationIdempotencyKey: "estimate-ready:quote-1",
+        notificationQueuedAt: expect.any(String),
         triggerSource:
           ESTIMATE_READY_TRIGGER_SOURCE.ADVISORY_TEAM_MARK_READY_FOR_REVIEW,
+      })
+    );
+    expect(mockedLogAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ESTIMATE_READY_NOTIFICATION_QUEUED",
+        resourceId: "estimate-ready:quote-1",
+        projectId: "proj-1",
+        quoteId: "quote-1",
       })
     );
   });
@@ -95,7 +112,16 @@ describe("markEstimateReadyForReview", () => {
     expect(result).toEqual(
       expect.objectContaining({
         notified: false,
+        notificationIdempotencyKey: "estimate-ready:quote-1",
         skippedReason: "MISSING_RECIPIENT_EMAIL",
+      })
+    );
+    expect(mockedLogAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ESTIMATE_READY_NOTIFICATION_SKIPPED",
+        resourceId: "estimate-ready:quote-1",
+        projectId: "proj-1",
+        quoteId: "quote-1",
       })
     );
   });
