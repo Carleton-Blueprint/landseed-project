@@ -3,9 +3,7 @@
  * Implements FR-2.7 auditing and FR-3.1 discovery-aware quote linking.
  */
 
-import { PrismaClient, Prisma, NotificationEventType } from '@prisma/client';
-import { enqueueNotification } from '@/backend/notifications/enqueue';
-import { buildEstimateReadyIdempotencyKey } from '@/backend/notifications/estimateReadyContract';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
 import {
   logPricingDecisionAuditNonBlocking,
@@ -146,31 +144,6 @@ export async function generateQuote(
     },
     externalSources,
   });
-
-  await prisma.project.update({
-    where: { id: projectWithUser.id },
-    data: { status: 'estimate_ready' },
-  });
-
-  if (projectWithUser.user.email) {
-    const estimateBaseUrl =
-      process.env.APP_BASE_URL ??
-      process.env.NEXTAUTH_URL ??
-      'http://localhost:3000';
-
-    // Legacy trigger path: Phase 2 will move this to the Advisory Team
-    // Ready-for-Review transition flow as the single source of truth.
-    await enqueueNotification({
-      eventType: NotificationEventType.ESTIMATE_READY,
-      idempotencyKey: buildEstimateReadyIdempotencyKey(quote.id),
-      recipientEmail: projectWithUser.user.email,
-      recipientName: projectWithUser.user.name,
-      userId: projectWithUser.user.id,
-      projectId: projectWithUser.id,
-      projectAddress: projectWithUser.address,
-      estimateLink: `${estimateBaseUrl}/projects/${projectWithUser.id}/estimate`,
-    });
-  }
 
   return {
     quoteId: quote.id,

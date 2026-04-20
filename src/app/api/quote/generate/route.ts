@@ -7,11 +7,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { generateQuote } from '@/backend/services/quote';
+import { markEstimateReadyForReview } from '@/backend/services/estimateReadyTransition';
+import { ESTIMATE_READY_TRIGGER_SOURCE } from '@/backend/notifications/estimateReadyContract';
 import { getRequestAuditContext, logAuditEventNonBlocking } from '@/backend/audit/log';
 
 export async function POST(req: NextRequest) {
   const requestContext = getRequestAuditContext(req);
-  
+  let projectIdForAudit: string | undefined;
+
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -20,6 +23,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { projectId, items } = body;
+    projectIdForAudit = projectId;
 
     if (!projectId) {
       return NextResponse.json(
@@ -42,6 +46,12 @@ export async function POST(req: NextRequest) {
       items: quoteItems,
     });
 
+    const readyTransition = await markEstimateReadyForReview({
+      projectId,
+      quoteId: result.quoteId,
+      triggerSource: ESTIMATE_READY_TRIGGER_SOURCE.ADVISORY_TEAM_MARK_READY_FOR_REVIEW,
+    });
+
     await logAuditEventNonBlocking({
       category: 'MANUAL_CHANGE',
       action: 'QUOTE_GENERATED',
@@ -57,6 +67,7 @@ export async function POST(req: NextRequest) {
         itemCount: quoteItems.length,
         subtotal: result.subtotal,
         total: result.total,
+        readyTransition,
       },
       ...requestContext,
     });
@@ -70,7 +81,7 @@ export async function POST(req: NextRequest) {
       action: 'QUOTE_GENERATED',
       outcome: 'FAILURE',
       sensitivityLevel: 'CONFIDENTIAL',
-      projectId: body?.projectId,
+      projectId: projectIdForAudit,
       resourceType: 'quote',
       description: 'Quote generation failed',
       metadata: {
