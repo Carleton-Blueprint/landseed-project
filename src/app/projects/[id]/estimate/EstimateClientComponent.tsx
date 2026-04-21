@@ -16,6 +16,7 @@ export function EstimateClientComponent({ quoteId, initialStatus, initialReason 
   const [customReason, setCustomReason] = useState<string>("");
   const [isDeclining, setIsDeclining] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReactivating, setIsReactivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleResponse = async (newStatus: QuoteStatus) => {
@@ -52,6 +53,27 @@ export function EstimateClientComponent({ quoteId, initialStatus, initialReason 
     }
   };
 
+  const handleReactivate = async () => {
+    setIsReactivating(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/quote/${quoteId}/reactivate`, {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to reactivate estimate");
+      }
+
+      setStatus("PENDING");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setIsReactivating(false);
+    }
+  };
+
   if (status === "ACCEPTED") {
     return (
       <div className="bg-green-50 border border-green-200 text-green-800 rounded-lg p-6 shadow-sm">
@@ -79,7 +101,21 @@ export function EstimateClientComponent({ quoteId, initialStatus, initialReason 
     return (
       <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-6 shadow-sm">
         <h3 className="text-xl font-semibold mb-2">Estimate Expired</h3>
-        <p>This estimate is no longer active. Please contact the team if you need it reactivated.</p>
+        <p className="mb-4">This estimate is no longer active. You can reactivate it to continue.</p>
+
+        {error && (
+          <div className="bg-red-50 text-red-700 p-3 rounded mb-4 text-sm" role="alert">
+            {error}
+          </div>
+        )}
+
+        <button
+          onClick={handleReactivate}
+          disabled={isReactivating}
+          className="bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm transition-colors disabled:opacity-50"
+        >
+          {isReactivating ? "Reactivating..." : "Reactivate Estimate"}
+        </button>
       </div>
     );
   }

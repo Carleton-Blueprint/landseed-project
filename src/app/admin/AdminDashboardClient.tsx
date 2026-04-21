@@ -74,6 +74,11 @@ const STATUS_STYLES: Record<string, { label: string; dot: string; badge: string 
     dot: "bg-violet-500",
     badge: "border-violet-200 bg-violet-50 text-violet-700",
   },
+  estimate_expired: {
+    label: "Estimate Expired",
+    dot: "bg-orange-500",
+    badge: "border-orange-200 bg-orange-50 text-orange-700",
+  },
   accepted: {
     label: "Accepted",
     dot: "bg-emerald-500",

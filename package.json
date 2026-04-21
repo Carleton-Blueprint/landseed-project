@@ -18,7 +18,8 @@
     "test:e2e": "playwright test",
     "worker:virus-scan": "tsx src/backend/queue/virusScanWorker.ts",
     "worker:email": "tsx src/backend/queue/emailWorker.ts",
-    "worker:buildertrend-transfer": "tsx src/backend/queue/builderTrendTransferWorker.ts"
+    "worker:buildertrend-transfer": "tsx src/backend/queue/builderTrendTransferWorker.ts",
+    "worker:estimate-expiry": "tsx src/backend/queue/estimateExpiryWorker.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.0.0",
