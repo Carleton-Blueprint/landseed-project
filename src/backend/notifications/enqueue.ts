@@ -5,6 +5,11 @@ import { NotificationJobPayload, queueNotification } from "@/backend/notificatio
 export async function enqueueNotification(payload: NotificationJobPayload): Promise<void> {
   await queueNotification(payload);
 
+  const isEstimateLifecycleEvent =
+    payload.eventType === NotificationEventType.ESTIMATE_READY ||
+    payload.eventType === NotificationEventType.ESTIMATE_EXPIRED ||
+    payload.eventType === NotificationEventType.ESTIMATE_REACTIVATED;
+
   await emailQueue.add(
     `notify-${payload.idempotencyKey}`,
     {
@@ -20,7 +25,7 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
     {
       removeOnComplete: 100,
       removeOnFail: 500,
-      priority: payload.eventType === NotificationEventType.ESTIMATE_READY ? 1 : 2,
+      priority: isEstimateLifecycleEvent ? 1 : 2,
     }
   );
 }

@@ -74,6 +74,11 @@ const STATUS_STYLES: Record<string, { label: string; dot: string; badge: string 
     dot: "bg-violet-500",
     badge: "border-violet-200 bg-violet-50 text-violet-700",
   },
+  estimate_expired: {
+    label: "Estimate Expired",
+    dot: "bg-orange-500",
+    badge: "border-orange-200 bg-orange-50 text-orange-700",
+  },
   accepted: {
     label: "Accepted",
     dot: "bg-emerald-500",
@@ -97,6 +102,7 @@ const QUOTE_STATUS_STYLES: Record<string, { label: string; color: string }> = {
   PENDING: { label: "Pending", color: "text-amber-700" },
   ACCEPTED: { label: "Accepted", color: "text-emerald-700" },
   DECLINED: { label: "Declined", color: "text-red-600" },
+  EXPIRED: { label: "Expired", color: "text-orange-700" },
 };
 
 const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
@@ -105,7 +111,7 @@ const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
   FAILED: { label: "Failed", dot: "bg-red-500" },
 };
 
-type FilterStatus = "all" | "draft" | "submitted" | "estimate_ready" | "accepted" | "declined";
+type FilterStatus = "all" | "draft" | "submitted" | "estimate_ready" | "estimate_expired" | "accepted" | "declined";
 
 type SortKey = "newest" | "oldest" | "status" | "estimate_high" | "estimate_low" | "confidence_high" | "confidence_low";
 
@@ -126,8 +132,9 @@ const STATUS_RANK: Record<string, number> = {
   draft: 0,
   submitted: 1,
   estimate_ready: 2,
-  accepted: 3,
-  declined: 4,
+  estimate_expired: 3,
+  accepted: 4,
+  declined: 5,
 };
 
 const CONFIDENCE_RANK: Record<string, number> = {
@@ -504,6 +511,7 @@ export function AdminDashboardClient({
     { key: "draft", label: "Draft" },
     { key: "submitted", label: "Submitted" },
     { key: "estimate_ready", label: "Estimate Ready" },
+    { key: "estimate_expired", label: "Estimate Expired" },
     { key: "accepted", label: "Accepted" },
     { key: "declined", label: "Declined" },
   ];

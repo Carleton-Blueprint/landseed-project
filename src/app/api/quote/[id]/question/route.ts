@@ -99,15 +99,24 @@ export async function POST(
       );
     }
 
-    // Create the question
-    const question = await prisma.quoteQuestion.create({
-      data: {
-        quoteId,
-        category: category as (typeof VALID_CATEGORIES)[number],
-        subject: subject.trim(),
-        message: message.trim(),
-        askedByUserId: session.user.id,
-      },
+    // Create the question and refresh the inactivity clock together.
+    const question = await prisma.$transaction(async (tx) => {
+      const createdQuestion = await tx.quoteQuestion.create({
+        data: {
+          quoteId,
+          category: category as (typeof VALID_CATEGORIES)[number],
+          subject: subject.trim(),
+          message: message.trim(),
+          askedByUserId: session.user.id,
+        },
+      });
+
+      await tx.quote.update({
+        where: { id: quote.id },
+        data: { lastClientActivityAt: new Date() },
+      });
+
+      return createdQuestion;
     });
 
     await logAuditEventNonBlocking({

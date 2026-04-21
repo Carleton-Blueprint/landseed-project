@@ -126,6 +126,7 @@ export async function POST(
           SET
             "status" = ${status}::"QuoteStatus",
             "declinedReason" = ${status === "DECLINED" ? reason : null},
+            "lastClientActivityAt" = CURRENT_TIMESTAMP,
             "updatedAt" = CURRENT_TIMESTAMP
           WHERE "id" = ${quote.id}
           RETURNING "id", "status", "declinedReason"

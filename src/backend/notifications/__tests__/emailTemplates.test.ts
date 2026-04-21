@@ -1,8 +1,8 @@
 import { NotificationEventType } from "@prisma/client";
-import { renderEmailTemplate } from "../emailTemplates";
+import { renderEmailTemplate } from "@/backend/notifications/emailTemplates";
 
 describe("renderEmailTemplate", () => {
-  it("personalizes estimate-ready template with address and link", () => {
+  it("renders estimate ready template with address and link", () => {
     const template = renderEmailTemplate({
       eventType: NotificationEventType.ESTIMATE_READY,
       recipientName: "Alex",
@@ -11,19 +11,49 @@ describe("renderEmailTemplate", () => {
     });
 
     expect(template.templateName).toBe("estimate-ready-v1");
-    expect(template.subject).toBe("Your Landseed estimate for 100 Main St is ready");
+    expect(template.subject).toBe("Your Landseed estimate is ready");
     expect(template.html).toContain("Hi Alex");
+    expect(template.html).toContain("for 100 Main St");
     expect(template.html).toContain("View your estimate");
     expect(template.text).toContain("https://example.com/projects/p-1/estimate");
   });
 
-  it("includes fallback guidance when estimate link is unavailable", () => {
+  it("renders estimate ready template without link when unavailable", () => {
     const template = renderEmailTemplate({
       eventType: NotificationEventType.ESTIMATE_READY,
       recipientName: "Alex",
     });
 
     expect(template.subject).toBe("Your Landseed estimate is ready");
-    expect(template.text).toContain("advisory specialist will provide your estimate link shortly");
+    expect(template.html).toContain("Hi Alex");
+    expect(template.html).not.toContain("View your estimate");
+    expect(template.text).not.toContain("View your estimate:");
+  });
+
+  it("renders estimate expired template", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.ESTIMATE_EXPIRED,
+      recipientName: "Alex",
+      projectAddress: "123 Main St",
+    });
+
+    expect(template.templateName).toBe("estimate-expired-v1");
+    expect(template.subject).toContain("expired");
+    expect(template.html).toContain("123 Main St");
+    expect(template.text).toContain("30 days");
+  });
+
+  it("renders estimate reactivated template with link", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.ESTIMATE_REACTIVATED,
+      recipientName: "Casey",
+      projectAddress: "456 Oak Ave",
+      estimateLink: "https://example.test/projects/p1/estimate",
+    });
+
+    expect(template.templateName).toBe("estimate-reactivated-v1");
+    expect(template.subject).toContain("active again");
+    expect(template.html).toContain("https://example.test/projects/p1/estimate");
+    expect(template.text).toContain("Open your estimate");
   });
 });
