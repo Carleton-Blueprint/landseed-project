@@ -221,6 +221,7 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
   const eligibility = project.eligibility;
   const quote = project.quote;
   const transfer = project.builderTrendTransfer;
+  const eligibleGrants = eligibility?.discoveredGrants.filter((g) => g.decision === "ELIGIBLE") ?? [];
 
   return (
     <div className="border-t bg-gray-50/70 px-6 py-5 space-y-5">
