@@ -22,6 +22,8 @@ function getStatusStyle(status: string) {
     return "border-amber-200 bg-amber-50 text-amber-700";
   if (status === "submitted")
     return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "estimate_expired")
+    return "border-orange-200 bg-orange-50 text-orange-700";
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 

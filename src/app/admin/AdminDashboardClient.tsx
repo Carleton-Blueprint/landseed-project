@@ -111,7 +111,7 @@ const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
   FAILED: { label: "Failed", dot: "bg-red-500" },
 };
 
-type FilterStatus = "all" | "draft" | "submitted" | "estimate_ready" | "accepted" | "declined";
+type FilterStatus = "all" | "draft" | "submitted" | "estimate_ready" | "estimate_expired" | "accepted" | "declined";
 
 type SortKey = "newest" | "oldest" | "status" | "estimate_high" | "estimate_low" | "confidence_high" | "confidence_low";
 
@@ -132,8 +132,9 @@ const STATUS_RANK: Record<string, number> = {
   draft: 0,
   submitted: 1,
   estimate_ready: 2,
-  accepted: 3,
-  declined: 4,
+  estimate_expired: 3,
+  accepted: 4,
+  declined: 5,
 };
 
 const CONFIDENCE_RANK: Record<string, number> = {
@@ -220,7 +221,6 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
   const eligibility = project.eligibility;
   const quote = project.quote;
   const transfer = project.builderTrendTransfer;
-  const eligibleGrants = eligibility?.discoveredGrants.filter((g) => g.decision === "ELIGIBLE") ?? [];
 
   return (
     <div className="border-t bg-gray-50/70 px-6 py-5 space-y-5">
@@ -510,6 +510,7 @@ export function AdminDashboardClient({
     { key: "draft", label: "Draft" },
     { key: "submitted", label: "Submitted" },
     { key: "estimate_ready", label: "Estimate Ready" },
+    { key: "estimate_expired", label: "Estimate Expired" },
     { key: "accepted", label: "Accepted" },
     { key: "declined", label: "Declined" },
   ];

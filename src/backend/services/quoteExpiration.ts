@@ -1,6 +1,7 @@
-import { QuoteStatus } from "@prisma/client";
+import { NotificationEventType, QuoteStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { enqueueNotification } from "@/backend/notifications/enqueue";
 
 const DEFAULT_INACTIVITY_DAYS = 30;
 const DEFAULT_BATCH_SIZE = 200;
@@ -51,7 +52,15 @@ async function expireInactiveQuotesBatch(
       lastClientActivityAt: true,
       project: {
         select: {
+          address: true,
           status: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
       },
     },
@@ -110,6 +119,48 @@ async function expireInactiveQuotesBatch(
         },
       })
     )
+  );
+
+  const estimateBaseUrl =
+    process.env.APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+
+  await Promise.all(
+    staleQuotes.map(async (quote) => {
+      if (!quote.project.user.email) {
+        return;
+      }
+
+      try {
+        await enqueueNotification({
+          eventType: NotificationEventType.ESTIMATE_EXPIRED,
+          idempotencyKey: `estimate-expired:${quote.id}:${quote.lastClientActivityAt.getTime()}`,
+          recipientEmail: quote.project.user.email,
+          recipientName: quote.project.user.name,
+          userId: quote.project.user.id,
+          projectId: quote.projectId,
+          projectAddress: quote.project.address,
+          estimateLink: `${estimateBaseUrl}/projects/${quote.projectId}/estimate`,
+        });
+      } catch (enqueueError) {
+        await logAuditEventNonBlocking({
+          category: "MANUAL_CHANGE",
+          action: "ESTIMATE_EXPIRED_NOTIFICATION_ENQUEUE_FAILED",
+          outcome: "FAILURE",
+          sensitivityLevel: "RESTRICTED",
+          projectId: quote.projectId,
+          quoteId: quote.id,
+          resourceType: "notification_delivery",
+          resourceId: quote.id,
+          description: "Failed to enqueue estimate expired notification",
+          metadata: {
+            errorMessage:
+              enqueueError instanceof Error
+                ? enqueueError.message
+                : "Unknown enqueue error",
+          },
+        });
+      }
+    })
   );
 
   return {

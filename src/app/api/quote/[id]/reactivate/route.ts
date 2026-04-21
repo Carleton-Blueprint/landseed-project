@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { QuoteStatus } from "@prisma/client";
+import { NotificationEventType, QuoteStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { enqueueNotification } from "@/backend/notifications/enqueue";
 
 export async function POST(
   req: NextRequest,
@@ -33,6 +34,13 @@ export async function POST(
       include: {
         project: {
           include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
             projectAccess: {
               where: { userId: session.user.id },
             },
@@ -144,6 +152,44 @@ export async function POST(
       },
       ...requestContext,
     });
+
+    if (quote.project.user?.email) {
+      const estimateBaseUrl =
+        process.env.APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+
+      try {
+        await enqueueNotification({
+          eventType: NotificationEventType.ESTIMATE_REACTIVATED,
+          idempotencyKey: `estimate-reactivated:${quote.id}:${reactivatedQuote.lastClientActivityAt.getTime()}`,
+          recipientEmail: quote.project.user.email,
+          recipientName: quote.project.user.name,
+          userId: quote.project.user.id,
+          projectId: quote.projectId,
+          projectAddress: quote.project.address,
+          estimateLink: `${estimateBaseUrl}/projects/${quote.projectId}/estimate`,
+        });
+      } catch (enqueueError) {
+        await logAuditEventNonBlocking({
+          category: "MANUAL_CHANGE",
+          action: "ESTIMATE_REACTIVATED_NOTIFICATION_ENQUEUE_FAILED",
+          outcome: "FAILURE",
+          sensitivityLevel: "RESTRICTED",
+          actorUserId: session.user.id,
+          projectId: quote.projectId,
+          quoteId: quote.id,
+          resourceType: "notification_delivery",
+          resourceId: quote.id,
+          description: "Failed to enqueue estimate reactivated notification",
+          metadata: {
+            errorMessage:
+              enqueueError instanceof Error
+                ? enqueueError.message
+                : "Unknown enqueue error",
+          },
+          ...requestContext,
+        });
+      }
+    }
 
     return NextResponse.json(
       {
