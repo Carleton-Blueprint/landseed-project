@@ -9,6 +9,7 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import { signIn } from "next-auth/react";
 import { PhotoUploadInterface } from "./PhotoUploadInterface";
@@ -178,6 +179,7 @@ const defaultValues: IntakeFormValues = {
 };
 
 export function IntakeForm() {
+  const router = useRouter();
   const {
     register,
     handleSubmit,
@@ -345,6 +347,8 @@ export function IntakeForm() {
             }
             console.log("All photos uploaded!");
           }
+
+          router.push(`/submitted?projectId=${encodeURIComponent(project.id)}`);
         } catch (error) {
           console.error("Error creating project or uploading photos:", error);
         }

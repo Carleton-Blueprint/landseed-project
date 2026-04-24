@@ -4,40 +4,11 @@ import { Button } from "@/frontend/components/ui/button";
 import { prisma } from "lib/prisma";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
+import { InitialEstimateSummaryCard } from "@/frontend/components/InitialEstimateSummaryCard";
 
 function getStatusLabel(status: string) {
   if (status === "draft") return "Pending Review";
   return status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function getEstimateSummary(project: {
-  status: string;
-  estimateMin?: number | null;
-  estimateMax?: number | null;
-}) {
-  const isFinalized = project.status !== "draft";
-
-  if (!isFinalized) {
-    return {
-      value: "Available after intake finalization",
-      explanation:
-        "Your initial estimate range will appear here after intake finalization. Pricing is dynamically generated from real-time external retail data.",
-    };
-  }
-
-  if (project.estimateMin != null && project.estimateMax != null) {
-    return {
-      value: `$${project.estimateMin.toLocaleString()} - $${project.estimateMax.toLocaleString()}`,
-      explanation:
-        "This pricing is dynamically generated from real-time external retail data and may change as retailer pricing and product availability update.",
-    };
-  }
-
-  return {
-    value: "Generating estimate...",
-    explanation:
-      "We are generating your estimate using real-time external retail data.",
-  };
 }
 
 export default async function ProjectDetailPage({
@@ -57,8 +28,6 @@ export default async function ProjectDetailPage({
     estimateMin?: number | null;
     estimateMax?: number | null;
   };
-
-  const estimateSummary = getEstimateSummary(typedProject);
 
   return (
     <main className="min-h-screen max-w-3xl mx-auto p-6 md:p-8">
@@ -81,11 +50,12 @@ export default async function ProjectDetailPage({
           </p>
         </div>
 
-        <div className="rounded-md border p-4 bg-white shadow-sm">
-          <h2 className="text-lg font-semibold mb-2">Initial Estimate Range</h2>
-          <p className="text-sm text-gray-700">{estimateSummary.value}</p>
-          <p className="mt-2 text-sm text-gray-500">{estimateSummary.explanation}</p>
-        </div>
+        <InitialEstimateSummaryCard
+          projectStatus={project.status}
+          estimateMin={typedProject.estimateMin}
+          estimateMax={typedProject.estimateMax}
+          refinedEstimateReady={false}
+        />
 
         {project.modificationItems && project.modificationItems.length > 0 && (
           <div className="rounded-md border p-4 bg-white shadow-sm">

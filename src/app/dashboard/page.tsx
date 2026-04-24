@@ -5,6 +5,7 @@ import {
   NotificationCenter,
   NotificationItem,
 } from "@/frontend/components/NotificationCenter";
+import { InitialEstimateSummaryCard } from "@/frontend/components/InitialEstimateSummaryCard";
 
 function getStatusLabel(status: string) {
   if (status === "draft") return "Pending";
@@ -26,39 +27,6 @@ function getGrantSummary(project: { grantDocumentKey: string | null }) {
     estimatedFunding: "Estimate not ready yet",
     explanation:
       "We are still reviewing this request to determine which grants may apply and the estimated funding amount.",
-  };
-}
-
-function getEstimateSummary(project: {
-  status: string;
-  estimateMin?: number | null;
-  estimateMax?: number | null;
-}) {
-  const isFinalized = project.status !== "draft";
-
-  if (!isFinalized) {
-    return {
-      title: "Initial estimate range",
-      value: "Available after intake finalization",
-      explanation:
-        "Once your intake is finalized, an initial estimate range will appear here. Pricing is dynamically generated from real-time external retail data.",
-    };
-  }
-
-  if (project.estimateMin != null && project.estimateMax != null) {
-    return {
-      title: "Initial estimate range",
-      value: `$${project.estimateMin.toLocaleString()} - $${project.estimateMax.toLocaleString()}`,
-      explanation:
-        "This pricing is dynamically generated from real-time external retail data and may change as retailer pricing and product availability update.",
-    };
-  }
-
-  return {
-    title: "Initial estimate range",
-    value: "Generating estimate...",
-    explanation:
-      "We are generating your estimate using real-time external retail data.",
   };
 }
 
@@ -133,7 +101,6 @@ export default async function DashboardPage() {
                 };
 
                 const grantSummary = getGrantSummary(project);
-                const estimateSummary = getEstimateSummary(typedProject);
 
                 return (
                   <div
@@ -163,13 +130,14 @@ export default async function DashboardPage() {
                         </span>
                       </div>
 
-                      <div className="mt-3 rounded-md border bg-gray-50 p-3">
-                        <p className="text-sm font-medium text-gray-900">
-                          {estimateSummary.title}: {estimateSummary.value}
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {estimateSummary.explanation}
-                        </p>
+                      <div className="mt-3">
+                        <InitialEstimateSummaryCard
+                          projectStatus={project.status}
+                          estimateMin={typedProject.estimateMin}
+                          estimateMax={typedProject.estimateMax}
+                          refinedEstimateReady={false}
+                          compact
+                        />
                       </div>
 
                       <div className="mt-3 rounded-md border bg-gray-50 p-3">
