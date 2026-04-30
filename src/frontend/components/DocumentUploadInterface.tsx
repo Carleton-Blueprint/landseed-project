@@ -2,6 +2,15 @@
 
 import React, { useCallback, useState, useRef, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
+import {
+  DollarIcon,
+  HomeIcon,
+  FileIcon,
+  ClipboardIcon,
+  SearchIcon,
+  CheckCircleIcon,
+  AlertTriangleIcon,
+} from "@/frontend/components/icons";
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -9,7 +18,7 @@ export type DocumentCategory = {
   value: string;
   label: string;
   description: string;
-  icon: string;
+  icon: React.ReactNode;
   required?: boolean;
 };
 
@@ -18,52 +27,52 @@ export const DOCUMENT_CATEGORIES: DocumentCategory[] = [
     value: "PROOF_OF_INCOME",
     label: "Proof of Income",
     description: "Recent pay stubs, tax returns, or income verification letter",
-    icon: "💰",
+    icon: <DollarIcon size={20} className="text-emerald-600" />,
     required: true,
   },
   {
     value: "MEDICAL_DOCUMENTATION",
     label: "Medical Documentation",
     description: "Doctor's letter, medical reports, or disability documentation",
-    icon: "🏥",
+    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>,
     required: true,
   },
   {
     value: "PROPERTY_OWNERSHIP",
     label: "Property Ownership",
     description: "Property deed, mortgage statement, or rental agreement",
-    icon: "🏠",
+    icon: <HomeIcon size={20} className="text-indigo-600" />,
   },
   {
     value: "INSURANCE_DOCUMENT",
     label: "Insurance Document",
     description: "Home insurance policy or coverage details",
-    icon: "🛡️",
+    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-violet-600"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>,
   },
   {
     value: "GOVERNMENT_ID",
     label: "Government ID",
     description: "Driver's licence, passport, or provincial health card",
-    icon: "🪪",
+    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600"><rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /></svg>,
     required: true,
   },
   {
     value: "TAX_ASSESSMENT",
     label: "Tax Assessment",
     description: "Notice of assessment or property tax bill",
-    icon: "📊",
+    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-teal-600"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>,
   },
   {
     value: "DISABILITY_CERTIFICATE",
     label: "Disability Certificate",
     description: "Provincial disability verification or certificate",
-    icon: "♿",
+    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-sky-600"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>,
   },
   {
     value: "OTHER",
     label: "Other Document",
     description: "Any other supporting documents for your application",
-    icon: "📎",
+    icon: <FileIcon size={20} className="text-gray-500" />,
   },
 ];
 
@@ -316,7 +325,7 @@ export function DocumentUploadInterface({
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-3">
             <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-white/10 backdrop-blur-sm border border-white/20">
-              <span className="text-2xl">📄</span>
+              <FileIcon size={24} />
             </div>
             <div>
               <h2 className="text-2xl font-bold tracking-tight">Supporting Documents</h2>
@@ -425,8 +434,8 @@ export function DocumentUploadInterface({
             Uploading: <span className="font-semibold">{selectedCategoryInfo.icon} {selectedCategoryInfo.label}</span>
           </p>
         ) : (
-          <p className="text-sm text-amber-600 mb-4">
-            ⚠️ Please select a document type above first
+            <p className="text-sm text-amber-600 mb-4 flex items-center gap-1.5">
+              <AlertTriangleIcon size={14} /> Please select a document type above first
           </p>
         )}
 
@@ -528,7 +537,7 @@ export function DocumentUploadInterface({
                 )}
 
                 <div className="flex items-center gap-4">
-                  <div className="flex-shrink-0 text-xl">{catInfo?.icon || "📄"}</div>
+                  <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">{catInfo?.icon || <FileIcon size={16} />}</div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-800 truncate text-sm">{qf.file.name}</p>
                     <div className="flex items-center gap-2 mt-0.5">
@@ -604,7 +613,7 @@ export function DocumentUploadInterface({
         ) : uploadedDocs.length === 0 ? (
           <div className="text-center py-12 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/50">
             <div className="mx-auto w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
-              <span className="text-2xl">📋</span>
+              <ClipboardIcon size={24} className="text-gray-400" />
             </div>
             <p className="text-gray-500 font-medium">No documents uploaded yet</p>
             <p className="text-sm text-gray-400 mt-1">
@@ -624,8 +633,8 @@ export function DocumentUploadInterface({
                 >
                   <div className="flex items-center gap-4">
                     {/* Icon */}
-                    <div className="flex-shrink-0 w-11 h-11 rounded-xl bg-gray-100 group-hover:bg-blue-50 flex items-center justify-center transition-colors duration-200">
-                      <span className="text-xl">{catInfo?.icon || "📄"}</span>
+                      <div className="flex-shrink-0 w-11 h-11 rounded-xl bg-gray-100 group-hover:bg-blue-50 flex items-center justify-center transition-colors duration-200 text-gray-600">
+                        {catInfo?.icon || <FileIcon size={18} />}
                     </div>
 
                     {/* Info */}
@@ -659,10 +668,10 @@ export function DocumentUploadInterface({
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(doc.virusScanStatus)}`}
                       >
                         {doc.virusScanStatus === "pending"
-                          ? "🔍 Scanning"
+                          ? "Scanning"
                           : doc.virusScanStatus === "clean"
-                          ? "✅ Clean"
-                          : "⚠️ Flagged"}
+                          ? "Clean"
+                          : "Flagged"}
                       </span>
 
                       {/* Review status */}
@@ -703,7 +712,7 @@ export function DocumentUploadInterface({
       {/* ─── Requirements checklist ─── */}
       <div className="rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-6">
         <h3 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <span className="text-lg">📋</span> Requirements Checklist
+          <ClipboardIcon size={18} className="text-gray-500" /> Requirements Checklist
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {DOCUMENT_CATEGORIES.filter((c) => c.required).map((cat) => {

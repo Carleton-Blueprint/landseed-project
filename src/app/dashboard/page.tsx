@@ -7,6 +7,18 @@ import {
   NotificationCenter,
   NotificationItem,
 } from "@/frontend/components/NotificationCenter";
+import {
+  CheckCircleIcon,
+  ClipboardIcon,
+  EyeIcon,
+  InfoIcon,
+  GlobeIcon,
+  BuildingIcon,
+  MapPinIcon,
+  SearchIcon,
+  HomeIcon,
+  CameraIcon,
+} from "@/frontend/components/icons";
 
 /* ------------------------------------------------------------------ */
 /* Status helpers                                                      */
@@ -121,41 +133,41 @@ type ProjectEligibility = {
   assessedAt: Date;
 };
 
-const DECISION_DISPLAY: Record<string, { label: string; icon: string; color: string; bg: string; border: string }> = {
+const DECISION_DISPLAY: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string; border: string }> = {
   ELIGIBLE: {
     label: "Grants Found",
-    icon: "✅",
+    icon: <CheckCircleIcon size={18} className="text-emerald-600" />,
     color: "text-emerald-700",
     bg: "bg-emerald-50",
     border: "border-emerald-200",
   },
   NEEDS_MORE_INFO: {
     label: "More Info Needed",
-    icon: "📋",
+    icon: <ClipboardIcon size={18} className="text-amber-600" />,
     color: "text-amber-700",
     bg: "bg-amber-50",
     border: "border-amber-200",
   },
   MANUAL_REVIEW: {
     label: "Manual Review",
-    icon: "👁️",
+    icon: <EyeIcon size={18} className="text-orange-600" />,
     color: "text-orange-700",
     bg: "bg-orange-50",
     border: "border-orange-200",
   },
   INELIGIBLE: {
     label: "No Matches",
-    icon: "ℹ️",
+    icon: <InfoIcon size={18} className="text-gray-500" />,
     color: "text-gray-600",
     bg: "bg-gray-50",
     border: "border-gray-200",
   },
 };
 
-const SCOPE_ICONS: Record<string, string> = {
-  NATIONAL: "🇨🇦",
-  PROVINCIAL: "🏛️",
-  MUNICIPAL: "🏘️",
+const SCOPE_ICONS: Record<string, React.ReactNode> = {
+  NATIONAL: <GlobeIcon size={14} />,
+  PROVINCIAL: <BuildingIcon size={14} />,
+  MUNICIPAL: <MapPinIcon size={14} />,
 };
 
 function countByScope(grants: DiscoveredGrantSummary[]): Record<string, number> {
@@ -242,7 +254,7 @@ export default async function DashboardPage() {
       <div className="mx-auto max-w-5xl px-6 py-6 md:px-8">
         {projects.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm">
-            <span className="text-4xl">🏠</span>
+            <HomeIcon size={36} className="mx-auto text-gray-300" />
             <h2 className="mt-3 text-lg font-semibold text-gray-900">No Projects Yet</h2>
             <p className="mt-1 text-sm text-gray-500">
               Submit an intake form to start a new home modification project.
@@ -319,8 +331,8 @@ export default async function DashboardPage() {
                                 day: "numeric",
                               })}
                             </span>
-                            <span className="text-xs text-gray-500">
-                              📷 {project.photos.length} photo{project.photos.length === 1 ? "" : "s"}
+                            <span className="text-xs text-gray-500 flex items-center gap-1">
+                              <CameraIcon size={12} /> {project.photos.length} photo{project.photos.length === 1 ? "" : "s"}
                             </span>
                           </div>
                         </div>
@@ -367,7 +379,7 @@ export default async function DashboardPage() {
                                         key={scope}
                                         className="inline-flex items-center gap-1 rounded-md bg-white/70 border border-gray-200 px-2 py-0.5 text-xs text-gray-700"
                                       >
-                                        <span>{SCOPE_ICONS[scope] ?? "📋"}</span>
+                                        <span>{SCOPE_ICONS[scope] ?? <ClipboardIcon size={12} />}</span>
                                         {count} {scope.charAt(0) + scope.slice(1).toLowerCase()}
                                       </span>
                                     ))}
@@ -414,7 +426,7 @@ export default async function DashboardPage() {
                           /* No assessment yet — show pending state */
                           <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3.5">
                             <div className="flex items-center gap-2.5">
-                              <span className="text-lg">🔍</span>
+                              <SearchIcon size={18} className="text-gray-400" />
                               <div>
                                 <p className="text-sm font-medium text-gray-700">
                                   AI Grant Discovery Pending

@@ -3,6 +3,17 @@
 import React from "react";
 import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
+import {
+  CheckCircleIcon,
+  ClipboardIcon,
+  EyeIcon,
+  InfoIcon,
+  HourglassIcon,
+  MessageIcon,
+  SearchIcon,
+  FileIcon,
+  CameraIcon,
+} from "@/frontend/components/icons";
 
 /* ================================================================== */
 /*  Types                                                              */
@@ -91,11 +102,11 @@ const STATUS_STYLES: Record<string, { label: string; dot: string; badge: string 
   },
 };
 
-const DECISION_STYLES: Record<string, { label: string; icon: string; color: string; bg: string }> = {
-  ELIGIBLE: { label: "Eligible", icon: "✅", color: "text-emerald-700", bg: "bg-emerald-50" },
-  NEEDS_MORE_INFO: { label: "More Info", icon: "📋", color: "text-amber-700", bg: "bg-amber-50" },
-  MANUAL_REVIEW: { label: "Manual Review", icon: "👁️", color: "text-orange-700", bg: "bg-orange-50" },
-  INELIGIBLE: { label: "Ineligible", icon: "ℹ️", color: "text-gray-600", bg: "bg-gray-50" },
+const DECISION_STYLES: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string }> = {
+  ELIGIBLE: { label: "Eligible", icon: <CheckCircleIcon size={16} className="text-emerald-600" />, color: "text-emerald-700", bg: "bg-emerald-50" },
+  NEEDS_MORE_INFO: { label: "More Info", icon: <ClipboardIcon size={16} className="text-amber-600" />, color: "text-amber-700", bg: "bg-amber-50" },
+  MANUAL_REVIEW: { label: "Manual Review", icon: <EyeIcon size={16} className="text-orange-600" />, color: "text-orange-700", bg: "bg-orange-50" },
+  INELIGIBLE: { label: "Ineligible", icon: <InfoIcon size={16} className="text-gray-500" />, color: "text-gray-600", bg: "bg-gray-50" },
 };
 
 const QUOTE_STATUS_STYLES: Record<string, { label: string; color: string }> = {
@@ -199,12 +210,12 @@ function StatCard({
 }: {
   label: string;
   value: string | number;
-  icon: string;
+  icon: React.ReactNode;
   accent: string;
 }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border bg-white p-4 shadow-sm">
-      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${accent} text-lg`}>{icon}</div>
+      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${accent}`}>{icon}</div>
       <div>
         <p className="text-2xl font-bold text-gray-900">{value}</p>
         <p className="text-xs text-gray-500">{label}</p>
@@ -257,7 +268,7 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
               </div>
               {quote.openQuestions > 0 && (
                 <div className="flex items-center gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-xs text-amber-700">
-                  💬 {quote.openQuestions} open question{quote.openQuestions === 1 ? "" : "s"}
+                    <MessageIcon size={14} className="text-amber-600" /> {quote.openQuestions} open question{quote.openQuestions === 1 ? "" : "s"}
                 </div>
               )}
             </>
@@ -305,7 +316,7 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
                         key={g.grantId}
                         className="flex items-center gap-2 rounded-md border bg-gray-50 px-2.5 py-1.5 text-xs"
                       >
-                        <span className="shrink-0">{gd?.icon ?? "📋"}</span>
+                        <span className="shrink-0">{gd?.icon ?? <ClipboardIcon size={14} className="text-gray-400" />}</span>
                         <span className="truncate font-medium text-gray-800 flex-1">
                           {g.title}
                         </span>
@@ -323,8 +334,8 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
               </p>
             </>
           ) : (
-            <div className="flex items-center gap-2 rounded-md bg-gray-50 border border-dashed border-gray-300 px-3 py-2.5 text-xs text-gray-500">
-              🔍 Discovery pending — intake not finalized
+              <div className="flex items-center gap-2 rounded-md bg-gray-50 border border-dashed border-gray-300 px-3 py-2.5 text-xs text-gray-500">
+                <SearchIcon size={14} className="text-gray-400" /> Discovery pending -- intake not finalized
             </div>
           )}
         </div>
@@ -364,8 +375,8 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
           {/* Documents summary */}
           <div className="rounded-md bg-gray-50 p-2.5">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-700">
-                📄 {project.documentCount} document{project.documentCount === 1 ? "" : "s"}
+                <span className="text-gray-700 flex items-center gap-1">
+                  <FileIcon size={14} className="text-gray-400" /> {project.documentCount} document{project.documentCount === 1 ? "" : "s"}
               </span>
               {project.documentsPendingReview > 0 && (
                 <span className="rounded-full bg-amber-100 border border-amber-200 px-2 py-0.5 text-[10px] font-medium text-amber-700">
@@ -374,8 +385,8 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
               )}
             </div>
             <div className="flex items-center justify-between text-xs mt-1">
-              <span className="text-gray-700">
-                📷 {project.photoCount} photo{project.photoCount === 1 ? "" : "s"}
+              <span className="text-gray-700 flex items-center gap-1">
+                <CameraIcon size={14} className="text-gray-400" /> {project.photoCount} photo{project.photoCount === 1 ? "" : "s"}
               </span>
             </div>
           </div>
@@ -545,10 +556,10 @@ export function AdminDashboardClient({
       <div className="mx-auto max-w-7xl px-6 py-6 md:px-8 space-y-6">
         {/* ─── Stats ─── */}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <StatCard label="Total Projects" value={totalProjects} icon="📋" accent="bg-blue-100" />
-          <StatCard label="Pending Review" value={pendingReview} icon="⏳" accent="bg-amber-100" />
-          <StatCard label="Grant Eligible" value={withEligibleGrants} icon="✅" accent="bg-emerald-100" />
-          <StatCard label="Open Questions" value={openQuestions} icon="💬" accent="bg-violet-100" />
+          <StatCard label="Total Projects" value={totalProjects} icon={<ClipboardIcon size={20} className="text-blue-600" />} accent="bg-blue-100" />
+          <StatCard label="Pending Review" value={pendingReview} icon={<HourglassIcon size={20} className="text-amber-600" />} accent="bg-amber-100" />
+          <StatCard label="Grant Eligible" value={withEligibleGrants} icon={<CheckCircleIcon size={20} className="text-emerald-600" />} accent="bg-emerald-100" />
+          <StatCard label="Open Questions" value={openQuestions} icon={<MessageIcon size={20} className="text-violet-600" />} accent="bg-violet-100" />
         </div>
 
         {/* ─── Search + Filters + Sort ─── */}
@@ -603,11 +614,10 @@ export function AdminDashboardClient({
                 key={f.key}
                 type="button"
                 onClick={() => setFilterStatus(f.key)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  filterStatus === f.key
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${filterStatus === f.key
                     ? "bg-gray-900 text-white"
                     : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
+                  }`}
                 id={`filter-${f.key}`}
               >
                 {f.label}
@@ -634,16 +644,15 @@ export function AdminDashboardClient({
               id="filter-confidence"
               value={filterConfidence}
               onChange={(e) => setFilterConfidence(e.target.value as FilterConfidence)}
-              className={`rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 ${
-                filterConfidence !== "all"
+              className={`rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 ${filterConfidence !== "all"
                   ? "border-violet-300 bg-violet-50 text-violet-700 font-medium"
                   : "border-gray-200 bg-gray-50 text-gray-600"
-              }`}
+                }`}
             >
               <option value="all">AI Confidence: All</option>
-              <option value="HIGH">🟢 High Confidence</option>
-              <option value="MEDIUM">🟡 Medium Confidence</option>
-              <option value="LOW">🔴 Low Confidence</option>
+              <option value="HIGH">High Confidence</option>
+              <option value="MEDIUM">Medium Confidence</option>
+              <option value="LOW">Low Confidence</option>
             </select>
 
             {/* Grant decision filter */}
@@ -651,17 +660,16 @@ export function AdminDashboardClient({
               id="filter-decision"
               value={filterDecision}
               onChange={(e) => setFilterDecision(e.target.value as FilterDecision)}
-              className={`rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 ${
-                filterDecision !== "all"
+              className={`rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 ${filterDecision !== "all"
                   ? "border-emerald-300 bg-emerald-50 text-emerald-700 font-medium"
                   : "border-gray-200 bg-gray-50 text-gray-600"
-              }`}
+                }`}
             >
               <option value="all">Grant Decision: All</option>
-              <option value="ELIGIBLE">✅ Eligible</option>
-              <option value="NEEDS_MORE_INFO">📋 Needs More Info</option>
-              <option value="MANUAL_REVIEW">👁️ Manual Review</option>
-              <option value="INELIGIBLE">ℹ️ Ineligible</option>
+              <option value="ELIGIBLE">Eligible</option>
+              <option value="NEEDS_MORE_INFO">Needs More Info</option>
+              <option value="MANUAL_REVIEW">Manual Review</option>
+              <option value="INELIGIBLE">Ineligible</option>
             </select>
 
             {/* Clear all filters */}
@@ -687,7 +695,7 @@ export function AdminDashboardClient({
         <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
           {filtered.length === 0 ? (
             <div className="p-10 text-center">
-              <span className="text-3xl">🔍</span>
+              <SearchIcon size={32} className="mx-auto text-gray-300" />
               <p className="mt-2 text-sm text-gray-500">
                 No projects match your current filters.
               </p>
@@ -710,9 +718,8 @@ export function AdminDashboardClient({
                     {/* Row */}
                     <button
                       type="button"
-                      className={`w-full text-left px-5 py-4 transition-colors hover:bg-gray-50/80 ${
-                        isExpanded ? "bg-gray-50/60" : ""
-                      }`}
+                      className={`w-full text-left px-5 py-4 transition-colors hover:bg-gray-50/80 ${isExpanded ? "bg-gray-50/60" : ""
+                        }`}
                       onClick={() => setExpandedId(isExpanded ? null : project.id)}
                       id={`admin-row-${project.id}`}
                     >

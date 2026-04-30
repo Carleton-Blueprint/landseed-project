@@ -31,7 +31,7 @@ export async function POST(
     }
 
     const body = await req.json();
-    const { status, reason } = body;
+    const { status, reason, survey } = body;
 
     // Validate inputs
     if (status !== "ACCEPTED" && status !== "DECLINED") {
@@ -65,6 +65,11 @@ export async function POST(
         ...requestContext,
       });
       return NextResponse.json({ error: "A valid reason is required when declining" }, { status: 400 });
+    }
+    if (status === "DECLINED" && survey && typeof survey === "object") {
+      if (!survey.primaryReason || typeof survey.primaryReason !== "string") {
+        return NextResponse.json({ error: "Survey primaryReason is required" }, { status: 400 });
+      }
     }
 
     // Fetch the quote and its related project access
@@ -143,6 +148,28 @@ export async function POST(
 
       if (updatedRows.length === 0) {
         throw new Error("Quote update failed");
+      }
+
+      // Persist structured decline survey if provided
+      if (status === "DECLINED" && survey && typeof survey === "object") {
+        await tx.declineSurveyResponse.upsert({
+          where: { quoteId: quote.id },
+          create: {
+            quoteId: quote.id,
+            primaryReason: survey.primaryReason,
+            subReasons: Array.isArray(survey.subReasons) ? survey.subReasons : null,
+            satisfactionRating: typeof survey.satisfactionRating === "number" ? survey.satisfactionRating : null,
+            additionalComments: typeof survey.additionalComments === "string" ? survey.additionalComments : null,
+            wouldReconsider: survey.wouldReconsider === true,
+          },
+          update: {
+            primaryReason: survey.primaryReason,
+            subReasons: Array.isArray(survey.subReasons) ? survey.subReasons : null,
+            satisfactionRating: typeof survey.satisfactionRating === "number" ? survey.satisfactionRating : null,
+            additionalComments: typeof survey.additionalComments === "string" ? survey.additionalComments : null,
+            wouldReconsider: survey.wouldReconsider === true,
+          },
+        });
       }
 
       let builderTrendTransfer: {

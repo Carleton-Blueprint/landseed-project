@@ -1,6 +1,19 @@
 "use client";
 
 import React from "react";
+import {
+  GlobeIcon,
+  BuildingIcon,
+  MapPinIcon,
+  AwardIcon,
+  ClipboardIcon,
+  EyeIcon,
+  InfoIcon,
+  FileIcon,
+  SearchIcon,
+  CheckCircleIcon,
+  AlertTriangleIcon,
+} from "@/frontend/components/icons";
 
 /* ------------------------------------------------------------------ */
 /* Types mirroring DiscoveredGrant from the eligibility backend        */
@@ -44,27 +57,27 @@ interface GrantDiscoveryResponse {
 /* Visual helpers                                                      */
 /* ------------------------------------------------------------------ */
 
-const SCOPE_CONFIG: Record<GrantScope, { label: string; color: string; bg: string; border: string; icon: string }> = {
+const SCOPE_CONFIG: Record<GrantScope, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
   NATIONAL: {
     label: "National",
     color: "text-violet-700",
     bg: "bg-violet-50",
     border: "border-violet-200",
-    icon: "🇨🇦",
+    icon: <GlobeIcon size={14} />,
   },
   PROVINCIAL: {
     label: "Provincial",
     color: "text-blue-700",
     bg: "bg-blue-50",
     border: "border-blue-200",
-    icon: "🏛️",
+    icon: <BuildingIcon size={14} />,
   },
   MUNICIPAL: {
     label: "Municipal",
     color: "text-teal-700",
     bg: "bg-teal-50",
     border: "border-teal-200",
-    icon: "🏘️",
+    icon: <MapPinIcon size={14} />,
   },
 };
 
@@ -233,7 +246,7 @@ function GrantCard({ grant, index }: { grant: DiscoveredGrant; index: number }) 
               {/* Matched Criteria */}
               {grant.matchedCriteria.length > 0 && (
                 <div>
-                  <p className="font-medium text-gray-700 mb-1.5">✅ Matched Criteria</p>
+                  <p className="font-medium text-gray-700 mb-1.5 flex items-center gap-1.5"><CheckCircleIcon size={14} className="text-emerald-600" /> Matched Criteria</p>
                   <div className="flex flex-wrap gap-1.5">
                     {grant.matchedCriteria.map((c) => (
                       <span
@@ -250,7 +263,7 @@ function GrantCard({ grant, index }: { grant: DiscoveredGrant; index: number }) 
               {/* Missing Criteria */}
               {grant.missingCriteria.length > 0 && (
                 <div>
-                  <p className="font-medium text-gray-700 mb-1.5">⚠️ Missing Criteria</p>
+                  <p className="font-medium text-gray-700 mb-1.5 flex items-center gap-1.5"><AlertTriangleIcon size={14} className="text-amber-500" /> Missing Criteria</p>
                   <div className="flex flex-wrap gap-1.5">
                     {grant.missingCriteria.map((c) => (
                       <span
@@ -333,17 +346,17 @@ function OverallDecisionBanner({
 }) {
   const d = DECISION_CONFIG[(decision as GrantDecision)] ?? DECISION_CONFIG.MANUAL_REVIEW;
 
-  const icons: Record<string, string> = {
-    ELIGIBLE: "🎉",
-    NEEDS_MORE_INFO: "📋",
-    MANUAL_REVIEW: "👁️",
-    INELIGIBLE: "ℹ️",
+  const icons: Record<string, React.ReactNode> = {
+    ELIGIBLE: <AwardIcon size={24} className="text-emerald-600" />,
+    NEEDS_MORE_INFO: <ClipboardIcon size={24} className="text-amber-600" />,
+    MANUAL_REVIEW: <EyeIcon size={24} className="text-orange-600" />,
+    INELIGIBLE: <InfoIcon size={24} className="text-gray-500" />,
   };
 
   return (
     <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border ${d.border} ${d.bg} p-4`}>
       <div className="flex items-center gap-3">
-        <span className="text-2xl">{icons[decision] ?? "📄"}</span>
+        <span className="text-2xl">{icons[decision] ?? <FileIcon size={24} className="text-gray-400" />}</span>
         <div>
           <p className={`text-sm font-bold ${d.color}`}>{d.label}</p>
           <p className="text-xs text-gray-600">
@@ -442,7 +455,7 @@ export function GrantDiscoverySummary({ projectId }: { projectId: string }) {
       <section className="rounded-xl border bg-white p-5 shadow-sm" id="grant-discovery-section">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">AI Grant Assessment</h2>
         <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4">
-          <span className="text-2xl">🔍</span>
+          <SearchIcon size={24} className="text-gray-400" />
           <div>
             <p className="text-sm font-medium text-gray-700">Assessment Pending</p>
             <p className="text-xs text-gray-500">

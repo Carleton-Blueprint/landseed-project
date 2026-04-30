@@ -3,6 +3,7 @@
 import React from "react";
 import Image from "next/image";
 import { Button } from "@/frontend/components/ui/button";
+import { CameraIcon, HourglassIcon } from "@/frontend/components/icons";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -226,10 +227,10 @@ export function ProjectVisualizationGallery({
     (photo) => photo.generatedImageUrl
   );
 
-  const viewModes: { key: ViewMode; label: string; icon: string; disabled?: boolean }[] = [
-    { key: "original", label: "Original Photos", icon: "📷" },
-    { key: "generated", label: "AI Renditions", icon: "✨", disabled: !hasGeneratedImages },
-    { key: "compare", label: "Before / After", icon: "↔️", disabled: !hasGeneratedImages },
+  const viewModes: { key: ViewMode; label: string; icon: React.ReactNode; disabled?: boolean }[] = [
+    { key: "original", label: "Original Photos", icon: <CameraIcon size={16} /> },
+    { key: "generated", label: "AI Renditions", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>, disabled: !hasGeneratedImages },
+    { key: "compare", label: "Before / After", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h3M16 3h3a2 2 0 012 2v14a2 2 0 01-2 2h-3M12 3v18" /></svg>, disabled: !hasGeneratedImages },
   ];
 
   return (
@@ -276,7 +277,7 @@ export function ProjectVisualizationGallery({
               }`}
               id={`viz-mode-${mode.key}`}
             >
-              <span className="text-base">{mode.icon}</span>
+              <span className="text-base flex items-center">{mode.icon}</span>
               <span className="hidden sm:inline">{mode.label}</span>
             </button>
           ))}
@@ -305,7 +306,7 @@ export function ProjectVisualizationGallery({
                     key={photo.id}
                     className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4"
                   >
-                    <span className="text-xl">⏳</span>
+                    <HourglassIcon size={18} className="text-gray-400" />
                     <p className="text-sm text-gray-500">
                       AI rendition pending — comparison will appear when generated.
                     </p>
@@ -358,8 +359,9 @@ export function ProjectVisualizationGallery({
                     sizes="(max-width: 640px) 100vw, 50vw"
                   />
                   {isShowingGenerated && (
-                    <span className="absolute left-3 top-3 rounded-md bg-violet-600/80 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
-                      ✨ AI Rendition
+                    <span className="absolute left-3 top-3 rounded-md bg-violet-600/80 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm flex items-center gap-1">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>
+                      AI Rendition
                     </span>
                   )}
                   <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors duration-200 group-hover:bg-black/10">
@@ -393,7 +395,7 @@ export function ProjectVisualizationGallery({
         </div>
       ) : (
         <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6">
-          <span className="text-2xl">📸</span>
+          <CameraIcon size={24} className="text-gray-400" />
           <div>
             <p className="text-sm font-medium text-gray-700">No Photos Submitted</p>
             <p className="text-xs text-gray-500">

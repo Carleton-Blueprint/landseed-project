@@ -1,6 +1,16 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import {
+  DollarIcon,
+  RulerIcon,
+  CalendarIcon,
+  BoxIcon,
+  BuildingIcon,
+  EditIcon,
+  MessageIcon,
+  HelpCircleIcon,
+} from "@/frontend/components/icons";
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -23,43 +33,43 @@ const QUESTION_CATEGORIES = [
   {
     value: "PRICING",
     label: "Pricing & Costs",
-    icon: "💰",
+    icon: <DollarIcon size={18} />,
     description: "Questions about pricing, discounts, or payment options",
   },
   {
     value: "SCOPE",
     label: "Scope of Work",
-    icon: "📐",
+    icon: <RulerIcon size={18} />,
     description: "What's included or excluded in the estimate",
   },
   {
     value: "TIMELINE",
     label: "Timeline",
-    icon: "📅",
+    icon: <CalendarIcon size={18} />,
     description: "Project duration, scheduling, or start dates",
   },
   {
     value: "MATERIALS",
     label: "Materials",
-    icon: "🧱",
+    icon: <BoxIcon size={18} />,
     description: "Material choices, quality, or alternatives",
   },
   {
     value: "GRANT_ELIGIBILITY",
     label: "Grant Eligibility",
-    icon: "🏛️",
+    icon: <BuildingIcon size={18} />,
     description: "Questions about grant coverage or eligibility",
   },
   {
     value: "MODIFICATION_REQUEST",
     label: "Modification Request",
-    icon: "✏️",
+    icon: <EditIcon size={18} />,
     description: "Request changes to the proposed scope or approach",
   },
   {
     value: "GENERAL",
     label: "General Question",
-    icon: "💬",
+    icon: <MessageIcon size={18} />,
     description: "Any other questions about your estimate",
   },
 ];
@@ -212,7 +222,7 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
         <div className="relative z-10 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20">
-              <span className="text-xl">❓</span>
+              <HelpCircleIcon size={20} />
             </div>
             <div>
               <h3 className="text-lg font-bold tracking-tight">
@@ -446,7 +456,7 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
       {/* ─── Questions List ─── */}
       <div>
         <h4 className="text-base font-semibold text-gray-800 mb-3 flex items-center gap-2">
-          <span className="text-lg">💬</span>
+          <MessageIcon size={18} className="text-gray-500" />
           Your Questions
           {questions.length > 0 && (
             <span className="text-sm font-normal text-gray-400">
@@ -466,7 +476,7 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
         ) : questions.length === 0 ? (
           <div className="text-center py-10 rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50/50">
             <div className="mx-auto w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
-              <span className="text-2xl">🤔</span>
+              <HelpCircleIcon size={24} className="text-gray-400" />
             </div>
             <p className="text-gray-500 font-medium">No questions yet</p>
             <p className="text-sm text-gray-400 mt-1">
@@ -491,8 +501,8 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
                     onClick={() => setExpandedQuestion(isExpanded ? null : q.id)}
                     className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-gray-50/50 transition-colors"
                   >
-                    <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-                      <span className="text-lg">{catInfo?.icon}</span>
+                    <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600">
+                      {catInfo?.icon}
                     </div>
 
                     <div className="flex-1 min-w-0">
