@@ -4,6 +4,7 @@ import React from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useRouter } from "next/navigation";
 
 const schema = z.object({
     mobilityAssistance: z.enum(["yes", "no"], {
@@ -30,8 +31,7 @@ const safetyList = [
 ];
 
 export function GuidedIntakeForm({ onSubmitSuccess }: { onSubmitSuccess?: (values: FormValues) => void }) {
-    const [isSubmitted, setIsSubmitted] = React.useState(false);
-    const [estimateRange, setEstimateRange] = React.useState<{min: number, max: number} | null>(null);
+    const router = useRouter();
 
     const {
         register,
@@ -46,88 +46,17 @@ export function GuidedIntakeForm({ onSubmitSuccess }: { onSubmitSuccess?: (value
         },
     });
 
-    const calculateEstimate = (vals: FormValues) => {
-        let min = 0;
-        let max = 0;
-
-        const pricing: Record<string, [number, number]> = {
-            "grab-bars": [150, 300],
-            "ramps": [500, 2500],
-            "stair-lifts": [3000, 8000],
-            "wider-doors": [800, 2000],
-        };
-
-        if (vals.safetyFeatures) {
-            vals.safetyFeatures.forEach(sf => {
-                if (pricing[sf]) {
-                    min += pricing[sf][0];
-                    max += pricing[sf][1];
-                }
-            });
-        }
-
-        if (vals.bathroomModifications === "yes") {
-            min += 2000;
-            max += 5000;
-        } else if (vals.bathroomModifications === "not sure") {
-            // If not sure, the minimum doesn't change much but maximum increases to account for possible mods
-            max += 5000;
-        }
-
-        return { min, max };
-    };
-
     const onSubmit = async (vals: FormValues) => {
         console.log("Form submitted", vals);
         // Fake wait
         await new Promise(r => setTimeout(r, 500));
-        
-        const estimate = calculateEstimate(vals);
-        setEstimateRange(estimate);
-        setIsSubmitted(true);
 
         if (onSubmitSuccess) {
             onSubmitSuccess(vals);
         }
+
+        router.push("/submitted");
     };
-
-    if (isSubmitted && estimateRange) {
-        return (
-            <div className="max-w-2xl mx-auto p-8 border rounded shadow-sm text-center bg-gray-50">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 text-green-600 mb-6">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                </div>
-                <h2 className="text-2xl font-bold mb-4">Request Received!</h2>
-                <p className="text-gray-600 mb-6">Thank you for submitting your needs assessment.</p>
-                
-                <div className="bg-white p-6 rounded-lg border shadow-sm mb-6">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Initial Estimate</h3>
-                    <p className="text-gray-500 text-sm mb-4">
-                        This estimate range is dynamically generated from real-time external retail data based on your selected modifications. A formal quote will be provided after further review.
-                        </p>
-                    <div className="text-3xl font-bold text-blue-600">
-                        ${estimateRange.min.toLocaleString()} - ${estimateRange.max.toLocaleString()}
-                    </div>
-                </div>
-
-                <div className="text-sm text-gray-500">
-                    <p>Our team will reach out to you within 1-2 business days.</p>
-                </div>
-                
-                <button
-                    onClick={() => {
-                        setIsSubmitted(false);
-                        setEstimateRange(null);
-                    }}
-                    className="mt-8 text-blue-600 hover:underline"
-                >
-                    Submit another request
-                </button>
-            </div>
-        );
-    }
 
     return (
         <form

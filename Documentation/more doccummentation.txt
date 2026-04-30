@@ -1,0 +1,34 @@
+Hey Torrey,
+
+I am passing along some important clarifications from my most recent meeting with LandSeed. These updates may affect some of the work already completed or currently planned, so they should be taken into account when structuring the next tickets.
+
+Key product changes / clarifications from LandSeed
+
+Image generation for modifications:
+The platform needs to support image generation so it can generate a visual of what the final modified space would look like. In other words, based on the senior’s requested modification and submitted photos, the system should generate an image showing how the room or section would look once the accessibility modification is incorporated.
+
+AI-generated estimates without a predefined pricing matrix:
+The platform needs to provide AI-generated estimates directly to the client.  LandSeed will not be providing the predefined pricing matrix we originally expected, the AI would need to be able to access external pricing information, such as product and merchandise costs from stores like Home Depot, and use that to generate estimates.
+
+AI-driven grant discovery (no predefined rule set):
+LandSeed may not provide structured grant-rule data. Instead, their expectation is that the AI should search for and identify the appropriate municipal, provincial, and national grants based on the senior’s situation, project details, and submitted information. In other words, grant matching is expected to be handled largely through AI rather than a fixed rule set provided upfront.
+...
+
+Main tickets likely affected:
+
+Backend:
+Week 3 – Task 5 (FR-2.7): auditing logic for pricing matrix and grant-rule versions:
+This likely needs to be reconsidered since there may no longer be a fixed pricing matrix, and grant logic may not come from a stable rule set.
+
+Week 5 – Task 8 (FR-3.1): automated grant eligibility logic:
+This is heavily affected since grant matching may now rely on AI-driven discovery instead of predefined rules.
+
+Week 5 – Task 9 (FR-4.5 / FR-10.3): centralized audit trail system:  Still needed, but the audit model may need to account for AI-generated outputs and external data sources.
+
+Frontend:
+Week 4 – Task 7 (FR-8.1): post-submission display of the initial automatic estimate:  Still relevant, but the estimation logic feeding it will likely change.
+
+Week 5 – Task 9 (FR-3.3): display of applicable grants and estimated funding amounts: Still relevant, but depends on how AI-based grant discovery is implemented.
+
+Week 5 – Task 10 (FR-7.3): detailed project view:
+May need to expand to include generated visuals and AI-based outputs (estimates, grant info, etc.).
