@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
 import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
+import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -134,17 +135,22 @@ export default async function ProjectDetailPage({
         ? ((photo as { imageUrl?: string | null }).imageUrl ?? photo.url)
         : photo.url;
 
-      const generatedImageUrl = "generatedImageUrl" in photo
+      const existingGeneratedImageUrl = "generatedImageUrl" in photo
         ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
         : null;
+
+      const generatedImageUrl = existingGeneratedImageUrl ??
+        (await generateMockAccessibilityVisual(photo.url, {
+          modificationCodes: modificationItems,
+        }));
 
       const signedImageUrl = imageUrl
         ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
         : null;
 
-      const signedGeneratedImageUrl = generatedImageUrl
+      const signedGeneratedImageUrl = generatedImageUrl?.startsWith("https://s3.")
         ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
-        : null;
+        : generatedImageUrl;
 
       return {
         id: photo.id,
