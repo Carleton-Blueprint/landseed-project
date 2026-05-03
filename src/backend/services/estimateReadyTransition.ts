@@ -48,7 +48,7 @@ export async function markEstimateReadyForReview(
     }),
     prisma.quote.findUnique({
       where: { id: input.quoteId },
-      select: { id: true, projectId: true },
+      select: { id: true, projectId: true , estimateMin: true, estimateMax: true},
     }),
   ]);
 
@@ -114,6 +114,8 @@ export async function markEstimateReadyForReview(
     projectId: project.id,
     projectAddress: project.address,
     estimateLink,
+    estimateMin: quote?.estimateMin != null ? Number(quote.estimateMin as unknown) : undefined,
+    estimateMax: quote?.estimateMax != null ? Number(quote.estimateMax as unknown) : undefined,
   });
 
   const notificationQueuedAt = new Date().toISOString();

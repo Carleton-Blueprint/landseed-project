@@ -29,6 +29,8 @@ export const emailQueue = new Queue<{
   projectId?: string;
   projectAddress?: string | null;
   estimateLink?: string | null;
+  estimateMin?: number;
+  estimateMax?: number;
 }>("email", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
@@ -64,6 +66,8 @@ export function createEmailWorker(
       projectId?: string;
       projectAddress?: string | null;
       estimateLink?: string | null;
+      estimateMin?: number;
+      estimateMax?: number;
     };
   }) => Promise<void>
 ) {
