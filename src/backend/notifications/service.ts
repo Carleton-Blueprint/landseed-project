@@ -16,6 +16,8 @@ export type NotificationJobPayload = {
   projectId?: string;
   projectAddress?: string | null;
   estimateLink?: string | null;
+  estimateMin?: number;
+  estimateMax?: number;
 };
 
 export interface NotificationDeliveryMetricsInput {

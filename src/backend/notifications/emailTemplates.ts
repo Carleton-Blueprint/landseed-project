@@ -5,6 +5,8 @@ type TemplateInput = {
   recipientName?: string | null;
   projectAddress?: string | null;
   estimateLink?: string | null;
+  estimateMin?: number;
+  estimateMax?: number;
 };
 
 export type RenderedEmailTemplate = {
@@ -42,12 +44,20 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
     const linkText = estimateLink
       ? `\nView your estimate: ${estimateLink}\n`
       : "\nYour advisory specialist will provide your estimate link shortly.\n";
+    const rangeHtml =
+      input.estimateMin != null && input.estimateMax != null
+        ? `<p><strong>Estimated range:</strong> $${input.estimateMin.toFixed(2)} - $${input.estimateMax.toFixed(2)}</p>`
+        : "";
+    const rangeText =
+      input.estimateMin != null && input.estimateMax != null
+        ? `\nEstimated range: $${input.estimateMin.toFixed(2)} - $${input.estimateMax.toFixed(2)}\n`
+        : "";
 
     return {
       templateName: "estimate-ready-v1",
       subject: `Your Landseed estimate${subjectAddressSuffix} is ready`,
-      html: `<p>Hi ${recipientName},</p><p>Your estimate${addressLine} is now ready for review.</p><p>Your advisory specialist has completed preparation and the next step is to review the estimate details.</p>${linkHtml}<p>If you have questions, reply to this email and our team can help.</p><p>Landseed Team</p>`,
-      text: `Hi ${recipientName},\n\nYour estimate${addressLine} is now ready for review.\n\nYour advisory specialist has completed preparation and the next step is to review the estimate details.${linkText}\nIf you have questions, reply to this email and our team can help.\n\nLandseed Team`,
+      html: `<p>Hi ${recipientName},</p><p>Your estimate${addressLine} is now ready for review.</p>${rangeHtml}<p>Your advisory specialist has completed preparation and the next step is to review the estimate details.</p>${linkHtml}<p>If you have questions, reply to this email and our team can help.</p><p>Landseed Team</p>`,
+      text: `Hi ${recipientName},\n\nYour estimate${addressLine} is now ready for review.\n${rangeText}\nYour advisory specialist has completed preparation and the next step is to review the estimate details.${linkText}\nIf you have questions, reply to this email and our team can help.\n\nLandseed Team`,
     };
   }
 

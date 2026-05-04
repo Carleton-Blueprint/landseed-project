@@ -10,6 +10,10 @@ import {
   normalizePricingDecisionAuditMetadata,
   type PricingAuditSourceReference,
 } from '@/backend/audit/pricing';
+import {
+  generateMockRefinedEstimate,
+  type RefinedEstimate,
+} from '@/backend/services/refinedEstimate';
 
 const prisma = new PrismaClient();
 
@@ -28,6 +32,9 @@ interface QuoteResult {
   total: number;
   pricingMatrixVersion: number;
   eligibilityAssessmentId?: string;
+  estimateMin: number;
+  estimateMax: number;
+  refinedEstimate: RefinedEstimate;
 }
 
 interface PricingDecisionAuditTrailEntry {
@@ -74,19 +81,16 @@ export async function generateQuote(
   const pricingMatrixVersion = await getActivePricingMatrixVersion();
   const latestEligibility = await getLatestEligibilityAssessment(input.projectId);
 
-  let subtotal = 0;
-  for (const item of input.items) {
-    subtotal += item.quantity * item.unitPrice;
-  }
-
-  // Total is currently equal to subtotal; grant adjustments are represented in discovery output.
-  const total = subtotal;
+  const refinedEstimate = await generateMockRefinedEstimate(input.items);
 
   const quote = await prisma.quote.create({
     data: {
       projectId: input.projectId,
-      subtotal: new Prisma.Decimal(subtotal),
-      total: new Prisma.Decimal(total),
+      subtotal: new Prisma.Decimal(refinedEstimate.subtotal),
+      total: new Prisma.Decimal(refinedEstimate.total),
+      estimateMin: new Prisma.Decimal(refinedEstimate.estimateMin),
+      estimateMax: new Prisma.Decimal(refinedEstimate.estimateMax),
+      refinedEstimate: refinedEstimate as unknown as Prisma.InputJsonValue,
       lastClientActivityAt: new Date(),
       pricingMatrixVersionId: pricingMatrixVersion.id,
       eligibilityAssessmentId: latestEligibility?.assessmentId,
@@ -119,8 +123,8 @@ export async function generateQuote(
     actorUserId: projectWithUser.user.id,
     pricingMatrixVersionId: pricingMatrixVersion.id,
     pricingMatrixVersionNumber: pricingMatrixVersion.versionNumber,
-    subtotal,
-    total,
+    subtotal: refinedEstimate.subtotal,
+    total: refinedEstimate.total,
     eligibilityAssessmentId: latestEligibility?.assessmentId,
     discoveryVersion: {
       engineVersion: latestEligibility?.discoveryEngineVersion,
@@ -148,10 +152,13 @@ export async function generateQuote(
 
   return {
     quoteId: quote.id,
-    subtotal,
-    total,
+    subtotal: Number(quote.subtotal.toString()),
+    total: Number(quote.total.toString()),
     pricingMatrixVersion: quote.pricingMatrixVersion.versionNumber,
     eligibilityAssessmentId: latestEligibility?.assessmentId,
+    estimateMin: Number((quote as any).estimateMin?.toString()) ?? refinedEstimate.estimateMin,
+    estimateMax: Number((quote as any).estimateMax?.toString()) ?? refinedEstimate.estimateMax,
+    refinedEstimate,
   };
 }
 

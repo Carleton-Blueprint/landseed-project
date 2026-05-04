@@ -193,6 +193,9 @@ model Quote {
   projectId   String
   subtotal    Decimal  @db.Decimal(10, 2)
   total       Decimal  @db.Decimal(10, 2)
+  estimateMin Decimal? @db.Decimal(10, 2)
+  estimateMax Decimal? @db.Decimal(10, 2)
+  refinedEstimate Json?
   generatedAt DateTime @default(now())
   lastClientActivityAt DateTime @default(now())
 
