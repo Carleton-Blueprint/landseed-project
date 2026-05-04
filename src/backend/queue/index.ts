@@ -31,6 +31,8 @@ export const emailQueue = new Queue<{
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
+  manualFallbackExportLink?: string | null;
+  manualFallbackExportRetentionDays?: number;
 }>("email", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
@@ -82,6 +84,8 @@ export function createEmailWorker(
       estimateLink?: string | null;
       estimateMin?: number;
       estimateMax?: number;
+      manualFallbackExportLink?: string | null;
+      manualFallbackExportRetentionDays?: number;
     };
   }) => Promise<void>
 ) {

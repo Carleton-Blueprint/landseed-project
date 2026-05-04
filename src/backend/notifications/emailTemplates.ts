@@ -7,6 +7,8 @@ type TemplateInput = {
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
+  manualFallbackExportLink?: string | null;
+  manualFallbackExportRetentionDays?: number;
 };
 
 export type RenderedEmailTemplate = {
@@ -18,6 +20,11 @@ export type RenderedEmailTemplate = {
 
 function safeName(name?: string | null): string {
   return name?.trim() || "there";
+}
+
+function safeLink(link?: string | null): string | undefined {
+  const trimmed = link?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
 export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate {
@@ -87,6 +94,22 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
       subject: "Your Landseed estimate is active again",
       html: `<p>Hi ${recipientName},</p><p>Your estimate${addressLine} has been reactivated and is ready for review.</p>${linkHtml}<p>Landseed Team</p>`,
       text: `Hi ${recipientName},\n\nYour estimate${addressLine} has been reactivated and is ready for review.${linkText}\nLandseed Team`,
+    };
+  }
+
+  if (input.eventType === NotificationEventType.MANUAL_FALLBACK_EXPORT_READY) {
+    const recipientName = safeName(input.recipientName);
+    const exportLink = safeLink(input.manualFallbackExportLink);
+    const retentionDays = input.manualFallbackExportRetentionDays ?? 7;
+    const addressLine = input.projectAddress ? ` for ${input.projectAddress}` : "";
+    const linkHtml = exportLink ? `<p><a href="${exportLink}">Download the fallback export</a></p>` : "";
+    const linkText = exportLink ? `\nDownload the fallback export: ${exportLink}\n` : "";
+
+    return {
+      templateName: "manual-fallback-export-ready-v1",
+      subject: `Your Landseed fallback export${addressLine} is ready`,
+      html: `<p>Hi ${recipientName},</p><p>Your manual fallback export${addressLine} is ready.</p>${linkHtml}<p>This export will remain available for ${retentionDays} day${retentionDays === 1 ? "" : "s"}.</p><p>Landseed Team</p>`,
+      text: `Hi ${recipientName},\n\nYour manual fallback export${addressLine} is ready.${linkText}\nThis export will remain available for ${retentionDays} day${retentionDays === 1 ? "" : "s"}.\n\nLandseed Team`,
     };
   }
 
