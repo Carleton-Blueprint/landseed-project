@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "NotificationEventType" ADD VALUE 'QUESTION_SUBMITTED_FOR_ADVISORY_TEAM';
