@@ -88,6 +88,23 @@ export default async function AdminDashboardPage() {
     }),
   ]);
 
+  const allFallbackExports = await prisma.manualFallbackExport.findMany({
+    where: { projectId: { in: projectIds } },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      projectId: true,
+      status: true,
+      requestedAt: true,
+      readyAt: true,
+      expiresAt: true,
+      fileName: true,
+      retentionDays: true,
+      maxSizeBytes: true,
+      lastError: true,
+    },
+  });
+
   // BuilderTrendTransfer may not exist in the generated Prisma client yet — access safely
   let allTransfers: TransferRow[] = [];
   try {
@@ -137,12 +154,20 @@ export default async function AdminDashboardPage() {
     }
   }
 
+  const fallbackExportsByProject = new Map<string, (typeof allFallbackExports)[0]>();
+  for (const item of allFallbackExports) {
+    if (!fallbackExportsByProject.has(item.projectId)) {
+      fallbackExportsByProject.set(item.projectId, item);
+    }
+  }
+
   /* ---- Serialize for client component ---- */
   const serialized: SerializedProject[] = rawProjects.map((p) => {
     const docs = docsByProject.get(p.id) ?? [];
     const latestQuote = quotesByProject.get(p.id) ?? null;
     const latestAssessment = assessmentsByProject.get(p.id) ?? null;
     const latestTransfer = transfersByProject.get(p.id) ?? null;
+    const latestFallbackExport = fallbackExportsByProject.get(p.id) ?? null;
 
     const aExtended = latestAssessment as typeof latestAssessment & {
       discoveredGrants?: unknown;
@@ -195,6 +220,19 @@ export default async function AdminDashboardPage() {
             attempts: latestTransfer.attempts,
             lastError: latestTransfer.lastError,
             sentAt: latestTransfer.sentAt?.toISOString() ?? null,
+          }
+        : null,
+      manualFallbackExport: latestFallbackExport
+        ? {
+            id: latestFallbackExport.id,
+            status: latestFallbackExport.status,
+            requestedAt: latestFallbackExport.requestedAt.toISOString(),
+            readyAt: latestFallbackExport.readyAt?.toISOString() ?? null,
+            expiresAt: latestFallbackExport.expiresAt?.toISOString() ?? null,
+            fileName: latestFallbackExport.fileName,
+            retentionDays: latestFallbackExport.retentionDays,
+            maxSizeBytes: latestFallbackExport.maxSizeBytes,
+            lastError: latestFallbackExport.lastError,
           }
         : null,
     };

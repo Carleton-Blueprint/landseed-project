@@ -2,7 +2,7 @@
  * S3 client placeholder for photo uploads. This file exposes the bucket name and a stub for the client.
  * When ready: install @aws-sdk/client-s3, implement getS3Client(), and set AWS_S3_BUCKET + AWS_* in env.
  */
-import { S3Client, PutObjectCommand, ListBucketsCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, ListBucketsCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "node:stream";
 
@@ -73,6 +73,16 @@ export async function getSignedDownloadUrlFromS3Url(
   }
 
   return getSignedDownloadUrl(key, expiresIn);
+}
+
+export async function deleteObjectFromS3(key: string): Promise<void> {
+  const client = getS3Client();
+  const command = new DeleteObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: key,
+  });
+
+  await client.send(command);
 }
 
 // Helper function to test connection

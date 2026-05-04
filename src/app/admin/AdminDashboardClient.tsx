@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import {
   CheckCircleIcon,
@@ -62,6 +63,17 @@ export interface SerializedProject {
     attempts: number;
     lastError: string | null;
     sentAt: string | null;
+  } | null;
+  manualFallbackExport: {
+    id: string;
+    status: string;
+    requestedAt: string;
+    readyAt: string | null;
+    expiresAt: string | null;
+    fileName: string | null;
+    retentionDays: number;
+    maxSizeBytes: number | null;
+    lastError: string | null;
   } | null;
 }
 
@@ -229,10 +241,36 @@ function StatCard({
 /* ================================================================== */
 
 function ProjectDetailPanel({ project }: { project: SerializedProject }) {
+  const router = useRouter();
+  const [isRequestingExport, setIsRequestingExport] = React.useState(false);
+  const [exportError, setExportError] = React.useState<string | null>(null);
   const eligibility = project.eligibility;
   const quote = project.quote;
   const transfer = project.builderTrendTransfer;
+  const fallbackExport = project.manualFallbackExport;
   const eligibleGrants = eligibility?.discoveredGrants.filter((g) => g.decision === "ELIGIBLE") ?? [];
+
+  async function requestFallbackExport() {
+    setIsRequestingExport(true);
+    setExportError(null);
+
+    try {
+      const response = await fetch(`/api/project/${project.id}/manual-fallback-export`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Failed to queue export");
+      }
+
+      router.refresh();
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Failed to queue export");
+    } finally {
+      setIsRequestingExport(false);
+    }
+  }
 
   return (
     <div className="border-t bg-gray-50/70 px-6 py-5 space-y-5">
@@ -389,6 +427,59 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
                 <CameraIcon size={14} className="text-gray-400" /> {project.photoCount} photo{project.photoCount === 1 ? "" : "s"}
               </span>
             </div>
+          </div>
+
+          {/* Manual fallback export */}
+          <div className="rounded-md border border-dashed border-blue-200 bg-blue-50/60 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-blue-900">Manual fallback export</p>
+                <p className="text-[11px] text-blue-700">
+                  Bundle quotes, photos, and grants for manual upload if BuilderTrend fails.
+                </p>
+              </div>
+              {fallbackExport?.status === "READY" && fallbackExport.fileName ? (
+                <Button asChild variant="outline" size="sm">
+                  <a href={`/api/project/${project.id}/manual-fallback-export/${fallbackExport.id}/download`}>
+                    Download
+                  </a>
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={requestFallbackExport}
+                  disabled={isRequestingExport}
+                >
+                  {isRequestingExport ? "Queuing…" : "Request export"}
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 text-[11px] text-blue-700">
+              <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
+                {fallbackExport?.status ?? "Not requested"}
+              </span>
+              <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
+                Retention: {fallbackExport?.retentionDays ?? 7} day{(fallbackExport?.retentionDays ?? 7) === 1 ? "" : "s"}
+              </span>
+              {fallbackExport?.expiresAt && (
+                <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
+                  Expires {fmtDate(fallbackExport.expiresAt)}
+                </span>
+              )}
+            </div>
+            {fallbackExport?.lastError && (
+              <p className="text-[11px] text-red-600 truncate" title={fallbackExport.lastError}>
+                Last error: {fallbackExport.lastError}
+              </p>
+            )}
+            {exportError && (
+              <p className="text-[11px] text-red-600">{exportError}</p>
+            )}
+            <p className="text-[10px] text-blue-600/80">
+              Only project owners can queue a new export.
+            </p>
           </div>
 
           {/* Quick links */}

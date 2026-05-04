@@ -6,7 +6,7 @@ import { manualFallbackExportQueue } from "@/backend/queue";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { prisma } from "lib/prisma";
-import { getSignedDownloadUrlFromS3Url, getSignedDownloadUrl, uploadStreamToS3 } from "lib/s3";
+import { deleteObjectFromS3, getSignedDownloadUrlFromS3Url, getSignedDownloadUrl, uploadStreamToS3 } from "lib/s3";
 
 export const MANUAL_FALLBACK_EXPORT_QUEUE_NAME = "manual-fallback-export" as const;
 export const MANUAL_FALLBACK_EXPORT_ROOT_PREFIX = "manual-fallback-exports" as const;
@@ -35,6 +35,13 @@ export interface ManualFallbackExportArtifact {
   s3ObjectKey: string;
   retentionDays: number;
   maxSizeBytes?: number;
+}
+
+export interface ManualFallbackExportCleanupResult {
+  scanned: number;
+  deleted: number;
+  failed: number;
+  exportIds: string[];
 }
 
 export interface ManualFallbackExportQueuedRequest extends ManualFallbackExportRequest {
@@ -615,4 +622,81 @@ export async function processManualFallbackExport(
 
     throw error;
   }
+}
+
+export async function cleanupExpiredManualFallbackExports(
+  now: Date = new Date()
+): Promise<ManualFallbackExportCleanupResult> {
+  const expiredExports = await prisma.manualFallbackExport.findMany({
+    where: {
+      status: ManualFallbackExportStatus.READY,
+      expiresAt: { lte: now },
+    },
+    select: {
+      id: true,
+      projectId: true,
+      s3Key: true,
+      fileName: true,
+      requestedByUserId: true,
+    },
+    orderBy: { expiresAt: "asc" },
+  });
+
+  let deleted = 0;
+  let failed = 0;
+
+  for (const exportRecord of expiredExports) {
+    try {
+      if (exportRecord.s3Key) {
+        await deleteObjectFromS3(exportRecord.s3Key);
+      }
+
+      await prisma.manualFallbackExport.delete({ where: { id: exportRecord.id } });
+
+      deleted += 1;
+
+      await logAuditEventNonBlocking({
+        category: "MANUAL_CHANGE",
+        action: "MANUAL_FALLBACK_EXPORT_EXPIRED",
+        outcome: "SUCCESS",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: exportRecord.requestedByUserId,
+        projectId: exportRecord.projectId,
+        resourceType: "manual_fallback_export",
+        resourceId: exportRecord.id,
+        description: "Expired manual fallback export removed from storage and database",
+        metadata: {
+          fileName: exportRecord.fileName,
+          s3Key: exportRecord.s3Key,
+          expiredAt: now.toISOString(),
+        },
+      });
+    } catch (error) {
+      failed += 1;
+
+      await logAuditEventNonBlocking({
+        category: "MANUAL_CHANGE",
+        action: "MANUAL_FALLBACK_EXPORT_EXPIRED",
+        outcome: "FAILURE",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: exportRecord.requestedByUserId,
+        projectId: exportRecord.projectId,
+        resourceType: "manual_fallback_export",
+        resourceId: exportRecord.id,
+        description: "Failed to clean up expired manual fallback export",
+        metadata: {
+          fileName: exportRecord.fileName,
+          s3Key: exportRecord.s3Key,
+          errorMessage: error instanceof Error ? error.message : "Unknown cleanup error",
+        },
+      });
+    }
+  }
+
+  return {
+    scanned: expiredExports.length,
+    deleted,
+    failed,
+    exportIds: expiredExports.map((item) => item.id),
+  };
 }
