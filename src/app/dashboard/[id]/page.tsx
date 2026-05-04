@@ -71,12 +71,12 @@ function modificationItemsFromDraft(draftData: unknown): string[] {
 /* ------------------------------------------------------------------ */
 
 const MODIFICATION_LABELS: Record<string, { label: string; icon: string }> = {
-  GRAB_BARS: { label: "Grab Bars", icon: "🛁" },
-  RAISED_TOILET: { label: "Raised Toilet", icon: "🚽" },
-  WALK_IN_SHOWER: { label: "Walk-In Shower", icon: "🚿" },
-  WIDENED_DOORWAY: { label: "Widened Doorway", icon: "🚪" },
-  STAIR_LIFT: { label: "Stair Lift", icon: "🪜" },
-  HANDRAILS: { label: "Handrails", icon: "🤝" },
+  GRAB_BARS: { label: "Grab Bars", icon: "GB" },
+  RAISED_TOILET: { label: "Raised Toilet", icon: "RT" },
+  WALK_IN_SHOWER: { label: "Walk-In Shower", icon: "WS" },
+  WIDENED_DOORWAY: { label: "Widened Doorway", icon: "WD" },
+  STAIR_LIFT: { label: "Stair Lift", icon: "SL" },
+  HANDRAILS: { label: "Handrails", icon: "HR" },
 };
 
 function getModLabel(item: string) {
@@ -86,7 +86,7 @@ function getModLabel(item: string) {
     label: item
       .replace(/_/g, " ")
       .replace(/\b\w/g, (c) => c.toUpperCase()),
-    icon: "🔧",
+    icon: "CM",
   };
 }
 

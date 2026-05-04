@@ -6,6 +6,7 @@
 "use client";
 
 import React from "react";
+import { ClipboardIcon } from "@/frontend/components/icons";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -387,7 +388,7 @@ export function IntakeForm() {
       {/* Draft restore banner */}
       {draftBanner && (
         <div className="flex items-start justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          <span>📋 {draftBanner}</span>
+          <span className="flex items-center gap-1.5"><ClipboardIcon size={16} className="text-blue-500 shrink-0" /> {draftBanner}</span>
           <button
             type="button"
             onClick={() => setDraftBanner(null)}

@@ -212,9 +212,27 @@ model Quote {
   questions      QuoteQuestion[]
   builderTrendTransfers BuilderTrendTransfer[]
 
+  declineSurvey  DeclineSurveyResponse?
+
   @@index([projectId])
   @@index([pricingMatrixVersionId])
   @@index([eligibilityAssessmentId])
+}
+
+model DeclineSurveyResponse {
+  id              String   @id @default(cuid())
+  quoteId         String   @unique
+  primaryReason   String
+  subReasons      Json?
+  satisfactionRating Int?
+  additionalComments String? @db.Text
+  wouldReconsider Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([primaryReason])
+  @@index([createdAt])
 }
 
 enum BuilderTrendTransferStatus {
