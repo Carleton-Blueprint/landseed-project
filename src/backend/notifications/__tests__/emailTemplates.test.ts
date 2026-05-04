@@ -2,20 +2,24 @@ import { NotificationEventType } from "@prisma/client";
 import { renderEmailTemplate } from "@/backend/notifications/emailTemplates";
 
 describe("renderEmailTemplate", () => {
-  it("renders estimate ready template with address and link", () => {
+  it("renders estimate ready template with address, link, and estimate range", () => {
     const template = renderEmailTemplate({
       eventType: NotificationEventType.ESTIMATE_READY,
       recipientName: "Alex",
       projectAddress: "100 Main St",
       estimateLink: "https://example.com/projects/p-1/estimate",
+      estimateMin: 4500,
+      estimateMax: 5200,
     });
 
     expect(template.templateName).toBe("estimate-ready-v1");
-    expect(template.subject).toBe("Your Landseed estimate is ready");
+    expect(template.subject).toBe("Your Landseed estimate for 100 Main St is ready");
     expect(template.html).toContain("Hi Alex");
     expect(template.html).toContain("for 100 Main St");
+    expect(template.html).toContain("Estimated range");
     expect(template.html).toContain("View your estimate");
     expect(template.text).toContain("https://example.com/projects/p-1/estimate");
+    expect(template.text).toContain("Estimated range: $4500.00 - $5200.00");
   });
 
   it("renders estimate ready template without link when unavailable", () => {

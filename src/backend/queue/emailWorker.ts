@@ -18,6 +18,8 @@ const worker = createEmailWorker(async (job) => {
     projectId: job.data.projectId,
     projectAddress: job.data.projectAddress,
     estimateLink: job.data.estimateLink,
+    estimateMin: job.data.estimateMin,
+    estimateMax: job.data.estimateMax,
   });
 });
 

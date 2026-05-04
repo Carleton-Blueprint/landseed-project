@@ -21,6 +21,8 @@ export interface EstimateReadyNotificationContract {
   userId?: string;
   projectAddress?: string | null;
   estimateLink?: string | null;
+  estimateMin?: number;
+  estimateMax?: number;
   triggerSource: EstimateReadyTriggerSource;
 }
 

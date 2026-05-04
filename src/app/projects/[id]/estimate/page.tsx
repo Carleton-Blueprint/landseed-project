@@ -7,6 +7,7 @@ import { EstimateClientComponent } from "./EstimateClientComponent";
 import { AskQuestionPanel } from "@/frontend/components/AskQuestionPanel";
 import { ProjectTimeline } from "@/frontend/components/ProjectTimeline";
 import { getAuditContextFromHeaders, logAuditEventNonBlocking } from "@/backend/audit/log";
+import type { RefinedEstimate } from "@/backend/services/refinedEstimate";
 
 function modificationItemsFromDraft(draftData: unknown): string[] {
   if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) return [];
@@ -64,6 +65,8 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
   }
 
   const latestQuote = project.quotes[0];
+  const refinedEstimate = (latestQuote as any)?.refinedEstimate as RefinedEstimate | null;
+
   if (!latestQuote) {
     await logAuditEventNonBlocking({
       category: "SENSITIVE_ACCESS",
@@ -160,12 +163,70 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
               <span className="text-gray-500">Subtotal</span>
               <span className="font-medium text-gray-800">{formattedSubtotal}</span>
             </div>
+            {refinedEstimate ? (
+              <>
+                <div className="flex justify-between py-2 border-b border-gray-200">
+                  <span className="text-gray-600">Labor</span>
+                  <span className="font-medium">${refinedEstimate.laborTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-gray-200">
+                  <span className="text-gray-600">Markup</span>
+                  <span className="font-medium">${refinedEstimate.markupTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-gray-200">
+                  <span className="text-gray-600">Estimate Range</span>
+                  <span className="font-medium">${refinedEstimate.estimateMin.toFixed(2)} - ${refinedEstimate.estimateMax.toFixed(2)}</span>
+                </div>
+              </>
+            ) : null}
             <div className="flex justify-between py-4 mt-1">
               <span className="text-lg font-bold text-indigo-700">Total Estimate</span>
               <span className="text-lg font-bold text-indigo-700">{formattedTotal}</span>
             </div>
           </div>
         </div>
+        {refinedEstimate ? (
+          <div className="bg-white shadow rounded-lg p-6 mb-8">
+            <h3 className="text-xl font-semibold mb-4">Itemized Refined Estimate</h3>
+            <div className="space-y-4">
+              {refinedEstimate.lineItems.map((item, index) => (
+                <div key={index} className="rounded-lg border border-gray-200 p-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-semibold text-gray-900">{item.description}</p>
+                      <p className="text-sm text-gray-600">Qty: {item.quantity}</p>
+                    </div>
+                    <p className="text-right text-sm text-gray-600">Total: ${item.lineTotal.toFixed(2)}</p>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    <div className="rounded bg-gray-50 p-3">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Material</p>
+                      <p className="text-sm text-gray-900">${item.materialTotal.toFixed(2)}</p>
+                      <p className="text-xs text-gray-500">Unit ${item.materialUnitCost.toFixed(2)}</p>
+                    </div>
+                    <div className="rounded bg-gray-50 p-3">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Labor</p>
+                      <p className="text-sm text-gray-900">${item.laborTotal.toFixed(2)}</p>
+                      <p className="text-xs text-gray-500">{item.laborHours} hrs @ ${item.laborRate.toFixed(2)}</p>
+                    </div>
+                    <div className="rounded bg-gray-50 p-3">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Markup</p>
+                      <p className="text-sm text-gray-900">${item.markupTotal.toFixed(2)}</p>
+                      <p className="text-xs text-gray-500">{Math.round(item.markupPercentage * 100)}%</p>
+                    </div>
+                    <div className="rounded bg-gray-50 p-3">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Price Source</p>
+                      <p className="text-sm text-gray-900">{item.pricingSource || "Mocked pricing"}</p>
+                      {item.pricingLink ? (
+                        <p className="text-xs text-blue-600"><a href={item.pricingLink} target="_blank" rel="noreferrer">View source</a></p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {/* Project Timeline */}
         <ProjectTimeline modificationItems={modificationItemsFromDraft(project.draftData)} />
