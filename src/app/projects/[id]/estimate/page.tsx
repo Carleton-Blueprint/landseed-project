@@ -65,7 +65,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
   }
 
   const latestQuote = project.quotes[0];
-  const refinedEstimate = (latestQuote as any)?.refinedEstimate as RefinedEstimate | null;
+  const refinedEstimate = (latestQuote?.refinedEstimate ?? null) as RefinedEstimate | null;
 
   if (!latestQuote) {
     await logAuditEventNonBlocking({
