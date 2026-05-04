@@ -1,6 +1,9 @@
 import archiver from "archiver";
 import { randomUUID } from "node:crypto";
-import { PassThrough } from "node:stream";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NotificationEventType, ManualFallbackExportStatus } from "@prisma/client";
 import { manualFallbackExportQueue } from "@/backend/queue";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
@@ -163,20 +166,33 @@ async function appendJsonEntry(
 }
 
 async function uploadArchiveToS3(archive: archiver.Archiver, s3Key: string): Promise<string> {
-  const output = new PassThrough();
-  const uploadPromise = uploadStreamToS3(output, s3Key, "application/zip");
+  const tempDir = await mkdtemp(join(tmpdir(), "manual-fallback-export-"));
+  const tempFilePath = join(tempDir, `${s3Key.replace(/[\\/]+/g, "-")}.zip`);
+  const fileStream = createWriteStream(tempFilePath);
 
-  const archiveCompletion = new Promise<void>((resolve, reject) => {
-    output.on("finish", resolve);
-    output.on("error", reject);
-    archive.on("error", reject);
-  });
+  try {
+    const archiveCompletion = new Promise<void>((resolve, reject) => {
+      fileStream.on("finish", resolve);
+      fileStream.on("error", reject);
+      archive.on("error", reject);
+    });
 
-  archive.pipe(output);
-  archive.finalize();
+    archive.pipe(fileStream);
+    archive.finalize();
 
-  await Promise.all([uploadPromise, archiveCompletion]);
-  return uploadPromise;
+    await archiveCompletion;
+
+    const archiveSize = await stat(tempFilePath);
+    return await uploadStreamToS3(
+      createReadStream(tempFilePath),
+      s3Key,
+      "application/zip",
+      archiveSize.size
+    );
+  } finally {
+    fileStream.destroy();
+    await rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 function getManualFallbackExportSettings(): ManualFallbackExportSettings {
@@ -641,6 +657,17 @@ export async function cleanupExpiredManualFallbackExports(
     },
     orderBy: { expiresAt: "asc" },
   });
+
+  console.log("Manual fallback cleanup candidates", {
+  now: now.toISOString(),
+  count: expiredExports.length,
+  exports: expiredExports.map((item) => ({
+    id: item.id,
+    projectId: item.projectId,
+    s3Key: item.s3Key,
+    fileName: item.fileName,
+  })),
+});
 
   let deleted = 0;
   let failed = 0;
