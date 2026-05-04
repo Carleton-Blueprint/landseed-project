@@ -43,6 +43,20 @@ export const builderTrendTransferQueue = new Queue<{
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
 });
 
+export const manualFallbackExportQueue = new Queue<{
+  exportRequestId: string;
+  projectId: string;
+  requestedByUserId: string;
+  requestedByEmail?: string | null;
+  requestedByName?: string | null;
+  requestedAt: string;
+  retentionDays: number;
+  maxSizeBytes?: number;
+}>("manual-fallback-export", {
+  connection,
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
+});
+
 export function createVirusScanWorker(
   processor: (job: { data: { key: string; photoId: string; bucket?: string } }) => Promise<void>
 ) {
@@ -82,4 +96,21 @@ export function createBuilderTrendTransferWorker(
   }) => Promise<void>
 ) {
   return new Worker("buildertrend-transfer", processor, { connection });
+}
+
+export function createManualFallbackExportWorker(
+  processor: (job: {
+    data: {
+      exportRequestId: string;
+      projectId: string;
+      requestedByUserId: string;
+      requestedByEmail?: string | null;
+      requestedByName?: string | null;
+      requestedAt: string;
+      retentionDays: number;
+      maxSizeBytes?: number;
+    };
+  }) => Promise<void>
+) {
+  return new Worker("manual-fallback-export", processor, { connection });
 }
