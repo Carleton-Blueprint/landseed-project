@@ -190,16 +190,16 @@ export function FlaggedProjectsClient({
 
               <div className="flex flex-col gap-2 md:flex-col md:items-end">
                 <Link
-                  href={`/admin/projects/${flaggedProject.project.id}`}
+                  href={`/dashboard/${flaggedProject.project.id}`}
                   className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
                 >
                   View Project
                 </Link>
                 <Link
-                  href={`/dashboard/projects/${flaggedProject.project.id}`}
+                  href={`/admin`}
                   className="inline-flex items-center px-4 py-2 bg-gray-200 text-gray-900 rounded-md hover:bg-gray-300 transition-colors text-sm font-medium"
                 >
-                  Review Assessment
+                  Back to Admin
                 </Link>
               </div>
             </div>
