@@ -1,8 +1,3 @@
-// Prisma schema: PostgreSQL models for the app.
-// User: app user (name, email, phone); Account/Session/VerificationToken: NextAuth.
-// Project: address + status, owned by User. Photo: url + virus_scan_status, belongs to Project.
-// Run `npx prisma generate` after changes; use `db push` or `migrate dev` to apply to DB.
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,24 +8,25 @@ datasource db {
 }
 
 model User {
-  id                     String                  @id @default(cuid())
-  name                   String?
-  email                  String?                 @unique
-  phone                  String?
-  emailVerified          DateTime?
-  image                  String?
-  accounts               Account[]
-  sessions               Session[]
-  projects               Project[]
-  projectAccess          ProjectAccess[]         @relation("ProjectAccessUser")
-  grantedProjectAccess   ProjectAccess[]         @relation("ProjectAccessGrantedBy")
-  pricingMatrixVersions  PricingMatrixVersion[]
-  pricingMatrixAuditLogs PricingMatrixAuditLog[]
+  id                            String                          @id @default(cuid())
+  name                          String?
+  email                         String?                         @unique
+  phone                         String?
+  emailVerified                 DateTime?
+  image                         String?
+  createdAt                     DateTime                        @default(now())
+  updatedAt                     DateTime                        @updatedAt
+  accounts                      Account[]
+  auditEvents                   AuditEvent[]
   grantApplicationStatusHistory GrantApplicationStatusHistory[]
-  notifications          NotificationDelivery[]
-  auditEvents            AuditEvent[]
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
+  ManualFallbackExport          ManualFallbackExport[]
+  notifications                 NotificationDelivery[]
+  pricingMatrixAuditLogs        PricingMatrixAuditLog[]
+  pricingMatrixVersions         PricingMatrixVersion[]
+  projects                      Project[]
+  grantedProjectAccess          ProjectAccess[]                 @relation("ProjectAccessGrantedBy")
+  projectAccess                 ProjectAccess[]                 @relation("ProjectAccessUser")
+  sessions                      Session[]
 }
 
 model Account {
@@ -39,12 +35,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -66,25 +62,340 @@ model VerificationToken {
 }
 
 model Project {
-  id        String   @id @default(cuid())
-  address   String
-  status    String   @default("draft")
-  grantApplicationStatus GrantApplicationStatus @default(DRAFT)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectAccess ProjectAccess[]
-  photos    Photo[]
-  documents Document[]
-  quotes    Quote[]
-  builderTrendTransfers BuilderTrendTransfer[]
-  eligibilityAssessments EligibilityAssessment[]
+  id                            String                          @id @default(cuid())
+  address                       String
+  status                        String                          @default("draft")
+  userId                        String
+  createdAt                     DateTime                        @default(now())
+  updatedAt                     DateTime                        @updatedAt
+  draftData                     Json?
+  grantDocumentKey              String?
+  grantApplicationStatus        GrantApplicationStatus          @default(DRAFT)
+  auditEvents                   AuditEvent[]
+  builderTrendTransfers         BuilderTrendTransfer[]
+  documents                     Document[]
+  eligibilityAssessments        EligibilityAssessment[]
   grantApplicationStatusHistory GrantApplicationStatusHistory[]
-  notifications NotificationDelivery[]
-  auditEvents   AuditEvent[]
-  draftData        Json?
-  grantDocumentKey String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  ManualFallbackExport          ManualFallbackExport[]
+  notifications                 NotificationDelivery[]
+  photos                        Photo[]
+  user                          User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectAccess                 ProjectAccess[]
+  quotes                        Quote[]
+  manualReviewFlag              ProjectManualReviewFlag?
+}
+
+model GrantApplicationStatusHistory {
+  id              String                  @id @default(cuid())
+  projectId       String
+  fromStatus      GrantApplicationStatus?
+  toStatus        GrantApplicationStatus
+  changedAt       DateTime                @default(now())
+  changedByUserId String
+  reason          String?
+  metadata        Json?
+  changedByUser   User                    @relation(fields: [changedByUserId], references: [id])
+  project         Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, changedAt(sort: Desc)])
+  @@index([changedByUserId, changedAt(sort: Desc)])
+}
+
+model Document {
+  id               String               @id @default(cuid())
+  projectId        String
+  fileName         String
+  fileSize         Int
+  mimeType         String
+  s3Key            String
+  s3Url            String
+  documentType     DocumentType
+  label            String?
+  virusScanStatus  String               @default("pending")
+  reviewStatus     DocumentReviewStatus @default(PENDING)
+  reviewNote       String?
+  uploadedByUserId String
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  project          Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([documentType])
+  @@index([virusScanStatus])
+  @@index([reviewStatus])
+}
+
+model ProjectAccess {
+  id              String            @id @default(cuid())
+  projectId       String
+  userId          String
+  role            ProjectAccessRole @default(VIEWER)
+  grantedByUserId String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  grantedBy       User?             @relation("ProjectAccessGrantedBy", fields: [grantedByUserId], references: [id])
+  project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user            User              @relation("ProjectAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([grantedByUserId])
+}
+
+model Photo {
+  id                String   @id @default(cuid())
+  url               String
+  virus_scan_status String   @default("pending")
+  projectId         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Quote {
+  id                      String                 @id @default(cuid())
+  projectId               String
+  subtotal                Decimal                @db.Decimal(10, 2)
+  total                   Decimal                @db.Decimal(10, 2)
+  generatedAt             DateTime               @default(now())
+  pricingMatrixVersionId  String
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  declinedReason          String?
+  status                  QuoteStatus            @default(PENDING)
+  eligibilityAssessmentId String?
+  lastClientActivityAt    DateTime               @default(now())
+  estimateMin             Decimal?               @db.Decimal(10, 2)
+  estimateMax             Decimal?               @db.Decimal(10, 2)
+  refinedEstimate         Json?
+  auditEvents             AuditEvent[]
+  builderTrendTransfers   BuilderTrendTransfer?
+  declineSurvey           DeclineSurveyResponse?
+  eligibilityAssessment   EligibilityAssessment? @relation(fields: [eligibilityAssessmentId], references: [id])
+  pricingMatrixVersion    PricingMatrixVersion   @relation(fields: [pricingMatrixVersionId], references: [id])
+  project                 Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  questions               QuoteQuestion[]
+
+  @@index([projectId])
+  @@index([pricingMatrixVersionId])
+  @@index([eligibilityAssessmentId])
+}
+
+model DeclineSurveyResponse {
+  id                 String   @id @default(cuid())
+  quoteId            String   @unique
+  primaryReason      String
+  subReasons         Json?
+  satisfactionRating Int?
+  additionalComments String?
+  wouldReconsider    Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  quote              Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([primaryReason])
+  @@index([createdAt])
+}
+
+model BuilderTrendTransfer {
+  id                String                     @id @default(cuid())
+  projectId         String
+  quoteId           String                     @unique
+  status            BuilderTrendTransferStatus @default(PENDING)
+  payload           Json?
+  attempts          Int                        @default(0)
+  externalReference String?
+  lastError         String?
+  requestedAt       DateTime                   @default(now())
+  sentAt            DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  project           Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quote             Quote                      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([status])
+}
+
+model QuoteQuestion {
+  id            String           @id @default(cuid())
+  quoteId       String
+  category      QuestionCategory
+  subject       String
+  message       String
+  status        QuestionStatus   @default(OPEN)
+  response      String?
+  respondedAt   DateTime?
+  askedByUserId String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  quote         Quote            @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@index([status])
+  @@index([askedByUserId])
+  @@index([quoteId, status])
+}
+
+model AuditEvent {
+  id               String                @id @default(cuid())
+  category         AuditEventCategory
+  action           String
+  outcome          AuditEventOutcome
+  sensitivityLevel AuditSensitivityLevel @default(CONFIDENTIAL)
+  actorUserId      String?
+  projectId        String?
+  quoteId          String?
+  resourceType     String
+  resourceId       String?
+  reason           String?
+  description      String?
+  beforeState      Json?
+  afterState       Json?
+  metadata         Json?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime              @default(now())
+  actorUser        User?                 @relation(fields: [actorUserId], references: [id])
+  project          Project?              @relation(fields: [projectId], references: [id])
+  quote            Quote?                @relation(fields: [quoteId], references: [id])
+
+  @@index([createdAt])
+  @@index([category, createdAt])
+  @@index([action, createdAt])
+  @@index([outcome, createdAt])
+  @@index([sensitivityLevel, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([quoteId, createdAt])
+  @@index([resourceType, resourceId])
+}
+
+model PricingMatrixVersion {
+  id              String                  @id @default(cuid())
+  versionNumber   Int                     @unique
+  data            Json
+  createdAt       DateTime                @default(now())
+  createdByUserId String
+  isActive        Boolean                 @default(false)
+  auditLogs       PricingMatrixAuditLog[]
+  createdBy       User                    @relation(fields: [createdByUserId], references: [id])
+  quotes          Quote[]
+
+  @@index([versionNumber])
+  @@index([isActive])
+}
+
+model EligibilityAssessment {
+  id                        String              @id @default(cuid())
+  projectId                 String
+  overallDecision           EligibilityDecision
+  programDecisions          Json
+  reasonCodes               Json
+  missingRequirements       Json
+  isLatest                  Boolean             @default(true)
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+  discoveredGrants          Json?
+  discoveryMetadata         Json?
+  discoveryProvider         String?
+  discoveryEngineVersion    String?
+  discoveryPromptVersion    String?
+  discoveryScoringVersion   String?
+  discoveryModelVersion     String?
+  discoverySourceSnapshotId String?
+  project                   Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quotes                    Quote[]
+
+  @@index([projectId])
+  @@index([projectId, isLatest])
+  @@index([createdAt])
+}
+
+model PricingMatrixAuditLog {
+  id              String               @id @default(cuid())
+  versionId       String
+  changedByUserId String
+  changedAt       DateTime             @default(now())
+  changeSummary   String?
+  beforeState     Json?
+  afterState      Json?
+  changedBy       User                 @relation(fields: [changedByUserId], references: [id])
+  version         PricingMatrixVersion @relation(fields: [versionId], references: [id])
+
+  @@index([versionId])
+  @@index([changedAt])
+}
+
+model NotificationDelivery {
+  id                String                     @id @default(cuid())
+  eventType         NotificationEventType
+  status            NotificationDeliveryStatus @default(PENDING)
+  recipientEmail    String
+  subject           String
+  templateName      String
+  idempotencyKey    String                     @unique
+  provider          String?
+  providerMessageId String?
+  attempts          Int                        @default(0)
+  lastError         String?
+  payload           Json?
+  sentAt            DateTime?
+  userId            String?
+  projectId         String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  project           Project?                   @relation(fields: [projectId], references: [id])
+  user              User?                      @relation(fields: [userId], references: [id])
+
+  @@index([eventType])
+  @@index([status])
+  @@index([projectId])
+  @@index([userId])
+}
+
+model ManualFallbackExport {
+  id                String                     @id
+  projectId         String
+  requestedByUserId String
+  requestedByEmail  String?
+  requestedByName   String?
+  status            ManualFallbackExportStatus @default(PENDING)
+  s3Key             String?
+  fileName          String?
+  retentionDays     Int
+  maxSizeBytes      Int?
+  lastError         String?
+  requestedAt       DateTime                   @default(now())
+  readyAt           DateTime?
+  expiresAt         DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime
+  Project           Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  User              User                       @relation(fields: [requestedByUserId], references: [id])
+
+  @@index([expiresAt])
+  @@index([projectId])
+  @@index([requestedByUserId])
+  @@index([status])
+}
+
+model ProjectManualReviewFlag {
+  id                                          String                              @id @default(cuid())
+  projectId                                   String                              @unique
+  reason                                      ProjectManualReviewReasonCode
+  isActive                                    Boolean                             @default(true)
+  lastEvaluatedAt                             DateTime                            @default(now())
+  lastEvaluationEligibilityAssessmentId       String?
+  description                                 String?                             @db.Text
+  createdAt                                   DateTime                            @default(now())
+  updatedAt                                   DateTime                            @updatedAt
+  project                                     Project                             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([isActive])
+  @@index([reason])
+  @@index([createdAt])
 }
 
 enum GrantApplicationStatus {
@@ -93,23 +404,6 @@ enum GrantApplicationStatus {
   UNDER_REVIEW
   APPROVED
   REJECTED
-}
-
-model GrantApplicationStatusHistory {
-  id              String                 @id @default(cuid())
-  projectId       String
-  fromStatus      GrantApplicationStatus?
-  toStatus        GrantApplicationStatus
-  changedAt       DateTime               @default(now())
-  changedByUserId String
-  reason          String?                @db.Text
-  metadata        Json?
-
-  project       Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  changedByUser User    @relation(fields: [changedByUserId], references: [id], onDelete: Restrict)
-
-  @@index([projectId, changedAt(sort: Desc)])
-  @@index([changedByUserId, changedAt(sort: Desc)])
 }
 
 enum DocumentType {
@@ -129,141 +423,16 @@ enum DocumentReviewStatus {
   REJECTED
 }
 
-model Document {
-  id                String               @id @default(cuid())
-  projectId         String
-  project           Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  fileName          String
-  fileSize          Int
-  mimeType          String
-  s3Key             String
-  s3Url             String
-  documentType      DocumentType
-  label             String?
-  virusScanStatus   String               @default("pending")
-  reviewStatus      DocumentReviewStatus @default(PENDING)
-  reviewNote        String?              @db.Text
-  uploadedByUserId  String
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-
-  @@index([projectId])
-  @@index([documentType])
-  @@index([virusScanStatus])
-  @@index([reviewStatus])
-}
-
 enum ProjectAccessRole {
   OWNER
   EDITOR
   VIEWER
 }
 
-model ProjectAccess {
-  id              String            @id @default(cuid())
-  projectId       String
-  userId          String
-  role            ProjectAccessRole @default(VIEWER)
-  grantedByUserId String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User    @relation("ProjectAccessUser", fields: [userId], references: [id], onDelete: Cascade)
-  grantedBy User?   @relation("ProjectAccessGrantedBy", fields: [grantedByUserId], references: [id], onDelete: SetNull)
-
-  @@unique([projectId, userId])
-  @@index([projectId])
-  @@index([userId])
-  @@index([grantedByUserId])
-}
-
-model Photo {
-  id                String   @id @default(cuid())
-  url               String
-  virus_scan_status String   @default("pending")
-  projectId         String
-  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-}
-
-model Quote {
-  id          String   @id @default(cuid())
-  projectId   String
-  subtotal    Decimal  @db.Decimal(10, 2)
-  total       Decimal  @db.Decimal(10, 2)
-  estimateMin Decimal? @db.Decimal(10, 2)
-  estimateMax Decimal? @db.Decimal(10, 2)
-  refinedEstimate Json?
-  generatedAt DateTime @default(now())
-  lastClientActivityAt DateTime @default(now())
-
-  pricingMatrixVersionId String
-  eligibilityAssessmentId String?
-
-  project               Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  pricingMatrixVersion  PricingMatrixVersion  @relation(fields: [pricingMatrixVersionId], references: [id])
-  eligibilityAssessment EligibilityAssessment? @relation(fields: [eligibilityAssessmentId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  status         QuoteStatus @default(PENDING)
-  declinedReason String?     @db.Text
-  auditEvents    AuditEvent[]
-  questions      QuoteQuestion[]
-  builderTrendTransfers BuilderTrendTransfer[]
-
-  declineSurvey  DeclineSurveyResponse?
-
-  @@index([projectId])
-  @@index([pricingMatrixVersionId])
-  @@index([eligibilityAssessmentId])
-}
-
-model DeclineSurveyResponse {
-  id              String   @id @default(cuid())
-  quoteId         String   @unique
-  primaryReason   String
-  subReasons      Json?
-  satisfactionRating Int?
-  additionalComments String? @db.Text
-  wouldReconsider Boolean  @default(false)
-  createdAt       DateTime @default(now())
-
-  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-
-  @@index([primaryReason])
-  @@index([createdAt])
-}
-
 enum BuilderTrendTransferStatus {
   PENDING
   SENT
   FAILED
-}
-
-model BuilderTrendTransfer {
-  id                String                    @id @default(cuid())
-  projectId         String
-  quoteId           String
-  status            BuilderTrendTransferStatus @default(PENDING)
-  payload           Json?
-  attempts          Int                       @default(0)
-  externalReference String?
-  lastError         String?                   @db.Text
-  requestedAt       DateTime                  @default(now())
-  sentAt            DateTime?
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  quote   Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-
-  @@unique([quoteId])
-  @@index([projectId])
-  @@index([status])
 }
 
 enum QuestionCategory {
@@ -280,26 +449,6 @@ enum QuestionStatus {
   OPEN
   ANSWERED
   CLOSED
-}
-
-model QuoteQuestion {
-  id            String           @id @default(cuid())
-  quoteId       String
-  quote         Quote            @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  category      QuestionCategory
-  subject       String
-  message       String           @db.Text
-  status        QuestionStatus   @default(OPEN)
-  response      String?          @db.Text
-  respondedAt   DateTime?
-  askedByUserId String
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-
-  @@index([quoteId])
-  @@index([status])
-  @@index([askedByUserId])
-  @@index([quoteId, status])
 }
 
 enum AuditEventCategory {
@@ -319,68 +468,11 @@ enum AuditSensitivityLevel {
   RESTRICTED
 }
 
-model AuditEvent {
-  id               String                @id @default(cuid())
-  category         AuditEventCategory
-  action           String
-  outcome          AuditEventOutcome
-  sensitivityLevel AuditSensitivityLevel @default(CONFIDENTIAL)
-
-  actorUserId String?
-  actorUser   User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
-
-  projectId String?
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-
-  quoteId String?
-  quote   Quote?  @relation(fields: [quoteId], references: [id], onDelete: SetNull)
-
-  resourceType String
-  resourceId   String?
-
-  reason      String? @db.Text
-  description String? @db.Text
-
-  beforeState Json?
-  afterState  Json?
-  metadata    Json?
-
-  ipAddress String?
-  userAgent String?
-  createdAt  DateTime @default(now())
-
-  @@index([createdAt])
-  @@index([category, createdAt])
-  @@index([action, createdAt])
-  @@index([outcome, createdAt])
-  @@index([sensitivityLevel, createdAt])
-  @@index([actorUserId, createdAt])
-  @@index([projectId, createdAt])
-  @@index([quoteId, createdAt])
-  @@index([resourceType, resourceId])
-}
-
 enum QuoteStatus {
   PENDING
   ACCEPTED
   DECLINED
   EXPIRED
-}
-
-model PricingMatrixVersion {
-  id              String   @id @default(cuid())
-  versionNumber   Int      @unique
-  data            Json
-  createdAt       DateTime @default(now())
-  createdByUserId String
-  isActive        Boolean  @default(false)
-
-  createdBy User                    @relation(fields: [createdByUserId], references: [id])
-  quotes    Quote[]
-  auditLogs PricingMatrixAuditLog[]
-
-  @@index([versionNumber])
-  @@index([isActive])
 }
 
 enum EligibilityDecision {
@@ -390,54 +482,12 @@ enum EligibilityDecision {
   MANUAL_REVIEW
 }
 
-model EligibilityAssessment {
-  id                  String              @id @default(cuid())
-  projectId           String
-  overallDecision     EligibilityDecision
-  programDecisions    Json
-  reasonCodes         Json
-  missingRequirements Json
-  discoveredGrants    Json?
-  discoveryMetadata   Json?
-  discoveryProvider   String?
-  discoveryEngineVersion String?
-  discoveryPromptVersion String?
-  discoveryScoringVersion String?
-  discoveryModelVersion String?
-  discoverySourceSnapshotId String?
-  isLatest            Boolean             @default(true)
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-
-  project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  quotes            Quote[]
-
-  @@index([projectId])
-  @@index([projectId, isLatest])
-  @@index([createdAt])
-}
-
-model PricingMatrixAuditLog {
-  id              String   @id @default(cuid())
-  versionId       String
-  changedByUserId String
-  changedAt       DateTime @default(now())
-  changeSummary   String?  @db.Text
-  beforeState     Json?
-  afterState      Json?
-
-  version   PricingMatrixVersion @relation(fields: [versionId], references: [id])
-  changedBy User                 @relation(fields: [changedByUserId], references: [id])
-
-  @@index([versionId])
-  @@index([changedAt])
-}
-
 enum NotificationEventType {
   SUBMISSION_RECEIPT
   ESTIMATE_READY
   ESTIMATE_EXPIRED
   ESTIMATE_REACTIVATED
+  MANUAL_FALLBACK_EXPORT_READY
 }
 
 enum NotificationDeliveryStatus {
@@ -446,29 +496,14 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
-model NotificationDelivery {
-  id                String                     @id @default(cuid())
-  eventType         NotificationEventType
-  status            NotificationDeliveryStatus @default(PENDING)
-  recipientEmail    String
-  subject           String
-  templateName      String
-  idempotencyKey    String                     @unique
-  provider          String?
-  providerMessageId String?
-  attempts          Int                        @default(0)
-  lastError         String?
-  payload           Json?
-  sentAt            DateTime?
-  userId            String?
-  projectId         String?
-  user              User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
-  project           Project?                   @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
+enum ManualFallbackExportStatus {
+  PENDING
+  READY
+  FAILED
+}
 
-  @@index([eventType])
-  @@index([status])
-  @@index([projectId])
-  @@index([userId])
+enum ProjectManualReviewReasonCode {
+  LOW_CONFIDENCE
+  HIGH_COMPLEXITY
+  BOTH
 }

@@ -110,3 +110,50 @@ export interface EligibilityInput {
   missingRequiredFields: EligibilityRequiredField[];
   malformedDraftFields: string[];
 }
+
+/**
+ * FR-2.6: Manual Review Flag Classification
+ * 
+ * Enums and types for automatic flagging of high-complexity and low-confidence projects.
+ */
+
+export enum ProjectManualReviewReason {
+  LOW_CONFIDENCE = "LOW_CONFIDENCE",
+  HIGH_COMPLEXITY = "HIGH_COMPLEXITY",
+  BOTH = "BOTH",
+}
+
+/**
+ * Complexity signal indicators used to determine if a project warrants manual review.
+ * A project is considered high-complexity if 2+ indicators are present.
+ */
+export interface ComplexitySignals {
+  /** Project has many modification types (> 3) */
+  multipleModificationCategories: boolean;
+  /** Critical intake fields are missing or incomplete */
+  missingIntakeData: boolean;
+  /** Project attributes are conflicting or unusual (e.g., mixed ownership scenarios) */
+  conflictingAttributes: boolean;
+  /** Scope is unusual or uncommon for the grant discovery engine */
+  unusualScope: boolean;
+  /** Heuristic scoring shows low rule overlap across discovered grants */
+  lowRuleOverlap: boolean;
+}
+
+/**
+ * Result of the manual review classification.
+ */
+export interface ManualReviewClassificationResult {
+  /** Reason(s) the project should be manually reviewed (only populated if shouldFlag is true) */
+  reason?: ProjectManualReviewReason;
+  /** Whether the project should be flagged for manual review */
+  shouldFlag: boolean;
+  /** Human-readable description of evaluation outcome */
+  description: string;
+  /** Confidence signals captured for audit trail */
+  aiConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+  /** Complexity signals captured for audit trail */
+  complexitySignals?: ComplexitySignals;
+  /** Complexity score (0-5) for borderline cases */
+  complexityScore?: number;
+}
