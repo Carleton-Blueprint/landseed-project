@@ -18,6 +18,8 @@ export type NotificationJobPayload = {
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
+  questionCategory?: string;    
+  questionSubject?: string;    
 };
 
 export interface NotificationDeliveryMetricsInput {

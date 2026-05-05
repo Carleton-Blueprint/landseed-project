@@ -438,6 +438,7 @@ enum NotificationEventType {
   ESTIMATE_READY
   ESTIMATE_EXPIRED
   ESTIMATE_REACTIVATED
+  QUESTION_SUBMITTED_FOR_ADVISORY_TEAM
 }
 
 enum NotificationDeliveryStatus {
