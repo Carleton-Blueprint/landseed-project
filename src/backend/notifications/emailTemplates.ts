@@ -7,8 +7,9 @@ type TemplateInput = {
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
-  manualFallbackExportLink?: string | null;
-  manualFallbackExportRetentionDays?: number;
+  questionCategory?: string;   
+  questionSubject?: string;   
+
 };
 
 export type RenderedEmailTemplate = {
@@ -97,21 +98,25 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
     };
   }
 
-  if (input.eventType === NotificationEventType.MANUAL_FALLBACK_EXPORT_READY) {
-    const recipientName = safeName(input.recipientName);
-    const exportLink = safeLink(input.manualFallbackExportLink);
-    const retentionDays = input.manualFallbackExportRetentionDays ?? 7;
-    const addressLine = input.projectAddress ? ` for ${input.projectAddress}` : "";
-    const linkHtml = exportLink ? `<p><a href="${exportLink}">Download the fallback export</a></p>` : "";
-    const linkText = exportLink ? `\nDownload the fallback export: ${exportLink}\n` : "";
-
+  if (input.eventType === NotificationEventType.QUESTION_SUBMITTED_FOR_ADVISORY_TEAM) {
     return {
-      templateName: "manual-fallback-export-ready-v1",
-      subject: `Your Landseed fallback export${addressLine} is ready`,
-      html: `<p>Hi ${recipientName},</p><p>Your manual fallback export${addressLine} is ready.</p>${linkHtml}<p>This export will remain available for ${retentionDays} day${retentionDays === 1 ? "" : "s"}.</p><p>Landseed Team</p>`,
-      text: `Hi ${recipientName},\n\nYour manual fallback export${addressLine} is ready.${linkText}\nThis export will remain available for ${retentionDays} day${retentionDays === 1 ? "" : "s"}.\n\nLandseed Team`,
+      templateName: "question-submitted-advisory-v1",
+      subject: `[Advisory] New Question on Estimate for ${input.projectAddress || "Project"}`,
+      html: `
+        <p>Hi Advisory Team,</p>
+        <p>A client has submitted a new question about their estimate for <strong>${input.projectAddress || "their project"}</strong>.</p>
+        <p><strong>Details:</strong></p>
+        <ul>
+          <li>Category: ${input.questionCategory || "General"}</li>
+          <li>Subject: ${input.questionSubject || "N/A"}</li>
+          <li>Time: ${new Date().toLocaleString()}</li>
+        </ul>
+        <p><a href="${input.estimateLink}">Review in Admin Dashboard</a></p>
+        <p>Landseed Team</p>
+      `,
+      text: `Hi Advisory Team,\n\nA client has submitted a new question about their estimate for ${input.projectAddress || "their project"}.\n\nCategory: ${input.questionCategory || "General"}\nSubject: ${input.questionSubject || "N/A"}\n\nReview in Admin Dashboard: ${input.estimateLink}\n\nLandseed Team`,
     };
-  }
+}
 
   throw new Error(`Unsupported event type: ${input.eventType}`);
 }

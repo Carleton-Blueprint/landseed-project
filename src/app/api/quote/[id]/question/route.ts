@@ -137,6 +137,54 @@ export async function POST(
       ...requestContext,
     });
 
+    // Trigger internal notification for Advisory Team
+    const advisoryTeamEmailsEnv = process.env.ADVISORY_TEAM_EMAILS || "";
+    const advisoryTeamEmails = advisoryTeamEmailsEnv
+      .split(",")
+      .map((email) => email.trim())
+      .filter((email) => email.length > 0);
+
+    if (advisoryTeamEmails.length > 0) {
+      try {
+        const { enqueueQuestionNotificationForAdvisoryTeam } = 
+          await import("@/backend/notifications/questionNotificationContract");
+        
+        await enqueueQuestionNotificationForAdvisoryTeam({
+          quoteId: quote.id,
+          projectId: quote.projectId,
+          projectAddress: quote.project.address,
+          questionCategory: category,
+          questionSubject: subject.trim(),
+          questionId: question.id,
+          clientName: (session.user as any).name,
+          clientEmail: session.user.email,
+          advisoryTeamEmails,
+        });
+      } catch (notificationError) {
+        console.error("Failed to enqueue advisory team notification:", notificationError);
+        
+        await logAuditEventNonBlocking({
+          category: "MANUAL_CHANGE",
+          action: "QUESTION_ADVISORY_NOTIFICATION_FAILED",
+          outcome: "FAILURE",
+          sensitivityLevel: "CONFIDENTIAL",
+          actorUserId: session.user.id,
+          projectId: quote.projectId,
+          quoteId: quote.id,
+          resourceType: "quote_question",
+          resourceId: question.id,
+          description: "Failed to enqueue advisory team notification for question",
+          metadata: {
+            errorMessage: 
+              notificationError instanceof Error 
+                ? notificationError.message 
+                : "Unknown error",
+          },
+          ...requestContext,
+        });
+      }
+    }
+
     return NextResponse.json({
       success: true,
       question: {

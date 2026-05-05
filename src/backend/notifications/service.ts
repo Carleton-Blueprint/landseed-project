@@ -18,8 +18,8 @@ export type NotificationJobPayload = {
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
-  manualFallbackExportLink?: string | null;
-  manualFallbackExportRetentionDays?: number;
+  questionCategory?: string;    
+  questionSubject?: string;    
 };
 
 export interface NotificationDeliveryMetricsInput {
