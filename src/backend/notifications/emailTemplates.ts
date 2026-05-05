@@ -23,6 +23,11 @@ function safeName(name?: string | null): string {
   return name?.trim() || "there";
 }
 
+function safeLink(link?: string | null): string | undefined {
+  const trimmed = link?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
 export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate {
   if (input.eventType === NotificationEventType.SUBMISSION_RECEIPT) {
     const recipientName = safeName(input.recipientName);

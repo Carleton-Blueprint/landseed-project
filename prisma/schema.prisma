@@ -27,6 +27,7 @@ model User {
   pricingMatrixVersions  PricingMatrixVersion[]
   pricingMatrixAuditLogs PricingMatrixAuditLog[]
   grantApplicationStatusHistory GrantApplicationStatusHistory[]
+  requestedManualFallbackExports ManualFallbackExport[]
   notifications          NotificationDelivery[]
   auditEvents            AuditEvent[]
   createdAt              DateTime                @default(now())
@@ -77,6 +78,7 @@ model Project {
   documents Document[]
   quotes    Quote[]
   builderTrendTransfers BuilderTrendTransfer[]
+  manualFallbackExports ManualFallbackExport[]
   eligibilityAssessments EligibilityAssessment[]
   grantApplicationStatusHistory GrantApplicationStatusHistory[]
   notifications NotificationDelivery[]
@@ -438,7 +440,7 @@ enum NotificationEventType {
   ESTIMATE_READY
   ESTIMATE_EXPIRED
   ESTIMATE_REACTIVATED
-  QUESTION_SUBMITTED_FOR_ADVISORY_TEAM
+  MANUAL_FALLBACK_EXPORT_READY
 }
 
 enum NotificationDeliveryStatus {
@@ -472,4 +474,37 @@ model NotificationDelivery {
   @@index([status])
   @@index([projectId])
   @@index([userId])
+}
+
+enum ManualFallbackExportStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+model ManualFallbackExport {
+  id                String                     @id
+  projectId         String
+  requestedByUserId String
+  requestedByEmail  String?
+  requestedByName   String?
+  status            ManualFallbackExportStatus @default(PENDING)
+  s3Key             String?
+  fileName          String?
+  retentionDays     Int
+  maxSizeBytes      Int?
+  lastError         String?                    @db.Text
+  requestedAt       DateTime                   @default(now())
+  readyAt           DateTime?
+  expiresAt         DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  project           Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedByUser   User                       @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([projectId])
+  @@index([requestedByUserId])
+  @@index([status])
+  @@index([expiresAt])
 }
