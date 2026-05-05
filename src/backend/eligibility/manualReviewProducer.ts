@@ -1,10 +1,3 @@
-/**
- * FR-2.6: Manual Review Producer
- *
- * After eligibility evaluation completes, classify the project to determine
- * if it should be auto-flagged for manual review.
- */
-
 import { EligibilityInput } from '@/backend/eligibility/types';
 import { classifyManualReviewNeed } from '@/backend/eligibility/manualReviewClassifier';
 import { manualReviewQueue } from '@/backend/queue';
@@ -12,6 +5,7 @@ import {
   DiscoveredGrant,
   GrantDiscoveryMetadata,
 } from '@/backend/eligibility/discoverySearchProvider';
+import { FeatureFlag, isFeatureFlagEnabled } from '@/backend/features/flags';
 
 export async function produceManualReviewFlagJob(
   projectId: string,
@@ -20,6 +14,14 @@ export async function produceManualReviewFlagJob(
   discoveredGrants: DiscoveredGrant[],
   discoveryMetadata: GrantDiscoveryMetadata
 ): Promise<boolean> {
+  // Feature flag controls auto-flag enablement for safe rollout
+  if (!isFeatureFlagEnabled(FeatureFlag.MANUAL_REVIEW_AUTO_FLAG)) {
+    console.log(
+      `[ManualReviewProducer] MANUAL_REVIEW_AUTO_FLAG is disabled, skipping for project ${projectId}`
+    );
+    return false;
+  }
+
   const aiConfidence = deriveOverallAiConfidence(discoveredGrants);
   const discoveredGrantsCount = discoveredGrants.length;
   const totalCandidatesCount = discoveryMetadata.candidateCount || 0;

@@ -541,14 +541,24 @@ export function AdminDashboardClient({
                 Welcome back, {userName}. Monitor all project requests and AI-driven assessments.
               </p>
             </div>
-            <Link href="/dashboard">
-              <Button variant="outline" className="gap-1.5 text-sm">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                </svg>
-                Client Dashboard
-              </Button>
-            </Link>
+            <div className="flex gap-2">
+              <Link href="/admin/flagged-projects">
+                <Button variant="outline" className="gap-1.5 text-sm">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c.866 1.08.969 2.178.75 3.124M15.75 12c0 .866-.166 1.693-.484 2.449m0 0c.574.575 1.088 1.09 1.56 1.409M9.75 15c0 .866.166 1.693.484 2.449m0 0c-.574.575-1.088 1.09-1.56 1.409M21 12a9 9 0 11-18 0 9 9 0 0118 0Z" />
+                  </svg>
+                  Flagged Projects
+                </Button>
+              </Link>
+              <Link href="/dashboard">
+                <Button variant="outline" className="gap-1.5 text-sm">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                  </svg>
+                  Client Dashboard
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
