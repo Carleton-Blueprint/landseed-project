@@ -43,6 +43,17 @@ export const builderTrendTransferQueue = new Queue<{
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
 });
 
+export const manualReviewQueue = new Queue<{
+  projectId: string;
+  assessmentId: string;
+  aiConfidence: "HIGH" | "MEDIUM" | "LOW";
+  complexityScore?: number;
+  reason?: string;
+}>("manual-review", {
+  connection,
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 1000 } },
+});
+
 export function createVirusScanWorker(
   processor: (job: { data: { key: string; photoId: string; bucket?: string } }) => Promise<void>
 ) {
@@ -82,4 +93,18 @@ export function createBuilderTrendTransferWorker(
   }) => Promise<void>
 ) {
   return new Worker("buildertrend-transfer", processor, { connection });
+}
+
+export function createManualReviewWorker(
+  processor: (job: {
+    data: {
+      projectId: string;
+      assessmentId: string;
+      aiConfidence: "HIGH" | "MEDIUM" | "LOW";
+      complexityScore?: number;
+      reason?: string;
+    };
+  }) => Promise<void>
+) {
+  return new Worker("manual-review", processor, { connection });
 }

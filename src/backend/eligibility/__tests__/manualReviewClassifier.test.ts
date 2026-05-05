@@ -308,7 +308,7 @@ describe('FR-2.6: Manual Review Classifier', () => {
           seniorName: null,
           relationshipToSenior: null,
         },
-        missingRequiredFields: ['CONSENT_REQUIRED', 'LANDLORD_NAME', 'LANDLORD_PHONE'], // Signal: missingIntakeData
+        missingRequiredFields: ['CLIENT_CONSENT_CONFIRMED', 'LANDLORD_NAME', 'LANDLORD_PHONE'], // Signal: missingIntakeData
       });
 
       const result = classifyManualReviewNeed(input, 'MEDIUM', 3, 20); // Signal: lowRuleOverlap (15%)
