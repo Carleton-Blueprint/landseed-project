@@ -152,16 +152,16 @@ export default async function FlaggedProjectsPage() {
 
                   <div className="flex flex-col gap-2 md:items-end">
                     <a
-                      href={`/admin/projects/${flaggedProject.project.id}`}
+                      href={`/dashboard`}
                       className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
                     >
                       View Project
                     </a>
                     <a
-                      href={`/dashboard/projects/${flaggedProject.project.id}`}
+                      href={`/admin`}
                       className="inline-flex items-center rounded-md bg-gray-200 px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-gray-300"
                     >
-                      Review Assessment
+                      Back to Admin
                     </a>
                   </div>
                 </div>
