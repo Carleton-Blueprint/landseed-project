@@ -19,7 +19,7 @@ model User {
   accounts                      Account[]
   auditEvents                   AuditEvent[]
   grantApplicationStatusHistory GrantApplicationStatusHistory[]
-  ManualFallbackExport          ManualFallbackExport[]
+  manualFallbackExports         ManualFallbackExport[]
   notifications                 NotificationDelivery[]
   pricingMatrixAuditLogs        PricingMatrixAuditLog[]
   pricingMatrixVersions         PricingMatrixVersion[]
@@ -71,17 +71,17 @@ model Project {
   draftData                     Json?
   grantDocumentKey              String?
   grantApplicationStatus        GrantApplicationStatus          @default(DRAFT)
-  auditEvents                   AuditEvent[]
-  builderTrendTransfers         BuilderTrendTransfer[]
-  documents                     Document[]
-  eligibilityAssessments        EligibilityAssessment[]
-  grantApplicationStatusHistory GrantApplicationStatusHistory[]
-  ManualFallbackExport          ManualFallbackExport[]
-  notifications                 NotificationDelivery[]
-  photos                        Photo[]
   user                          User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectAccess                 ProjectAccess[]
+  photos                        Photo[]
+  documents                     Document[]
   quotes                        Quote[]
+  builderTrendTransfers         BuilderTrendTransfer[]
+  manualFallbackExports         ManualFallbackExport[]
+  eligibilityAssessments        EligibilityAssessment[]
+  grantApplicationStatusHistory GrantApplicationStatusHistory[]
+  notifications                 NotificationDelivery[]
+  auditEvents                   AuditEvent[]
   manualReviewFlag              ProjectManualReviewFlag?
 }
 
@@ -365,14 +365,14 @@ model ManualFallbackExport {
   fileName          String?
   retentionDays     Int
   maxSizeBytes      Int?
-  lastError         String?
+  lastError         String?                    @db.Text
   requestedAt       DateTime                   @default(now())
   readyAt           DateTime?
   expiresAt         DateTime?
   createdAt         DateTime                   @default(now())
-  updatedAt         DateTime
-  Project           Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  User              User                       @relation(fields: [requestedByUserId], references: [id])
+  updatedAt         DateTime                   @updatedAt
+  project           Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedByUser   User                       @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
 
   @@index([expiresAt])
   @@index([projectId])
@@ -381,22 +381,24 @@ model ManualFallbackExport {
 }
 
 model ProjectManualReviewFlag {
-  id                                          String                              @id @default(cuid())
-  projectId                                   String                              @unique
-  reason                                      ProjectManualReviewReasonCode
-  isActive                                    Boolean                             @default(true)
-  lastEvaluatedAt                             DateTime                            @default(now())
-  lastEvaluationEligibilityAssessmentId       String?
-  description                                 String?                             @db.Text
-  createdAt                                   DateTime                            @default(now())
-  updatedAt                                   DateTime                            @updatedAt
-  project                                     Project                             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id                                    String                        @id @default(cuid())
+  projectId                             String                        @unique
+  reason                                ProjectManualReviewReasonCode
+  isActive                              Boolean                       @default(true)
+  lastEvaluatedAt                       DateTime                      @default(now())
+  lastEvaluationEligibilityAssessmentId String?
+  description                           String?                       @db.Text
+  createdAt                             DateTime                      @default(now())
+  updatedAt                             DateTime                      @updatedAt
+  project                               Project                       @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([isActive])
   @@index([reason])
   @@index([createdAt])
 }
+
+// ——— Enums ———
 
 enum GrantApplicationStatus {
   DRAFT

@@ -21,6 +21,8 @@
     "worker:buildertrend-transfer": "tsx src/backend/queue/builderTrendTransferWorker.ts",
     "worker:estimate-expiry": "tsx src/backend/queue/estimateExpiryWorker.ts",
     "worker:manual-review": "tsx src/backend/queue/manualReviewWorker.ts"
+    "worker:manual-fallback-export": "tsx src/backend/queue/manualFallbackExportWorker.ts",
+    "worker:manual-fallback-export-cleanup": "tsx src/backend/queue/manualFallbackExportCleanupWorker.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.0.0",
