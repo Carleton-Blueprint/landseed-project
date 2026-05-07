@@ -47,6 +47,3 @@ prisma/migrations/**/migration_lock.toml
 # Notes
 docs/
 backups/
-
-prisma/migrations/20260504120000_add_manual_fallback_export_tracking/
-# rm -rf prisma/migrations/20260504120000_add_manual_fallback_export_tracking
