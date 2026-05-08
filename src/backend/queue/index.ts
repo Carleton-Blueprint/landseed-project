@@ -54,6 +54,8 @@ export const manualReviewQueue = new Queue<{
 }>("manual-review", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 1000 } },
+});
+
 export const manualFallbackExportQueue = new Queue<{
   exportRequestId: string;
   projectId: string;
@@ -123,6 +125,8 @@ export function createManualReviewWorker(
   }) => Promise<void>
 ) {
   return new Worker("manual-review", processor, { connection });
+}
+
 export function createManualFallbackExportWorker(
   processor: (job: {
     data: {
