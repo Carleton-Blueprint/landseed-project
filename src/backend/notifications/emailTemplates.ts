@@ -8,8 +8,9 @@ type TemplateInput = {
   estimateMin?: number;
   estimateMax?: number;
   questionCategory?: string;   
-  questionSubject?: string;   
-
+  questionSubject?: string;
+  fileName?: string;
+  documentType?: string;
 };
 
 export type RenderedEmailTemplate = {
@@ -116,7 +117,34 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
       `,
       text: `Hi Advisory Team,\n\nA client has submitted a new question about their estimate for ${input.projectAddress || "their project"}.\n\nCategory: ${input.questionCategory || "General"}\nSubject: ${input.questionSubject || "N/A"}\n\nReview in Admin Dashboard: ${input.estimateLink}\n\nLandseed Team`,
     };
-}
+  }
+
+  if (input.eventType === NotificationEventType.FILE_MALWARE_DETECTED) {
+    const recipientName = safeName(input.recipientName);
+    const fileName = input.fileName || "Your file";
+    const documentTypeInfo = input.documentType ? ` (${input.documentType})` : "";
+    const addressLine = input.projectAddress ? ` for ${input.projectAddress}` : "";
+
+    return {
+      templateName: "file-malware-detected-v1",
+      subject: "Security Alert: Infected File Rejected",
+      html: `
+        <p>Hi ${recipientName},</p>
+        <p><strong>Security Alert:</strong> We detected malware in a file you attempted to upload${addressLine}.</p>
+        <p><strong>File:</strong> ${fileName}${documentTypeInfo}</p>
+        <p>For your security, this file has been automatically deleted and cannot be used for your application.</p>
+        <h3>What to do:</h3>
+        <ul>
+          <li>Scan the file on your computer with updated antivirus software</li>
+          <li>If the file is clean, re-upload it</li>
+          <li>Contact IT support if you believe this is a false positive</li>
+        </ul>
+        <p>If you have questions, please contact our support team.</p>
+        <p>Landseed Team</p>
+      `,
+      text: `Hi ${recipientName},\n\nSecurity Alert: We detected malware in a file you attempted to upload${addressLine}.\n\nFile: ${fileName}${documentTypeInfo}\n\nFor your security, this file has been automatically deleted and cannot be used for your application.\n\nWhat to do:\n- Scan the file on your computer with updated antivirus software\n- If the file is clean, re-upload it\n- Contact IT support if you believe this is a false positive\n\nIf you have questions, please contact our support team.\n\nLandseed Team`,
+    };
+  }
 
   throw new Error(`Unsupported event type: ${input.eventType}`);
 }

@@ -198,8 +198,11 @@ export async function POST(request: NextRequest) {
         virusScanStatus: document.virusScanStatus,
         reviewStatus: document.reviewStatus,
         createdAt: document.createdAt,
+        s3Url: document.s3Url,
       },
-      message: "Document uploaded successfully! Virus scan in progress...",
+      message: "Document uploaded successfully! Mandatory malware scan in progress...",
+      warning: "This document cannot be used in your grant application until the virus scan is complete. You'll be notified once the scan finishes.",
+      scanStatus: "pending",
     });
   } catch (err) {
     console.error("Document upload error:", err);

@@ -25,6 +25,8 @@ import { writeFile, unlink } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { Readable } from "stream";
+import { enqueueNotification } from "@/backend/notifications/enqueue";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
 
 // Initialize S3 client for downloading files to scan
 const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
@@ -134,7 +136,7 @@ const worker = createVirusScanWorker(async (job) => {
   const { key, photoId, bucket } = job.data;
   const bucketName = bucket ?? process.env.AWS_S3_BUCKET ?? "";
 
-  console.log(`\n🔍 Processing virus scan job for Photo ${photoId}`);
+  console.log(`\n🔍 Processing virus scan job for ${photoId}`);
   console.log(`   S3 Key: ${key}`);
   console.log(`   Bucket: ${bucketName}`);
 
@@ -142,17 +144,44 @@ const worker = createVirusScanWorker(async (job) => {
     // Perform the virus scan
     const scanResult = await scanFileForVirus(key, bucketName);
 
-    if (scanResult === "infected") {
-      // INFECTED FILE FOUND!
-      console.warn(`\n⚠️  MALWARE DETECTED: ${key}`);
-      
-      // Update database to mark as infected
-      await prisma.photo.update({
-        where: { id: photoId },
-        data: { virus_scan_status: "infected" },
-      });
+    // Determine if this is a document or photo scan
+    const document = await prisma.document.findUnique({
+      where: { id: photoId },
+      include: { project: { include: { user: true } } },
+    });
 
-      // Delete the infected file from S3
+    const photo = !document
+      ? await prisma.photo.findUnique({
+          where: { id: photoId },
+          include: { project: { include: { user: true } } },
+        })
+      : null;
+
+    const isDocument = !!document;
+    const resource = document || photo;
+
+    if (!resource) {
+      throw new Error(`Resource not found for ID: ${photoId}`);
+    }
+
+    if (scanResult === "infected") {
+      // ❌ MALWARE DETECTED
+      console.warn(`\n⚠️  MALWARE DETECTED: ${key}`);
+
+      // 1. Update status to "infected"
+      if (isDocument) {
+        await prisma.document.update({
+          where: { id: photoId },
+          data: { virusScanStatus: "infected" },
+        });
+      } else {
+        await prisma.photo.update({
+          where: { id: photoId },
+          data: { virus_scan_status: "infected" },
+        });
+      }
+
+      // 2. Delete infected file from S3
       console.log(`   🗑️  Deleting infected file from S3...`);
       const deleteCommand = new DeleteObjectCommand({
         Bucket: bucketName,
@@ -161,38 +190,90 @@ const worker = createVirusScanWorker(async (job) => {
       await s3Client.send(deleteCommand);
       console.log(`   ✅ Infected file deleted: ${key}`);
 
-      // TODO: Send notification to admin/user
-      // await sendNotificationEmail({
-      //   type: "infected_file",
-      //   photoId,
-      //   filename: key
-      // });
-
-    } else {
-      // File is clean
-      console.log(`   ✅ File is clean: ${key}`);
-      
-      // Update database to mark as clean
-      await prisma.photo.update({
-        where: { id: photoId },
-        data: { virus_scan_status: "clean" },
+      // 3. Log audit event for security tracking
+      const fileName = document?.fileName || "photo";
+      await logAuditEventNonBlocking({
+        category: "SENSITIVE_ACCESS",
+        action: "MALWARE_DETECTED",
+        outcome: "FAILURE",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: resource.project.userId, // file uploader
+        projectId: resource.projectId,
+        resourceType: isDocument ? "document" : "photo",
+        resourceId: photoId,
+        description: `Malware detected and quarantined in uploaded file: ${fileName}`,
+        metadata: {
+          fileName,
+          s3Key: key,
+          scanResult: "infected",
+          detectedAt: new Date().toISOString(),
+        },
       });
-    }
 
-    console.log(`✅ Virus scan completed for Photo ${photoId}: ${scanResult}\n`);
+      // 4. Send notification email to uploader
+      const user = resource.project.user;
+      if (user?.email) {
+        const documentType = document?.documentType || undefined;
+        
+        try {
+          await enqueueNotification({
+            eventType: "FILE_MALWARE_DETECTED",
+            idempotencyKey: `malware-${photoId}-${Date.now()}`,
+            recipientEmail: user.email,
+            recipientName: user.name,
+            userId: user.id,
+            projectId: resource.projectId,
+            projectAddress: resource.project.address || undefined,
+            fileName: document?.fileName || "uploaded photo",
+            documentType,
+          });
+
+          console.log(`   📧 Malware notification queued for ${user.email}`);
+        } catch (notificationError) {
+          console.warn(`   ⚠️  Failed to queue malware notification:`, notificationError);
+        }
+      }
+    } else {
+      // ✅ CLEAN FILE
+      console.log(`   ✅ File is clean: ${key}`);
+
+      if (isDocument) {
+        await prisma.document.update({
+          where: { id: photoId },
+          data: { virusScanStatus: "clean" },
+        });
+      } else {
+        await prisma.photo.update({
+          where: { id: photoId },
+          data: { virus_scan_status: "clean" },
+        });
+      }
+
+      console.log(`✅ Virus scan completed: CLEAN`);
+    }
     
   } catch (error) {
-    console.error(`❌ Failed to scan Photo ${photoId}:`, error);
+    console.error(`❌ Failed to scan ${photoId}:`, error);
     
-    // Mark as failed in database
-    // BullMQ will automatically retry the job (3 attempts configured)
-    await prisma.photo.update({
-      where: { id: photoId },
-      data: { virus_scan_status: "failed" },
-    });
+    // Update status to "failed"
+    try {
+      const isDoc = await prisma.document.findUnique({ where: { id: photoId } });
+      if (isDoc) {
+        await prisma.document.update({
+          where: { id: photoId },
+          data: { virusScanStatus: "failed" },
+        });
+      } else {
+        await prisma.photo.update({
+          where: { id: photoId },
+          data: { virus_scan_status: "failed" },
+        });
+      }
+    } catch (updateError) {
+      console.error("Failed to update scan status:", updateError);
+    }
 
-    // Re-throw error so BullMQ knows the job failed
-    throw error;
+    throw error; // BullMQ will retry (3 attempts)
   }
 });
 

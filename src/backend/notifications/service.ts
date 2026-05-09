@@ -19,7 +19,9 @@ export type NotificationJobPayload = {
   estimateMin?: number;
   estimateMax?: number;
   questionCategory?: string;    
-  questionSubject?: string;    
+  questionSubject?: string;
+  fileName?: string;
+  documentType?: string;
 };
 
 export interface NotificationDeliveryMetricsInput {
@@ -128,8 +130,14 @@ export async function queueNotification(payload: NotificationJobPayload): Promis
     recipientName: payload.recipientName,
     projectAddress: payload.projectAddress,
     estimateLink: payload.estimateLink,
+    estimateMin: payload.estimateMin,
+    estimateMax: payload.estimateMax,
     manualFallbackExportLink: payload.manualFallbackExportLink,
     manualFallbackExportRetentionDays: payload.manualFallbackExportRetentionDays,
+    questionCategory: payload.questionCategory,
+    questionSubject: payload.questionSubject,
+    fileName: payload.fileName,
+    documentType: payload.documentType,
   });
 
   // Strip undefined keys so payload remains valid JSON for Prisma Json fields.
@@ -180,8 +188,14 @@ export async function processNotification(payload: NotificationJobPayload): Prom
     recipientName: payload.recipientName,
     projectAddress: payload.projectAddress,
     estimateLink: payload.estimateLink,
+    estimateMin: payload.estimateMin,
+    estimateMax: payload.estimateMax,
     manualFallbackExportLink: payload.manualFallbackExportLink,
     manualFallbackExportRetentionDays: payload.manualFallbackExportRetentionDays,
+    questionCategory: payload.questionCategory,
+    questionSubject: payload.questionSubject,
+    fileName: payload.fileName,
+    documentType: payload.documentType,
   });
 
   try {
