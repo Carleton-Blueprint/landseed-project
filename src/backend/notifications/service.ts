@@ -2,10 +2,18 @@ import {
   NotificationDeliveryStatus,
   NotificationEventType,
   Prisma,
+  CommunicationStatus,
 } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { renderEmailTemplate } from "@/backend/notifications/emailTemplates";
 import { sendTransactionalEmail } from "@/backend/services/transactionalEmail";
+import { logCommunication } from "@/backend/services/communicationHistoryLogger";
+import {
+  getCategoryFromEventType,
+  generateContentSummary,
+  getLinkedResourceType,
+  mapDeliveryStatus,
+} from "@/backend/services/communicationHistoryIntegration";
 
 export type NotificationJobPayload = {
   eventType: NotificationEventType;
@@ -19,7 +27,9 @@ export type NotificationJobPayload = {
   estimateMin?: number;
   estimateMax?: number;
   questionCategory?: string;    
-  questionSubject?: string;    
+  questionSubject?: string;
+  fileName?: string;
+  documentType?: string;
 };
 
 export interface NotificationDeliveryMetricsInput {
@@ -128,8 +138,14 @@ export async function queueNotification(payload: NotificationJobPayload): Promis
     recipientName: payload.recipientName,
     projectAddress: payload.projectAddress,
     estimateLink: payload.estimateLink,
+    estimateMin: payload.estimateMin,
+    estimateMax: payload.estimateMax,
     manualFallbackExportLink: payload.manualFallbackExportLink,
     manualFallbackExportRetentionDays: payload.manualFallbackExportRetentionDays,
+    questionCategory: payload.questionCategory,
+    questionSubject: payload.questionSubject,
+    fileName: payload.fileName,
+    documentType: payload.documentType,
   });
 
   // Strip undefined keys so payload remains valid JSON for Prisma Json fields.
@@ -180,8 +196,14 @@ export async function processNotification(payload: NotificationJobPayload): Prom
     recipientName: payload.recipientName,
     projectAddress: payload.projectAddress,
     estimateLink: payload.estimateLink,
+    estimateMin: payload.estimateMin,
+    estimateMax: payload.estimateMax,
     manualFallbackExportLink: payload.manualFallbackExportLink,
     manualFallbackExportRetentionDays: payload.manualFallbackExportRetentionDays,
+    questionCategory: payload.questionCategory,
+    questionSubject: payload.questionSubject,
+    fileName: payload.fileName,
+    documentType: payload.documentType,
   });
 
   try {
@@ -203,6 +225,29 @@ export async function processNotification(payload: NotificationJobPayload): Prom
         lastError: null,
       },
     });
+
+    if (payload.projectId) {
+        await logCommunication({
+          projectId: payload.projectId,
+          communicationType: "EMAIL",
+          category: getCategoryFromEventType(payload.eventType),
+          recipientEmail: payload.recipientEmail,
+          recipientId: payload.userId,
+          subject: template.subject,
+          contentSummary: generateContentSummary(payload, template),
+          linkedResourceType: getLinkedResourceType(payload.eventType),
+          linkedResourceId: undefined, // Set if you have the actual resource ID
+          status: CommunicationStatus.SENT,
+          metadata: {
+            provider: result.provider,
+            messageId: result.messageId,
+            idempotencyKey: payload.idempotencyKey,
+            eventType: payload.eventType,
+          },
+        });
+      }
+
+
   } catch (error) {
     await prisma.notificationDelivery.update({
       where: { id: delivery.id },
@@ -212,6 +257,30 @@ export async function processNotification(payload: NotificationJobPayload): Prom
         lastError: error instanceof Error ? error.message : "Unknown email send error",
       },
     });
+
+    if (payload.projectId) {
+      try {
+        await logCommunication({
+          projectId: payload.projectId,
+          communicationType: "EMAIL",
+          category: getCategoryFromEventType(payload.eventType),
+          recipientEmail: payload.recipientEmail,
+          recipientId: payload.userId,
+          subject: template.subject,
+          contentSummary: generateContentSummary(payload, template),
+          linkedResourceType: getLinkedResourceType(payload.eventType),
+          linkedResourceId: undefined,
+          status: CommunicationStatus.FAILED,
+          metadata: {
+            idempotencyKey: payload.idempotencyKey,
+            eventType: payload.eventType,
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+        });
+      } catch (logError) {
+        console.error("Failed to log communication history:", logError);
+      }
+    }
 
     throw error;
   }

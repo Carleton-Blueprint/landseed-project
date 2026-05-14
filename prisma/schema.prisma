@@ -27,6 +27,8 @@ model User {
   grantedProjectAccess          ProjectAccess[]                 @relation("ProjectAccessGrantedBy")
   projectAccess                 ProjectAccess[]                 @relation("ProjectAccessUser")
   sessions                      Session[]
+  sentCommunications            CommunicationHistory[]          @relation("CommunicationHistorySender")
+  receivedCommunications        CommunicationHistory[]          @relation("CommunicationHistoryRecipient")
 }
 
 model Account {
@@ -83,6 +85,7 @@ model Project {
   notifications                 NotificationDelivery[]
   auditEvents                   AuditEvent[]
   manualReviewFlag              ProjectManualReviewFlag?
+  communicationHistory          CommunicationHistory[]
 }
 
 model GrantApplicationStatusHistory {
@@ -398,6 +401,42 @@ model ProjectManualReviewFlag {
   @@index([createdAt])
 }
 
+model CommunicationHistory {
+  id                   String                    @id @default(cuid())
+  projectId            String
+  project              Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  communicationType    CommunicationType
+  category             CommunicationCategory
+  
+  recipientId          String?
+  recipient            User?                     @relation("CommunicationHistoryRecipient", fields: [recipientId], references: [id])
+  senderId             String?
+  sender               User?                     @relation("CommunicationHistorySender", fields: [senderId], references: [id])
+  recipientEmail       String
+  
+  subject              String
+  contentSummary       String
+  
+  linkedResourceType   String?
+  linkedResourceId     String?
+  
+  status               CommunicationStatus
+  
+  metadata             Json?
+  
+  sentAt               DateTime                  @default(now())
+  deliveredAt          DateTime?
+  readAt               DateTime?
+  createdAt            DateTime                  @default(now())
+
+  @@index([projectId, sentAt(sort: Desc)])
+  @@index([recipientId, projectId])
+  @@index([category])
+  @@index([communicationType])
+  @@index([status])
+}
+
 // ——— Enums ———
 
 enum GrantApplicationStatus {
@@ -490,6 +529,8 @@ enum NotificationEventType {
   ESTIMATE_EXPIRED
   ESTIMATE_REACTIVATED
   MANUAL_FALLBACK_EXPORT_READY
+  QUESTION_SUBMITTED_FOR_ADVISORY_TEAM
+  FILE_MALWARE_DETECTED
 }
 
 enum NotificationDeliveryStatus {
@@ -508,4 +549,31 @@ enum ProjectManualReviewReasonCode {
   LOW_CONFIDENCE
   HIGH_COMPLEXITY
   BOTH
+}
+
+enum CommunicationType {
+  EMAIL
+  SMS
+  IN_APP_NOTIFICATION
+  SYSTEM_MESSAGE
+}
+
+enum CommunicationCategory {
+  ESTIMATE
+  QUESTION
+  DOCUMENT
+  GRANT_STATUS
+  SUBMISSION_RECEIPT
+  SURVEY
+  SYSTEM_ALERT
+  OTHER
+}
+
+enum CommunicationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  READ
+  BOUNCED
 }

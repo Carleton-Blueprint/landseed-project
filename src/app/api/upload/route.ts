@@ -113,6 +113,8 @@ export async function POST(request: NextRequest) {
       success: true,
       photo,
       message: "File uploaded successfully! Virus scan in progress...",
+      warning: "This file cannot be used in grant applications until the virus scan is complete. This typically takes 10-30 seconds.",
+      scanStatus: "pending",
     });
   } catch (err) {
     console.error("Upload error:", err);
