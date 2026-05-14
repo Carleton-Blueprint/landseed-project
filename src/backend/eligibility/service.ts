@@ -18,6 +18,7 @@ import {
   GrantDiscoveryMetadata,
 } from './discoverySearchProvider';
 import { prisma } from 'lib/prisma';
+import { produceManualReviewFlagJob } from './manualReviewProducer';
 
 export interface EvaluateEligibilityServiceResult {
   assessmentId: string;
@@ -110,7 +111,24 @@ export async function evaluateProjectEligibility(
       }
     }
 
-    // Step 5: Trigger quote generation in background (non-blocking)
+    // Step 5: Trigger manual review flag classification in background (non-blocking, FR-2.6)
+    setImmediate(async () => {
+      try {
+        await produceManualReviewFlagJob(
+          project.id,
+          assessment.id,
+          input,
+          evaluation.discoveredGrants,
+          evaluation.discoveryMetadata
+        );
+        console.log(`Manual review classification produced for project ${project.id}`);
+      } catch (error) {
+        console.warn(`Failed to produce manual review job for project ${project.id}:`, error);
+        // Non-blocking: eligibility assessment success is not affected by manual review producer failure
+      }
+    });
+
+    // Step 6: Trigger quote generation in background (non-blocking)
     setImmediate(async () => {
       try {
         // Dynamically import to avoid circular dependencies

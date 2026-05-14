@@ -7,6 +7,9 @@ type TemplateInput = {
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
+  questionCategory?: string;   
+  questionSubject?: string;   
+
 };
 
 export type RenderedEmailTemplate = {
@@ -18,6 +21,11 @@ export type RenderedEmailTemplate = {
 
 function safeName(name?: string | null): string {
   return name?.trim() || "there";
+}
+
+function safeLink(link?: string | null): string | undefined {
+  const trimmed = link?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
 export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate {
@@ -89,6 +97,26 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
       text: `Hi ${recipientName},\n\nYour estimate${addressLine} has been reactivated and is ready for review.${linkText}\nLandseed Team`,
     };
   }
+
+  if (input.eventType === NotificationEventType.QUESTION_SUBMITTED_FOR_ADVISORY_TEAM) {
+    return {
+      templateName: "question-submitted-advisory-v1",
+      subject: `[Advisory] New Question on Estimate for ${input.projectAddress || "Project"}`,
+      html: `
+        <p>Hi Advisory Team,</p>
+        <p>A client has submitted a new question about their estimate for <strong>${input.projectAddress || "their project"}</strong>.</p>
+        <p><strong>Details:</strong></p>
+        <ul>
+          <li>Category: ${input.questionCategory || "General"}</li>
+          <li>Subject: ${input.questionSubject || "N/A"}</li>
+          <li>Time: ${new Date().toLocaleString()}</li>
+        </ul>
+        <p><a href="${input.estimateLink}">Review in Admin Dashboard</a></p>
+        <p>Landseed Team</p>
+      `,
+      text: `Hi Advisory Team,\n\nA client has submitted a new question about their estimate for ${input.projectAddress || "their project"}.\n\nCategory: ${input.questionCategory || "General"}\nSubject: ${input.questionSubject || "N/A"}\n\nReview in Admin Dashboard: ${input.estimateLink}\n\nLandseed Team`,
+    };
+}
 
   throw new Error(`Unsupported event type: ${input.eventType}`);
 }

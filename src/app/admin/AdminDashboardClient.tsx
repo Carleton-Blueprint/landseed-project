@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import {
   CheckCircleIcon,
@@ -62,6 +63,17 @@ export interface SerializedProject {
     attempts: number;
     lastError: string | null;
     sentAt: string | null;
+  } | null;
+  manualFallbackExport: {
+    id: string;
+    status: string;
+    requestedAt: string;
+    readyAt: string | null;
+    expiresAt: string | null;
+    fileName: string | null;
+    retentionDays: number;
+    maxSizeBytes: number | null;
+    lastError: string | null;
   } | null;
 }
 
@@ -229,10 +241,36 @@ function StatCard({
 /* ================================================================== */
 
 function ProjectDetailPanel({ project }: { project: SerializedProject }) {
+  const router = useRouter();
+  const [isRequestingExport, setIsRequestingExport] = React.useState(false);
+  const [exportError, setExportError] = React.useState<string | null>(null);
   const eligibility = project.eligibility;
   const quote = project.quote;
   const transfer = project.builderTrendTransfer;
+  const fallbackExport = project.manualFallbackExport;
   const eligibleGrants = eligibility?.discoveredGrants.filter((g) => g.decision === "ELIGIBLE") ?? [];
+
+  async function requestFallbackExport() {
+    setIsRequestingExport(true);
+    setExportError(null);
+
+    try {
+      const response = await fetch(`/api/project/${project.id}/manual-fallback-export`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Failed to queue export");
+      }
+
+      router.refresh();
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Failed to queue export");
+    } finally {
+      setIsRequestingExport(false);
+    }
+  }
 
   return (
     <div className="border-t bg-gray-50/70 px-6 py-5 space-y-5">
@@ -391,6 +429,59 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
             </div>
           </div>
 
+          {/* Manual fallback export */}
+          <div className="rounded-md border border-dashed border-blue-200 bg-blue-50/60 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-blue-900">Manual fallback export</p>
+                <p className="text-[11px] text-blue-700">
+                  Bundle quotes, photos, and grants for manual upload if BuilderTrend fails.
+                </p>
+              </div>
+              {fallbackExport?.status === "READY" && fallbackExport.fileName ? (
+                <Button asChild variant="outline" size="sm">
+                  <a href={`/api/project/${project.id}/manual-fallback-export/${fallbackExport.id}/download`}>
+                    Download
+                  </a>
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={requestFallbackExport}
+                  disabled={isRequestingExport}
+                >
+                  {isRequestingExport ? "Queuing…" : "Request export"}
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 text-[11px] text-blue-700">
+              <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
+                {fallbackExport?.status ?? "Not requested"}
+              </span>
+              <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
+                Retention: {fallbackExport?.retentionDays ?? 7} day{(fallbackExport?.retentionDays ?? 7) === 1 ? "" : "s"}
+              </span>
+              {fallbackExport?.expiresAt && (
+                <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
+                  Expires {fmtDate(fallbackExport.expiresAt)}
+                </span>
+              )}
+            </div>
+            {fallbackExport?.lastError && (
+              <p className="text-[11px] text-red-600 truncate" title={fallbackExport.lastError}>
+                Last error: {fallbackExport.lastError}
+              </p>
+            )}
+            {exportError && (
+              <p className="text-[11px] text-red-600">{exportError}</p>
+            )}
+            <p className="text-[10px] text-blue-600/80">
+              Only project owners can queue a new export.
+            </p>
+          </div>
+
           {/* Quick links */}
           <div className="flex gap-2">
             <Link href={`/dashboard/${project.id}`} className="flex-1">
@@ -541,14 +632,24 @@ export function AdminDashboardClient({
                 Welcome back, {userName}. Monitor all project requests and AI-driven assessments.
               </p>
             </div>
-            <Link href="/dashboard">
-              <Button variant="outline" className="gap-1.5 text-sm">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                </svg>
-                Client Dashboard
-              </Button>
-            </Link>
+            <div className="flex gap-2">
+              <Link href="/admin/flagged-projects">
+                <Button variant="outline" className="gap-1.5 text-sm">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c.866 1.08.969 2.178.75 3.124M15.75 12c0 .866-.166 1.693-.484 2.449m0 0c.574.575 1.088 1.09 1.56 1.409M9.75 15c0 .866.166 1.693.484 2.449m0 0c-.574.575-1.088 1.09-1.56 1.409M21 12a9 9 0 11-18 0 9 9 0 0118 0Z" />
+                  </svg>
+                  Flagged Projects
+                </Button>
+              </Link>
+              <Link href="/dashboard">
+                <Button variant="outline" className="gap-1.5 text-sm">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                  </svg>
+                  Client Dashboard
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
