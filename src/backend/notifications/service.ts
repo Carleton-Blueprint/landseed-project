@@ -12,7 +12,6 @@ import {
   getCategoryFromEventType,
   generateContentSummary,
   getLinkedResourceType,
-  mapDeliveryStatus,
 } from "@/backend/services/communicationHistoryIntegration";
 
 export type NotificationJobPayload = {

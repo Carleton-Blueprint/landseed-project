@@ -56,7 +56,7 @@ export async function generateMockRefinedEstimate(
 
     try {
       priceResult = await getMaterialPrice(pricingQuery);
-    } catch (error) {
+    } catch {
       priceResult = null;
     }
 

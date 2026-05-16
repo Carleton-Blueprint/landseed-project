@@ -242,7 +242,7 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
 
       expect(auditEvent).toBeDefined();
       expect(auditEvent.action).toBe("MANUAL_REVIEW_FLAG_CREATED");
-      expect((auditEvent.metadata as any).isSystemFallback).toBe(true);
+      expect((auditEvent.metadata as Record<string, unknown>).isSystemFallback).toBe(true);
 
       await prisma.project.delete({ where: { id: project.id } });
     });
@@ -282,7 +282,7 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
 
       expect(auditEvent).toBeDefined();
       expect(auditEvent.action).toBe("MANUAL_REVIEW_FLAG_CREATED");
-      expect((auditEvent.metadata as any).flagId).toBe(flag.id);
+      expect((auditEvent.metadata as Record<string, unknown>).flagId).toBe(flag.id);
 
       await prisma.project.delete({ where: { id: project.id } });
     });
@@ -329,7 +329,7 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
 
       expect(auditEvent).toBeDefined();
       expect(auditEvent.action).toBe("MANUAL_REVIEW_FLAG_UPDATED");
-      expect((auditEvent.metadata as any).newReason).toBe("HIGH_COMPLEXITY");
+      expect((auditEvent.metadata as Record<string, unknown>).newReason).toBe("HIGH_COMPLEXITY");
 
       await prisma.project.delete({ where: { id: project.id } });
     });
@@ -357,7 +357,7 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
 
       expect(auditEvent).toBeDefined();
       expect(auditEvent.action).toBe("MANUAL_REVIEW_FLAG_PROCESSING_FAILED");
-      expect((auditEvent.metadata as any).attempts).toBe(3);
+      expect((auditEvent.metadata as Record<string, unknown>).attempts).toBe(3);
 
       await prisma.project.delete({ where: { id: project.id } });
     });

@@ -7,8 +7,6 @@ import {
   HomeIcon,
   FileIcon,
   ClipboardIcon,
-  SearchIcon,
-  CheckCircleIcon,
   AlertTriangleIcon,
 } from "@/frontend/components/icons";
 

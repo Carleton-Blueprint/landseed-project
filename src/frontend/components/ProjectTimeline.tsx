@@ -9,8 +9,6 @@ import {
   StairsIcon,
   HandrailIcon,
   WrenchIcon,
-  CalendarIcon,
-  InfoIcon,
 } from "@/frontend/components/icons";
 
 /* ------------------------------------------------------------------ */
