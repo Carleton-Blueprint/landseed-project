@@ -18,6 +18,7 @@ import {
   GrantDiscoveryMetadata,
 } from './discoverySearchProvider';
 import { prisma } from 'lib/prisma';
+import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { produceManualReviewFlagJob } from './manualReviewProducer';
 
 export interface EvaluateEligibilityServiceResult {
@@ -80,35 +81,28 @@ export async function evaluateProjectEligibility(
 
     // Step 4: Audit log (if audit event creation is available)
     if (performedBy) {
-      try {
-        await prisma.auditEvent.create({
-          data: {
-            category: 'MANUAL_CHANGE',
-            action: 'ELIGIBILITY_EVALUATED',
-            outcome: 'SUCCESS',
-            resourceType: 'EligibilityAssessment',
-            resourceId: assessment.id,
-            projectId: project.id,
-            actorUserId: performedBy.id,
-            description: `Eligibility discovery assessment: ${evaluation.overallDecision}`,
-            metadata: {
-              decision: evaluation.overallDecision,
-              reasonCodes: evaluation.reasonCodes,
-              discoveryProvider: evaluation.discoveryMetadata.provider,
-              engineVersion: evaluation.discoveryMetadata.engineVersion,
-              promptVersion: evaluation.discoveryMetadata.promptVersion,
-              scoringVersion: evaluation.discoveryMetadata.scoringVersion,
-              modelVersion: evaluation.discoveryMetadata.modelVersion,
-              sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
-              candidateCount: evaluation.discoveryMetadata.candidateCount,
-              returnedCount: evaluation.discoveryMetadata.returnedCount,
-            },
-          },
-        });
-      } catch (error) {
-        // Audit event creation failure should not block the main operation
-        console.warn('Failed to create audit event for eligibility evaluation', error);
-      }
+      await logAuditEventNonBlocking({
+        category: 'MANUAL_CHANGE',
+        action: 'ELIGIBILITY_EVALUATED',
+        outcome: 'SUCCESS',
+        resourceType: 'EligibilityAssessment',
+        resourceId: assessment.id,
+        projectId: project.id,
+        actorUserId: performedBy.id,
+        description: `Eligibility discovery assessment: ${evaluation.overallDecision}`,
+        metadata: {
+          decision: evaluation.overallDecision,
+          reasonCodes: evaluation.reasonCodes,
+          discoveryProvider: evaluation.discoveryMetadata.provider,
+          engineVersion: evaluation.discoveryMetadata.engineVersion,
+          promptVersion: evaluation.discoveryMetadata.promptVersion,
+          scoringVersion: evaluation.discoveryMetadata.scoringVersion,
+          modelVersion: evaluation.discoveryMetadata.modelVersion,
+          sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
+          candidateCount: evaluation.discoveryMetadata.candidateCount,
+          returnedCount: evaluation.discoveryMetadata.returnedCount,
+        },
+      });
     }
 
     // Step 5: Trigger manual review flag classification in background (non-blocking, FR-2.6)
