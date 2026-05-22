@@ -11,20 +11,16 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "s3-bucket-blueprint.s3.ca-central-1.amazonaws.com",
       },
+      {
+        protocol: "https",
+        hostname: "placehold.co",
+      },
     ],
   },
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",
     },
-  },
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "placehold.co",
-      },
-    ],
   },
 };
 
