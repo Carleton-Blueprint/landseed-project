@@ -23,8 +23,6 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
       estimateLink: payload.estimateLink,
       estimateMin: payload.estimateMin,
       estimateMax: payload.estimateMax,
-      manualFallbackExportLink: payload.manualFallbackExportLink,
-      manualFallbackExportRetentionDays: payload.manualFallbackExportRetentionDays,
     },
     {
       removeOnComplete: 100,

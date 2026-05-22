@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+import { createHash, createVerify } from 'node:crypto';
 import { prisma } from 'lib/prisma';
 
 export type VerificationResult = {
@@ -30,7 +30,7 @@ export async function verifyAuditChain(limit?: number): Promise<{ total: number;
       metadata: ev.metadata ?? null,
     };
 
-    const expectedHash = crypto.createHash('sha256').update(JSON.stringify(payloadForHash)).digest('hex');
+    const expectedHash = createHash('sha256').update(JSON.stringify(payloadForHash)).digest('hex');
 
     if (ev.eventHash !== expectedHash) {
       mismatches.push({ id: ev.id, index: i, ok: false, reason: 'hash_mismatch' });
@@ -53,7 +53,7 @@ export async function verifyAuditChain(limit?: number): Promise<{ total: number;
         continue;
       }
       try {
-        const verify = crypto.createVerify('RSA-SHA256');
+        const verify = createVerify('RSA-SHA256');
         verify.update(ev.eventHash || '');
         verify.end();
         const valid = verify.verify(publicKey, ev.signature, 'base64');
