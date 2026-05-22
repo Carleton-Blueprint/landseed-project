@@ -62,7 +62,57 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
   const auditEventId = randomUUID();
   const beforeStateJson = toJsonText(input.beforeState);
   const afterStateJson = toJsonText(input.afterState);
-  const metadataJson = toJsonText(input.metadata);
+    const metadataJson = toJsonText(input.metadata);
+
+    // Determine previous hash (global chain)
+    const latest = await prisma.auditEvent.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { eventHash: true },
+    });
+    const prevHash = latest?.eventHash ?? null;
+
+    // Use an explicit createdAt so the hash is reproducible
+    const createdAt = new Date();
+
+    // Build payload for hashing (schema-compatible with backfill)
+    const payloadForHash = {
+      id: auditEventId,
+      category: input.category,
+      action: input.action,
+      outcome: input.outcome,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId ?? null,
+      projectId: input.projectId ?? null,
+      actorUserId: input.actorUserId ?? null,
+      createdAt: createdAt.toISOString(),
+      beforeState: input.beforeState ?? null,
+      afterState: input.afterState ?? null,
+      metadata: input.metadata ?? null,
+    };
+
+    const eventHash = crypto.createHash('sha256').update(JSON.stringify(payloadForHash)).digest('hex');
+
+    // Optionally sign the hash if a private key is provided
+    let signature: string | null = null;
+    let signedAt: Date | null = null;
+    let signedBy: string | null = null;
+    const privateKey = process.env.AUDIT_SIGNING_PRIVATE_KEY;
+    if (privateKey) {
+      try {
+        const signer = crypto.createSign('RSA-SHA256');
+        signer.update(eventHash);
+        signer.end();
+        signature = signer.sign(privateKey, 'base64');
+        signedAt = new Date();
+        signedBy = process.env.AUDIT_SIGNING_KEY_ID ?? 'local';
+      } catch (err) {
+        // Signing failure should not block audit insertion; surface to logs
+        console.error('Audit signing failed:', err);
+        signature = null;
+        signedAt = null;
+        signedBy = null;
+      }
+    }
 
   await prisma.$executeRaw(
     Prisma.sql`
@@ -84,6 +134,12 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
         "metadata",
         "ipAddress",
         "userAgent"
+          "eventHash",
+          "prevHash",
+          "signature",
+          "signedAt",
+          "signedBy",
+          "createdAt"
       )
       VALUES (
         ${auditEventId},
@@ -103,6 +159,12 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
         CAST(${metadataJson} AS JSONB),
         ${input.ipAddress ?? null},
         ${input.userAgent ?? null}
+          ${eventHash},
+          ${prevHash ?? null},
+          ${signature ?? null},
+          ${signedAt ?? null},
+          ${signedBy ?? null},
+          ${createdAt}
       )
     `
   );
