@@ -256,6 +256,13 @@ model AuditEvent {
   beforeState      Json?
   afterState       Json?
   metadata         Json?
+  // Tamper-evident chain fields)
+  eventHash        String?               @db.Text
+  prevHash         String?               @db.Text
+  signature        String?               @db.Text
+  signedAt         DateTime?
+  signedBy         String?
+
   ipAddress        String?
   userAgent        String?
   createdAt        DateTime              @default(now())
