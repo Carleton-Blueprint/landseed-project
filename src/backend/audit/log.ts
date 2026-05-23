@@ -1,6 +1,6 @@
-import { Prisma } from "@prisma/client";
-import { randomUUID } from "node:crypto";
-import { prisma } from "lib/prisma";
+import { Prisma } from '@prisma/client';
+import { createHash, createSign, randomUUID } from 'node:crypto';
+import { prisma } from 'lib/prisma';
 
 export type AuditEventCategory = "MANUAL_CHANGE" | "SENSITIVE_ACCESS";
 export type AuditEventOutcome = "SUCCESS" | "DENIED" | "FAILURE";
@@ -64,6 +64,51 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
   const afterStateJson = toJsonText(input.afterState);
   const metadataJson = toJsonText(input.metadata);
 
+  const latest = await prisma.auditEvent.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { eventHash: true },
+  });
+  const prevHash = latest?.eventHash ?? null;
+
+  const createdAt = new Date();
+
+  const payloadForHash = {
+    id: auditEventId,
+    category: input.category,
+    action: input.action,
+    outcome: input.outcome,
+    resourceType: input.resourceType,
+    resourceId: input.resourceId ?? null,
+    projectId: input.projectId ?? null,
+    actorUserId: input.actorUserId ?? null,
+    createdAt: createdAt.toISOString(),
+    beforeState: input.beforeState ?? null,
+    afterState: input.afterState ?? null,
+    metadata: input.metadata ?? null,
+  };
+
+  const eventHash = createHash('sha256').update(JSON.stringify(payloadForHash)).digest('hex');
+
+  let signature: string | null = null;
+  let signedAt: Date | null = null;
+  let signedBy: string | null = null;
+  const privateKey = process.env.AUDIT_SIGNING_PRIVATE_KEY;
+  if (privateKey) {
+    try {
+      const signer = createSign('RSA-SHA256');
+      signer.update(eventHash);
+      signer.end();
+      signature = signer.sign(privateKey, 'base64');
+      signedAt = new Date();
+      signedBy = process.env.AUDIT_SIGNING_KEY_ID ?? 'local';
+    } catch (err) {
+      console.error('Audit signing failed:', err);
+      signature = null;
+      signedAt = null;
+      signedBy = null;
+    }
+  }
+
   await prisma.$executeRaw(
     Prisma.sql`
       INSERT INTO "AuditEvent" (
@@ -83,14 +128,20 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
         "afterState",
         "metadata",
         "ipAddress",
-        "userAgent"
+        "userAgent",
+        "eventHash",
+        "prevHash",
+        "signature",
+        "signedAt",
+        "signedBy",
+        "createdAt"
       )
       VALUES (
         ${auditEventId},
         ${input.category}::"AuditEventCategory",
         ${input.action},
         ${input.outcome}::"AuditEventOutcome",
-        ${(input.sensitivityLevel ?? "CONFIDENTIAL")}::"AuditSensitivityLevel",
+        ${(input.sensitivityLevel ?? 'CONFIDENTIAL')}::"AuditSensitivityLevel",
         ${input.actorUserId ?? null},
         ${input.projectId ?? null},
         ${input.quoteId ?? null},
@@ -102,7 +153,13 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
         CAST(${afterStateJson} AS JSONB),
         CAST(${metadataJson} AS JSONB),
         ${input.ipAddress ?? null},
-        ${input.userAgent ?? null}
+        ${input.userAgent ?? null},
+        ${eventHash},
+        ${prevHash ?? null},
+        ${signature ?? null},
+        ${signedAt ?? null},
+        ${signedBy ?? null},
+        ${createdAt}
       )
     `
   );
