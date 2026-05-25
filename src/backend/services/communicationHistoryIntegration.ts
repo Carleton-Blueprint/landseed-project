@@ -87,6 +87,38 @@ export function getLinkedResourceType(eventType: NotificationEventType): string 
   }
 }
 
+export interface AccountDeletionCommunicationContext {
+  targetUserName?: string | null;
+  targetUserEmail: string;
+  requestId: string;
+  noticeType: "ADVANCE_NOTICE" | "FINAL_NOTICE";
+  gracePeriodEndsAt: Date;
+  requestedAt: Date;
+}
+
+export function getAccountDeletionCommunicationCategory(): CommunicationCategory {
+  return CommunicationCategory.SYSTEM_ALERT;
+}
+
+export function buildAccountDeletionContentSummary(
+  context: AccountDeletionCommunicationContext
+): string {
+  const lines = [
+    "Subject: Account deletion notice",
+    `Notice Type: ${context.noticeType}`,
+    `Request ID: ${context.requestId}`,
+    `Target Email: ${context.targetUserEmail}`,
+    `Requested At: ${context.requestedAt.toISOString()}`,
+    `Deletion Scheduled For: ${context.gracePeriodEndsAt.toISOString()}`,
+  ];
+
+  if (context.targetUserName) {
+    lines.push(`Target User: ${context.targetUserName}`);
+  }
+
+  return lines.join("\n");
+}
+
 /**
  * Maps delivery status to communication status
  */
