@@ -123,7 +123,7 @@ model AccountDeletionNotice {
   id                      String                      @id @default(cuid())
   accountDeletionRequestId String
   noticeType             AccountDeletionNoticeType
-  status                 CommunicationStatus         @default(PENDING)
+  status                 AccountDeletionNoticeStatus  @default(PENDING)
   recipientEmail         String
   recipientName          String?
   subject                String?
@@ -606,6 +606,13 @@ enum AccountDeletionRequestStatus {
 enum AccountDeletionNoticeType {
   ADVANCE_NOTICE
   FINAL_NOTICE
+}
+
+enum AccountDeletionNoticeStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
 }
 
 enum NotificationDeliveryStatus {
