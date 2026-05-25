@@ -271,3 +271,94 @@ export async function createAccountDeletionNotice(input: {
 
   return notice.id;
 }
+
+export async function finalizeAccountDeletionRequest(input: {
+  requestId: string;
+  actorUserId?: string | null;
+  reason?: string | null;
+}): Promise<void> {
+  const request = await prisma.accountDeletionRequest.findUnique({
+    where: { id: input.requestId },
+    select: { id: true, status: true, targetUserId: true },
+  });
+
+  if (!request) throw new Error(`Account deletion request not found: ${input.requestId}`);
+
+  if (request.status !== AccountDeletionRequestStatus.READY_FOR_DELETION) {
+    return;
+  }
+
+  const now = new Date();
+
+  try {
+    let claimed = false;
+
+    await prisma.$transaction(async (tx) => {
+      const result = await tx.accountDeletionRequest.updateMany({
+        where: {
+          id: request.id,
+          status: AccountDeletionRequestStatus.READY_FOR_DELETION,
+        },
+        data: {
+          status: AccountDeletionRequestStatus.DELETED,
+          deletedAt: now,
+        },
+      });
+
+      if (result.count === 0) return;
+      claimed = true;
+
+      if (request.targetUserId) {
+        await tx.session.deleteMany({ where: { userId: request.targetUserId } });
+        await tx.account.deleteMany({ where: { userId: request.targetUserId } });
+
+        await tx.user.update({
+          where: { id: request.targetUserId },
+          data: {
+            name: null,
+            email: null,
+            phone: null,
+            image: null,
+            emailVerified: null,
+            updatedAt: now,
+          },
+        });
+      }
+    });
+
+    if (!claimed) return;
+
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "ACCOUNT_DELETION_COMPLETED",
+      outcome: "SUCCESS",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: input.actorUserId ?? request.targetUserId ?? undefined,
+      resourceType: "account_deletion_request",
+      resourceId: request.id,
+      description: "Account deletion finalized and PII removed",
+      metadata: { reason: input.reason ?? null },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    await prisma.accountDeletionRequest.update({
+      where: { id: request.id },
+      data: { lastError: message },
+    });
+
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "ACCOUNT_DELETION_COMPLETION_FAILED",
+      outcome: "FAILURE",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: input.actorUserId ?? request.targetUserId ?? undefined,
+      resourceType: "account_deletion_request",
+      resourceId: request.id,
+      description: "Account deletion finalization failed",
+      metadata: { error: message },
+    });
+
+    throw err;
+  }
+}
