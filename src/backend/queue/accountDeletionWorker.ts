@@ -1,5 +1,7 @@
 import { prisma } from "lib/prisma";
-import { sendTransactionalEmail } from "@/backend/services/transactionalEmail";
+import { enqueueNotification } from "@/backend/notifications/enqueue";
+import { NotificationEventType } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { AccountDeletionNoticeStatus, AccountDeletionNoticeType } from "@prisma/client";
 
@@ -29,45 +31,44 @@ async function processNotice(notice: AccountDeletionNoticeJob) {
   const html = `<p>Hello ${notice.recipientName ?? ""},</p><p>This is a notification regarding your account deletion request (request id: ${notice.accountDeletionRequestId}).</p><p>If you did not request this or wish to cancel, please sign in and cancel the request before the scheduled deletion date.</p>`;
 
   try {
-    const result = await sendTransactionalEmail({
-      to: notice.recipientEmail,
+    // enqueue via NotificationDelivery pipeline so deliveries are tracked and retried
+    const idempotencyKey = `account-deletion:${notice.id}:${randomUUID()}`;
+
+    await enqueueNotification({
+      eventType: NotificationEventType.SUBMISSION_RECEIPT,
+      idempotencyKey,
+      recipientEmail: notice.recipientEmail,
+      recipientName: notice.recipientName,
+      // provide custom body
       subject,
       html,
       text,
+      // link back to the notice for later reconciliation
+      noticeId: notice.id,
+      accountDeletionRequestId: notice.accountDeletionRequestId,
+      scheduledFor: notice.scheduledFor?.toISOString() ?? null,
     });
 
-    await prisma.accountDeletionNotice.update({
-      where: { id: notice.id },
-      data: {
-        status: AccountDeletionNoticeStatus.SENT,
-        sentAt: new Date(),
-        metadata: { provider: result.provider, providerMessageId: result.messageId },
-        lastError: null,
-      },
-    });
-
-    // Transition parent request state
-    if (notice.noticeType === AccountDeletionNoticeType.ADVANCE_NOTICE) {
-      await prisma.accountDeletionRequest.updateMany({
-        where: { id: notice.accountDeletionRequestId, status: "REQUESTED" },
-        data: { status: "IN_GRACE_PERIOD" },
+    // Persist idempotencyKey to the notice metadata for traceability
+    try {
+      await prisma.accountDeletionNotice.update({
+        where: { id: notice.id },
+        data: { metadata: { ...(notice.metadata as any) ?? {}, idempotencyKey } },
       });
-    } else if (notice.noticeType === AccountDeletionNoticeType.FINAL_NOTICE) {
-      await prisma.accountDeletionRequest.updateMany({
-        where: { id: notice.accountDeletionRequestId },
-        data: { status: "READY_FOR_DELETION" },
-      });
+    } catch (err) {
+      // best-effort metadata update; log and continue
+      console.error("Failed to persist idempotencyKey on accountDeletionNotice", notice.id, err);
     }
 
     await logAuditEventNonBlocking({
       category: "MANUAL_CHANGE",
-      action: "ACCOUNT_DELETION_NOTICE_SENT",
+      action: "ACCOUNT_DELETION_NOTICE_ENQUEUED",
       outcome: "SUCCESS",
       sensitivityLevel: "RESTRICTED",
       resourceType: "account_deletion_request",
       resourceId: notice.accountDeletionRequestId,
-      description: `Sent ${notice.noticeType} to ${notice.recipientEmail}`,
-      metadata: { noticeId: notice.id, provider: result.provider, providerMessageId: result.messageId },
+      description: `Enqueued ${notice.noticeType} to ${notice.recipientEmail}`,
+      metadata: { noticeId: notice.id, idempotencyKey },
     });
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
