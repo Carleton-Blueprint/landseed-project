@@ -156,7 +156,7 @@ export async function POST(
           questionCategory: category,
           questionSubject: subject.trim(),
           questionId: question.id,
-          clientName: (session.user as any).name,
+          clientName: (session.user as { name?: string | null }).name,
           clientEmail: session.user.email,
           advisoryTeamEmails,
         });

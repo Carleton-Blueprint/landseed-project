@@ -13,7 +13,7 @@ export interface LogCommunicationInput {
   linkedResourceType?: string;
   linkedResourceId?: string;
   status: CommunicationStatus;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface GetCommunicationHistoryOptions {

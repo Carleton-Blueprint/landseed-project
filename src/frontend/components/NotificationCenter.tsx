@@ -16,7 +16,8 @@ export type NotificationKind =
   | "documents_requested"
   | "grant_status"
   | "photo_processed"
-  | "info";
+  | "info"
+  | "action_required";
 
 export interface NotificationItem {
   id: string;
@@ -26,6 +27,7 @@ export interface NotificationItem {
   href?: string;
   createdAt: string | Date;
   read?: boolean;
+  urgent?: boolean;
 }
 
 export interface NotificationCenterProps {
@@ -43,6 +45,7 @@ const KIND_META: Record<
   grant_status: { icon: AlertCircle, color: "text-blue-600" },
   photo_processed: { icon: CheckCircle2, color: "text-indigo-600" },
   info: { icon: Bell, color: "text-gray-600" },
+  action_required: { icon: AlertCircle, color: "text-red-600" },
 };
 
 function formatRelative(value: string | Date): string {

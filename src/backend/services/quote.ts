@@ -156,8 +156,8 @@ export async function generateQuote(
     total: Number(quote.total.toString()),
     pricingMatrixVersion: quote.pricingMatrixVersion.versionNumber,
     eligibilityAssessmentId: latestEligibility?.assessmentId,
-    estimateMin: Number((quote as any).estimateMin?.toString()) ?? refinedEstimate.estimateMin,
-    estimateMax: Number((quote as any).estimateMax?.toString()) ?? refinedEstimate.estimateMax,
+    estimateMin: Number((quote as { estimateMin?: { toString(): string } }).estimateMin?.toString()) || refinedEstimate.estimateMin,
+    estimateMax: Number((quote as { estimateMax?: { toString(): string } }).estimateMax?.toString()) || refinedEstimate.estimateMax,
     refinedEstimate,
   };
 }

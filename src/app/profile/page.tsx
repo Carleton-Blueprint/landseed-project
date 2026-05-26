@@ -13,11 +13,9 @@ const profileSchema = z.object({
     .string()
     .min(1, "Phone is required")
     .regex(/^[\d\s\-+()]*$/, "Phone can only contain digits and + - ( )")
-    .max(24, "Phone number is too long"),
-  mailingAddress: z
-    .string()
-    .min(1, "Mailing address is required")
-    .max(200, "Mailing address is too long"),
+    .max(24, "Phone number is too long")
+    .optional()
+    .or(z.literal("")),
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
@@ -26,15 +24,17 @@ const defaultValues: ProfileFormValues = {
   name: "",
   email: "",
   phone: "",
-  mailingAddress: "",
 };
 
 export default function ProfilePage() {
   const [successMessage, setSuccessMessage] = React.useState<string | null>(null);
 
+  const [isLoading, setIsLoading] = React.useState(true);
+
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
@@ -42,9 +42,53 @@ export default function ProfilePage() {
     mode: "onBlur",
   });
 
+  React.useEffect(() => {
+    async function loadProfile() {
+      try {
+        const res = await fetch("/api/profile");
+        if (res.ok) {
+          const data = await res.json();
+          reset({
+            name: data.name || "",
+            email: data.email || "",
+            phone: data.phone || "",
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load profile", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadProfile();
+  }, [reset]);
+
   async function onSubmit(values: ProfileFormValues) {
-    console.log("Profile updated:", values);
-    setSuccessMessage("Profile updated successfully.");
+    setSuccessMessage(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+
+      if (res.ok) {
+        setSuccessMessage("Profile updated successfully.");
+      } else {
+        const data = await res.json();
+        console.error("Update failed:", data.error);
+      }
+    } catch (err) {
+      console.error("Error updating profile", err);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <main className="min-h-screen p-6 md:p-8 flex items-center justify-center">
+        <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </main>
+    );
   }
 
   return (
@@ -115,27 +159,7 @@ export default function ProfilePage() {
             )}
           </div>
 
-          <div className="flex flex-col gap-2">
-            <label htmlFor="profile-mailing-address" className="text-sm font-medium">
-              Mailing address
-            </label>
-            <textarea
-              id="profile-mailing-address"
-              {...register("mailingAddress")}
-              className="min-h-24 rounded border border-input bg-background px-3 py-2 text-sm"
-              aria-invalid={!!errors.mailingAddress}
-              aria-describedby={errors.mailingAddress ? "profile-mailing-address-error" : undefined}
-            />
-            {errors.mailingAddress && (
-              <p
-                id="profile-mailing-address-error"
-                className="text-sm text-destructive"
-                role="alert"
-              >
-                {errors.mailingAddress.message}
-              </p>
-            )}
-          </div>
+          {/* Mailing address removed as it is not in the schema */}
 
           {successMessage && (
             <p className="text-sm text-green-700" role="status">

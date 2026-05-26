@@ -21,6 +21,7 @@ jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
 }));
 
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { prisma } = require("lib/prisma") as {
   prisma: {
     project: {

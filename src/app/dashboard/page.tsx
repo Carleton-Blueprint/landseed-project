@@ -19,6 +19,7 @@ import {
   HomeIcon,
   CameraIcon,
 } from "@/frontend/components/icons";
+import { AlertCircle } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /* Status helpers                                                      */
@@ -77,20 +78,24 @@ function getEstimateSummary(project: {
 }
 
 // TODO: replace with a real query once in-app notifications are persisted.
-function getMockNotifications(projects: { id: string; address: string }[]): NotificationItem[] {
+function getMockNotifications(projects: { id: string; address: string; status: string }[]): NotificationItem[] {
   const now = Date.now();
   const first = projects[0];
   const items: NotificationItem[] = [];
 
   if (first) {
-    items.push({
-      id: `mock-estimate-${first.id}`,
-      kind: "estimate_ready",
-      title: "Refined estimate ready for review",
-      body: `Your refined estimate for ${first.address} is ready. Review the updated pricing and grant details.`,
-      href: `/dashboard/${first.id}`,
-      createdAt: new Date(now - 1000 * 60 * 12),
-    });
+    if (first.status === "estimate_ready") {
+      items.push({
+        id: `mock-estimate-approval-${first.id}`,
+        kind: "action_required",
+        title: "Estimate Awaiting Approval",
+        body: `Your final estimate for ${first.address} requires your approval to proceed to the next steps.`,
+        href: `/projects/${first.id}/estimate`,
+        createdAt: new Date(now - 1000 * 60 * 5),
+        urgent: true,
+      });
+    }
+
     items.push({
       id: `mock-docs-${first.id}`,
       kind: "documents_requested",
@@ -98,6 +103,16 @@ function getMockNotifications(projects: { id: string; address: string }[]): Noti
       body: "Please upload proof of income and property ownership to continue your grant application.",
       href: `/dashboard/${first.id}`,
       createdAt: new Date(now - 1000 * 60 * 60 * 3),
+      urgent: true,
+    });
+    
+    items.push({
+      id: `mock-estimate-${first.id}`,
+      kind: "estimate_ready",
+      title: "Refined estimate ready for review",
+      body: `Your refined estimate for ${first.address} is ready. Review the updated pricing and grant details.`,
+      href: `/dashboard/${first.id}`,
+      createdAt: new Date(now - 1000 * 60 * 12),
     });
   }
 
@@ -199,7 +214,7 @@ export default async function DashboardPage() {
   });
 
   const notifications = getMockNotifications(
-    projects.map((p) => ({ id: p.id, address: p.address }))
+    projects.map((p) => ({ id: p.id, address: p.address, status: p.status }))
   );
 
   /* ---- Batch-fetch latest eligibility assessments for all projects ---- */
@@ -233,7 +248,33 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50/60">
+    <main className="relative min-h-screen bg-gray-50 z-0 overflow-hidden">
+      <style>{`
+        @keyframes drift-1 {
+          from { background-position: 0 0; }
+          to { background-position: 200px -200px; }
+        }
+        @keyframes drift-2 {
+          from { background-position: 0 0; }
+          to { background-position: -300px 300px; }
+        }
+        .bg-houses-1 {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2310b981' stroke-width='0.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E");
+          background-size: 200px 200px;
+          animation: drift-1 50s linear infinite;
+        }
+        .bg-houses-2 {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='%2310b981' opacity='0.15' stroke='none'%3E%3Cpath d='m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3C/svg%3E");
+          background-size: 300px 300px;
+          animation: drift-2 70s linear infinite;
+        }
+      `}</style>
+      
+      {/* Background Layers */}
+      <div className="fixed inset-0 -z-10 bg-houses-1 opacity-20 pointer-events-none" />
+      <div className="fixed inset-0 -z-10 bg-houses-2 opacity-50 pointer-events-none" />
+
+
       {/* Dashboard header */}
       <div className="border-b bg-white">
         <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-start sm:justify-between md:px-8">
@@ -252,6 +293,38 @@ export default async function DashboardPage() {
       </div>
 
       <div className="mx-auto max-w-5xl px-6 py-6 md:px-8">
+        {(() => {
+          const urgentItems = notifications.filter((n) => n.urgent && !n.read);
+          if (urgentItems.length === 0) return null;
+          return (
+            <div className="mb-8 space-y-3">
+              <h2 className="text-lg font-semibold text-gray-900">Action Items & Updates</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {urgentItems.map((item) => (
+                  <div key={item.id} className="relative rounded-xl border border-red-200 bg-red-50 p-4 shadow-sm flex gap-3">
+                    <div className="mt-0.5 shrink-0 text-red-600">
+                      <AlertCircle size={20} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-semibold text-red-900">{item.title}</h3>
+                      <p className="mt-1 text-sm text-red-800">{item.body}</p>
+                      {item.href && (
+                        <div className="mt-3">
+                          <Link href={item.href}>
+                            <Button size="sm" variant="default" className="bg-red-600 hover:bg-red-700 text-white">
+                              Take Action
+                            </Button>
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {projects.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm">
             <HomeIcon size={36} className="mx-auto text-gray-300" />
