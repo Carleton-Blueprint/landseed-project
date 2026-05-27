@@ -17,6 +17,8 @@ type AccountDeletionNoticeJob = {
   recipientEmail: string;
   recipientName: string | null;
   subject: string | null;
+  scheduledFor: Date | null;
+  metadata: Record<string, unknown> | null;
 };
 
 async function processNotice(notice: AccountDeletionNoticeJob) {
@@ -53,7 +55,7 @@ async function processNotice(notice: AccountDeletionNoticeJob) {
     try {
       await prisma.accountDeletionNotice.update({
         where: { id: notice.id },
-        data: { metadata: { ...(notice.metadata as any) ?? {}, idempotencyKey } },
+        data: { metadata: { ...(notice.metadata) ?? {}, idempotencyKey } },
       });
     } catch (err) {
       // best-effort metadata update; log and continue
