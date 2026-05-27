@@ -20,6 +20,13 @@ const worker = createEmailWorker(async (job) => {
     estimateLink: job.data.estimateLink,
     estimateMin: job.data.estimateMin,
     estimateMax: job.data.estimateMax,
+    // pass through optional overrides and account-deletion linkage
+    subject: job.data.subject,
+    html: job.data.html,
+    text: job.data.text,
+    noticeId: job.data.noticeId,
+    accountDeletionRequestId: job.data.accountDeletionRequestId,
+    scheduledFor: job.data.scheduledFor,
   });
 });
 

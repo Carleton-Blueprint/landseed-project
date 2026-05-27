@@ -24,6 +24,10 @@
     "worker:manual-review": "tsx src/backend/queue/manualReviewWorker.ts",
     "worker:manual-fallback-export": "tsx src/backend/queue/manualFallbackExportWorker.ts",
     "worker:manual-fallback-export-cleanup": "tsx src/backend/queue/manualFallbackExportCleanupWorker.ts"
+    ,
+    "worker:account-deletion": "tsx src/backend/queue/accountDeletionWorker.ts"
+    ,
+    "worker:account-deletion-finalizer": "tsx src/backend/queue/accountDeletionFinalizerWorker.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.0.0",

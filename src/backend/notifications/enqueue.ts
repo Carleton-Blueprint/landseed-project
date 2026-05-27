@@ -23,6 +23,12 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
       estimateLink: payload.estimateLink,
       estimateMin: payload.estimateMin,
       estimateMax: payload.estimateMax,
+      subject: payload.subject,
+      html: payload.html,
+      text: payload.text,
+      noticeId: payload.noticeId,
+      accountDeletionRequestId: payload.accountDeletionRequestId,
+      scheduledFor: payload.scheduledFor,
     },
     {
       removeOnComplete: 100,
