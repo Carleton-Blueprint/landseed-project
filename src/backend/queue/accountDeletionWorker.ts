@@ -3,7 +3,7 @@ import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { NotificationEventType } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import { AccountDeletionNoticeStatus, AccountDeletionNoticeType } from "@prisma/client";
+import { AccountDeletionNoticeStatus, AccountDeletionNoticeType, Prisma } from "@prisma/client";
 
 const SCAN_INTERVAL_MS = Number(process.env.ACCOUNT_DELETION_SCAN_INTERVAL_MS ?? 15 * 60 * 1000);
 
@@ -18,7 +18,7 @@ type AccountDeletionNoticeJob = {
   recipientName: string | null;
   subject: string | null;
   scheduledFor: Date | null;
-  metadata: Record<string, unknown> | null;
+  metadata: Prisma.JsonValue | null;
 };
 
 async function processNotice(notice: AccountDeletionNoticeJob) {
