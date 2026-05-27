@@ -21,12 +21,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = u.id;
         token.name = u.name;
         token.email = u.email;
+        // Role checks are project-scoped
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user && token.id) {
         (session.user as { id?: string }).id = token.id as string;
+        // propagate role into the session user for easy checks
+        (session.user as { role?: string }).role = token.role as string | undefined;
       }
       return session;
     },
