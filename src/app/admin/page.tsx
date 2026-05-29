@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient";
+import { hasMinimumRole } from "@/backend/auth/requireRole";
 
 export const metadata: Metadata = {
   title: "Admin Dashboard — Landseed Project",
@@ -21,18 +22,8 @@ export default async function AdminDashboardPage() {
     redirect("/api/auth/signin?callbackUrl=/admin");
   }
 
-  /* ---- Check if the user has EDITOR or OWNER role on at least one project ---- */
-  const staffAccess = await prisma.projectAccess.findFirst({
-    where: {
-      userId: session.user.id,
-      role: { in: ["EDITOR", "OWNER"] },
-    },
-    select: { id: true },
-  });
-
-  if (!staffAccess) {
-    redirect("/dashboard");
-  }
+  const isAdmin = await hasMinimumRole(session, "ADMIN");
+  if (!isAdmin) redirect("/dashboard");
 
   /* ---- Fetch all projects ---- */
   const rawProjects = await prisma.project.findMany({
