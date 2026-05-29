@@ -7,8 +7,8 @@ export async function GET(request: Request) {
   try {
     const session = await auth();
     try {
-      // Require STAFF or higher to run the audit verify
-      await requireMinimumRole(session, "STAFF");
+      // Require ADMIN to run the audit verify
+      await requireMinimumRole(session, "ADMIN");
     } catch (err) {
       if (err instanceof HttpError) {
         return new NextResponse(JSON.stringify({ error: err.message }), { status: err.status });

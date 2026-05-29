@@ -15,14 +15,14 @@ export async function middleware(request: NextRequest) {
   let session;
   try {
     session = await auth();
-  } catch (err) {
+  } catch {
     // If auth helper fails, treat as unauthenticated
     session = null;
   }
 
   try {
-    // Require STAFF or higher for admin surface
-    await requireMinimumRole(session, "STAFF");
+    // Require ADMIN for admin surface
+    await requireMinimumRole(session, "ADMIN");
     return NextResponse.next();
   } catch (err) {
     if (err instanceof HttpError) {
