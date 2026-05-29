@@ -54,7 +54,7 @@ describe('FR-3.1 Eligibility Integration Tests', () => {
   });
 
   describe('API integration', () => {
-    it('POST /api/eligibility/assess should evaluate project', () => {
+    it('POST /api/admin/eligibility/assess should evaluate project', () => {
       // In real test:
       // 1. POST request with projectId
       // 2. Get back assessment with decision and staff reasons
