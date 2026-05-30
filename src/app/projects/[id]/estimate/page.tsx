@@ -27,18 +27,87 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
   }
 
   // Find the project and ensure user has access (either OWNER or admin-like)
-  const project = await prisma.project.findUnique({
-    where: { id: params.id },
-    include: {
-      quotes: {
-        orderBy: { generatedAt: 'desc' },
-        take: 1,
+  let project = null;
+  try {
+    project = await prisma.project.findUnique({
+      where: { id: params.id },
+      include: {
+        quotes: {
+          orderBy: { generatedAt: 'desc' },
+          take: 1,
+        },
+        projectAccess: {
+          where: { userId: session.user.id },
+        },
       },
-      projectAccess: {
-        where: { userId: session.user.id },
-      },
-    },
-  });
+    });
+  } catch {
+    if (process.env.NODE_ENV === "development") {
+      project = {
+        id: params.id,
+        address: "123 Dev Lane, Mockville",
+        status: "estimate_ready",
+        userId: "dev-user-id",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        draftData: {
+          modificationItems: ["Grab bars", "Walk-in shower", "Stair lift"],
+        },
+        quotes: [
+          {
+            id: "dev-quote-1",
+            subtotal: 12500,
+            total: 14375,
+            status: "PENDING",
+            generatedAt: new Date(),
+            declinedReason: null,
+            refinedEstimate: {
+              laborTotal: 4500,
+              markupTotal: 1875,
+              estimateMin: 12000,
+              estimateMax: 16000,
+              lineItems: [
+                {
+                  description: "Wheelchair Ramp Installation",
+                  quantity: 1,
+                  lineTotal: 5800,
+                  materialTotal: 3000,
+                  materialUnitCost: 3000,
+                  laborTotal: 2000,
+                  laborHours: 20,
+                  laborRate: 100,
+                  markupTotal: 800,
+                  markupPercentage: 0.16,
+                  pricingSource: "Home Depot Retail API",
+                  pricingLink: "https://homedepot.com",
+                },
+                {
+                  description: "Bathroom Safety Grab Bars (Set of 3)",
+                  quantity: 3,
+                  lineTotal: 450,
+                  materialTotal: 150,
+                  materialUnitCost: 50,
+                  laborTotal: 200,
+                  laborHours: 2,
+                  laborRate: 100,
+                  markupTotal: 100,
+                  markupPercentage: 0.28,
+                  pricingSource: "Lowes Pro API",
+                  pricingLink: "https://lowes.com",
+                },
+              ],
+            },
+          },
+        ],
+        projectAccess: [
+          {
+            userId: "dev-user-id",
+            role: "OWNER",
+          },
+        ],
+      };
+    }
+  }
 
   if (!project) return notFound();
 
