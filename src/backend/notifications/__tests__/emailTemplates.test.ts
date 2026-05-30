@@ -61,20 +61,4 @@ describe("renderEmailTemplate", () => {
     expect(template.text).toContain("Open your estimate");
   });
 
-  it("renders manual fallback export ready template", () => {
-    const template = renderEmailTemplate({
-      eventType: NotificationEventType.MANUAL_FALLBACK_EXPORT_READY,
-      recipientName: "Jordan",
-      projectAddress: "789 Pine Rd",
-      manualFallbackExportLink: "https://example.test/api/project/p1/manual-fallback-export/export-1/download",
-      manualFallbackExportRetentionDays: 7,
-    });
-
-    expect(template.templateName).toBe("manual-fallback-export-ready-v1");
-    expect(template.subject).toContain("fallback export");
-    expect(template.html).toContain("Download the fallback export");
-    expect(template.html).toContain("789 Pine Rd");
-    expect(template.text).toContain("Download the fallback export");
-    expect(template.text).toContain("7 days");
-  });
 });

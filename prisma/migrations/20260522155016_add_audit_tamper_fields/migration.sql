@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "AuditEvent" ALTER COLUMN "signedAt" SET DATA TYPE TIMESTAMP(3);

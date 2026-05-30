@@ -13,6 +13,7 @@
 
 import { createManualReviewWorker } from '@/backend/queue';
 import { prisma } from 'lib/prisma';
+import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { ProjectManualReviewReasonCode } from '@prisma/client';
 
 const worker = createManualReviewWorker(async (job) => {
@@ -159,27 +160,20 @@ async function createAuditEvent({
   reason: ProjectManualReviewReasonCode;
   description: string;
 }): Promise<void> {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        category: 'MANUAL_CHANGE',
-        action,
-        outcome: 'SUCCESS',
-        resourceType: 'ProjectManualReviewFlag',
-        resourceId: flagId,
-        projectId,
-        description,
-        metadata: {
-          ...(assessmentId ? { assessmentId } : {}),
-          reason,
-          timestamp: new Date().toISOString(),
-        },
-      },
-    });
-  } catch (error) {
-    console.warn(`[ManualReview] Failed to create audit event for ${action}:`, error);
-    // Audit creation failure should not block the main operation
-  }
+  await logAuditEventNonBlocking({
+    category: 'MANUAL_CHANGE',
+    action,
+    outcome: 'SUCCESS',
+    resourceType: 'ProjectManualReviewFlag',
+    resourceId: flagId,
+    projectId,
+    description,
+    metadata: {
+      ...(assessmentId ? { assessmentId } : {}),
+      reason,
+      timestamp: new Date().toISOString(),
+    },
+  });
 }
 
 // Graceful shutdown

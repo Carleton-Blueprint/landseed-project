@@ -1,6 +1,7 @@
 import {
   NotificationDeliveryStatus,
   NotificationEventType,
+  AccountDeletionNoticeStatus,
   Prisma,
   CommunicationStatus,
 } from "@prisma/client";
@@ -29,6 +30,14 @@ export type NotificationJobPayload = {
   questionSubject?: string;
   fileName?: string;
   documentType?: string;
+  // Optional overrides
+  subject?: string | null;
+  html?: string | null;
+  text?: string | null;
+  // Account-deletion linkage
+  noticeId?: string | null;
+  accountDeletionRequestId?: string | null;
+  scheduledFor?: string | null;
 };
 
 export interface NotificationDeliveryMetricsInput {
@@ -139,8 +148,6 @@ export async function queueNotification(payload: NotificationJobPayload): Promis
     estimateLink: payload.estimateLink,
     estimateMin: payload.estimateMin,
     estimateMax: payload.estimateMax,
-    manualFallbackExportLink: payload.manualFallbackExportLink,
-    manualFallbackExportRetentionDays: payload.manualFallbackExportRetentionDays,
     questionCategory: payload.questionCategory,
     questionSubject: payload.questionSubject,
     fileName: payload.fileName,
@@ -197,20 +204,22 @@ export async function processNotification(payload: NotificationJobPayload): Prom
     estimateLink: payload.estimateLink,
     estimateMin: payload.estimateMin,
     estimateMax: payload.estimateMax,
-    manualFallbackExportLink: payload.manualFallbackExportLink,
-    manualFallbackExportRetentionDays: payload.manualFallbackExportRetentionDays,
     questionCategory: payload.questionCategory,
     questionSubject: payload.questionSubject,
     fileName: payload.fileName,
     documentType: payload.documentType,
   });
 
+  const finalSubject = payload.subject ?? template.subject;
+  const finalHtml = payload.html ?? template.html;
+  const finalText = payload.text ?? template.text;
+
   try {
     const result = await sendTransactionalEmail({
       to: payload.recipientEmail,
-      subject: template.subject,
-      html: template.html,
-      text: template.text,
+      subject: finalSubject,
+      html: finalHtml,
+      text: finalText,
     });
 
     await prisma.notificationDelivery.update({
@@ -225,28 +234,57 @@ export async function processNotification(payload: NotificationJobPayload): Prom
       },
     });
 
-    if (payload.projectId) {
-        await logCommunication({
-          projectId: payload.projectId,
-          communicationType: "EMAIL",
-          category: getCategoryFromEventType(payload.eventType),
-          recipientEmail: payload.recipientEmail,
-          recipientId: payload.userId,
-          subject: template.subject,
-          contentSummary: generateContentSummary(payload, template),
-          linkedResourceType: getLinkedResourceType(payload.eventType),
-          linkedResourceId: undefined, // Set if you have the actual resource ID
-          status: CommunicationStatus.SENT,
-          metadata: {
-            provider: result.provider,
-            messageId: result.messageId,
-            idempotencyKey: payload.idempotencyKey,
-            eventType: payload.eventType,
+    if (payload.noticeId) {
+      const notice = await prisma.accountDeletionNotice.findUnique({
+        where: { id: payload.noticeId },
+        select: { id: true, noticeType: true, accountDeletionRequestId: true },
+      });
+
+      if (notice) {
+        await prisma.accountDeletionNotice.update({
+          where: { id: notice.id },
+          data: {
+            status: AccountDeletionNoticeStatus.SENT,
+            sentAt: new Date(),
+            metadata: { provider: result.provider, providerMessageId: result.messageId },
+            lastError: null,
           },
         });
+
+        if (notice.noticeType === "ADVANCE_NOTICE") {
+          await prisma.accountDeletionRequest.updateMany({
+            where: { id: notice.accountDeletionRequestId, status: "REQUESTED" },
+            data: { status: "IN_GRACE_PERIOD" },
+          });
+        } else if (notice.noticeType === "FINAL_NOTICE") {
+          await prisma.accountDeletionRequest.updateMany({
+            where: { id: notice.accountDeletionRequestId },
+            data: { status: "READY_FOR_DELETION" },
+          });
+        }
       }
+    }
 
-
+    if (payload.projectId) {
+      await logCommunication({
+        projectId: payload.projectId,
+        communicationType: "EMAIL",
+        category: getCategoryFromEventType(payload.eventType),
+        recipientEmail: payload.recipientEmail,
+        recipientId: payload.userId,
+        subject: template.subject,
+        contentSummary: generateContentSummary(payload, template),
+        linkedResourceType: getLinkedResourceType(payload.eventType),
+        linkedResourceId: undefined,
+        status: CommunicationStatus.SENT,
+        metadata: {
+          provider: result.provider,
+          messageId: result.messageId,
+          idempotencyKey: payload.idempotencyKey,
+          eventType: payload.eventType,
+        },
+      });
+    }
   } catch (error) {
     await prisma.notificationDelivery.update({
       where: { id: delivery.id },
@@ -256,6 +294,21 @@ export async function processNotification(payload: NotificationJobPayload): Prom
         lastError: error instanceof Error ? error.message : "Unknown email send error",
       },
     });
+
+    if (payload.noticeId) {
+      try {
+        await prisma.accountDeletionNotice.update({
+          where: { id: payload.noticeId },
+          data: {
+            status: AccountDeletionNoticeStatus.FAILED,
+            failedAt: new Date(),
+            lastError: error instanceof Error ? error.message : "Unknown email send error",
+          },
+        });
+      } catch (updateErr) {
+        console.error("Failed to mark account deletion notice as failed:", updateErr);
+      }
+    }
 
     if (payload.projectId) {
       try {

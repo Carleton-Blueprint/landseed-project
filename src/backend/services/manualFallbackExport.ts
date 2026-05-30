@@ -4,9 +4,8 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NotificationEventType, ManualFallbackExportStatus } from "@prisma/client";
+import { ManualFallbackExportStatus } from "@prisma/client";
 import { manualFallbackExportQueue } from "@/backend/queue";
-import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { prisma } from "lib/prisma";
 import { deleteObjectFromS3, getSignedDownloadUrlFromS3Url, getSignedDownloadUrl, uploadStreamToS3 } from "lib/s3";
@@ -206,11 +205,6 @@ function getManualFallbackExportSettings(): ManualFallbackExportSettings {
   };
 }
 
-function buildManualFallbackExportDownloadLink(projectId: string, exportRequestId: string): string {
-  const baseUrl = process.env.APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  return `${baseUrl}/api/project/${projectId}/manual-fallback-export/${exportRequestId}/download`;
-}
-
 export function buildManualFallbackExportRequestId(): string {
   return `manual-fallback-export-${randomUUID()}`;
 }
@@ -263,53 +257,6 @@ export async function requestManualFallbackExport(
     retentionDays: settings.retentionDays,
     maxSizeBytes: settings.maxSizeBytes,
   };
-}
-
-async function sendManualFallbackExportNotification(
-  project: ManualFallbackProjectSnapshot,
-  exportRecord: {
-    id: string;
-    retentionDays: number;
-    requestedByEmail: string | null;
-    requestedByName: string | null;
-    s3Key: string | null;
-    expiresAt: Date | null;
-  },
-  requestedByUserId: string
-): Promise<void> {
-  if (!project.user.email && !exportRecord.requestedByEmail) {
-    await logAuditEventNonBlocking({
-      category: "MANUAL_CHANGE",
-      action: "MANUAL_FALLBACK_EXPORT_NOTIFICATION_SKIPPED",
-      outcome: "SUCCESS",
-      sensitivityLevel: "RESTRICTED",
-      actorUserId: requestedByUserId,
-      projectId: project.id,
-      resourceType: "manual_fallback_export",
-      resourceId: exportRecord.id,
-      description: "Manual fallback export notification skipped because no recipient email was available",
-      metadata: {
-        retentionDays: exportRecord.retentionDays,
-      },
-    });
-    return;
-  }
-
-  const recipientEmail = project.user.email ?? exportRecord.requestedByEmail ?? "";
-  const recipientName = project.user.name ?? exportRecord.requestedByName;
-  const downloadLink = buildManualFallbackExportDownloadLink(project.id, exportRecord.id);
-
-  await enqueueNotification({
-    eventType: NotificationEventType.MANUAL_FALLBACK_EXPORT_READY,
-    idempotencyKey: `manual-fallback-export-ready:${exportRecord.id}`,
-    recipientEmail,
-    recipientName,
-    userId: project.user.id,
-    projectId: project.id,
-    projectAddress: project.address,
-    manualFallbackExportLink: downloadLink,
-    manualFallbackExportRetentionDays: exportRecord.retentionDays,
-  });
 }
 
 function buildQuoteSnapshot(quote: ManualFallbackProjectSnapshot["quotes"][number]) {
@@ -521,8 +468,6 @@ export async function processManualFallbackExport(
   });
 
   if (existingExport?.status === ManualFallbackExportStatus.READY && existingExport.s3Key && existingExport.fileName) {
-    await sendManualFallbackExportNotification(project, existingExport, request.requestedByUserId);
-
     return {
       exportRequestId: existingExport.id,
       projectId: project.id,
@@ -582,8 +527,6 @@ export async function processManualFallbackExport(
         lastError: null,
       },
     });
-
-    await sendManualFallbackExportNotification(project, readyExport, request.requestedByUserId);
 
     await logAuditEventNonBlocking({
       category: "MANUAL_CHANGE",

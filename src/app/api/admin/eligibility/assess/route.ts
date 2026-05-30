@@ -1,5 +1,5 @@
 /**
- * API Route: /api/eligibility/assess
+ * API Route: /api/admin/eligibility/assess
  * POST: Evaluate a project's eligibility and save assessment
  * Auth: NextAuth (staff/admin only)
  */

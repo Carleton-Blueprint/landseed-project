@@ -22,6 +22,7 @@ import {
 import { EligibilityDecision } from './types';
 import { EvaluateEligibilityServiceResult } from './service';
 import { prisma } from 'lib/prisma';
+import { logAuditEventNonBlocking } from '@/backend/audit/log';
 
 /**
  * Log assessment created event
@@ -31,29 +32,23 @@ export async function logEligibilityAssessmentCreated(
   assessment: EvaluateEligibilityServiceResult,
   performedBy: User
 ): Promise<void> {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        category: AuditEventCategory.MANUAL_CHANGE,
-        action: 'ELIGIBILITY_ASSESSMENT_CREATED',
-        outcome: AuditEventOutcome.SUCCESS,
-        sensitivityLevel: AuditSensitivityLevel.CONFIDENTIAL,
-        projectId: project.id,
-        actorUserId: performedBy.id,
-        resourceType: 'EligibilityAssessment',
-        resourceId: assessment.assessmentId,
-        description: `Eligibility assessment created: ${assessment.overallDecision}`,
-        metadata: {
-          overallDecision: assessment.overallDecision,
-          programDecisions: assessment.programDecisions,
-          reasonCodes: assessment.reasonCodes,
-          missingRequirements: assessment.missingRequirements,
-        },
-      },
-    });
-  } catch (error) {
-    console.warn('Failed to log eligibility assessment created event:', error);
-  }
+  await logAuditEventNonBlocking({
+    category: AuditEventCategory.MANUAL_CHANGE,
+    action: 'ELIGIBILITY_ASSESSMENT_CREATED',
+    outcome: AuditEventOutcome.SUCCESS,
+    sensitivityLevel: AuditSensitivityLevel.CONFIDENTIAL,
+    projectId: project.id,
+    actorUserId: performedBy.id,
+    resourceType: 'EligibilityAssessment',
+    resourceId: assessment.assessmentId,
+    description: `Eligibility assessment created: ${assessment.overallDecision}`,
+    metadata: {
+      overallDecision: assessment.overallDecision,
+      programDecisions: assessment.programDecisions,
+      reasonCodes: assessment.reasonCodes,
+      missingRequirements: assessment.missingRequirements,
+    },
+  });
 }
 
 /**
@@ -66,29 +61,23 @@ export async function logEligibilityDecisionChanged(
   newDecision: EligibilityDecision,
   performedBy?: User
 ): Promise<void> {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        category: AuditEventCategory.MANUAL_CHANGE,
-        action: 'ELIGIBILITY_DECISION_CHANGED',
-        outcome: AuditEventOutcome.SUCCESS,
-        sensitivityLevel: AuditSensitivityLevel.CONFIDENTIAL,
-        projectId: projectId,
-        actorUserId: performedBy?.id,
-        resourceType: 'EligibilityAssessment',
-        resourceId: assessmentId,
-        description: `Eligibility decision changed: ${oldDecision} → ${newDecision}`,
-        beforeState: { decision: oldDecision },
-        afterState: { decision: newDecision },
-        metadata: {
-          oldDecision,
-          newDecision,
-        },
-      },
-    });
-  } catch (error) {
-    console.warn('Failed to log eligibility decision changed event:', error);
-  }
+  await logAuditEventNonBlocking({
+    category: AuditEventCategory.MANUAL_CHANGE,
+    action: 'ELIGIBILITY_DECISION_CHANGED',
+    outcome: AuditEventOutcome.SUCCESS,
+    sensitivityLevel: AuditSensitivityLevel.CONFIDENTIAL,
+    projectId: projectId,
+    actorUserId: performedBy?.id,
+    resourceType: 'EligibilityAssessment',
+    resourceId: assessmentId,
+    description: `Eligibility decision changed: ${oldDecision} → ${newDecision}`,
+    beforeState: { decision: oldDecision },
+    afterState: { decision: newDecision },
+    metadata: {
+      oldDecision,
+      newDecision,
+    },
+  });
 }
 
 /**
@@ -100,28 +89,22 @@ export async function logEligibilityAssessmentReviewed(
   reviewedBy: User,
   notes?: string
 ): Promise<void> {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        category: AuditEventCategory.SENSITIVE_ACCESS,
-        action: 'ELIGIBILITY_ASSESSMENT_REVIEWED',
-        outcome: AuditEventOutcome.SUCCESS,
-        sensitivityLevel: AuditSensitivityLevel.CONFIDENTIAL,
-        projectId: projectId,
-        actorUserId: reviewedBy.id,
-        resourceType: 'EligibilityAssessment',
-        resourceId: assessmentId,
-        description: `Staff reviewed eligibility assessment${notes ? ': ' + notes : ''}`,
-        metadata: {
-          reviewedBy: reviewedBy.email,
-          reviewNotes: notes,
-          timestamp: new Date().toISOString(),
-        },
-      },
-    });
-  } catch (error) {
-    console.warn('Failed to log eligibility assessment reviewed event:', error);
-  }
+  await logAuditEventNonBlocking({
+    category: AuditEventCategory.SENSITIVE_ACCESS,
+    action: 'ELIGIBILITY_ASSESSMENT_REVIEWED',
+    outcome: AuditEventOutcome.SUCCESS,
+    sensitivityLevel: AuditSensitivityLevel.CONFIDENTIAL,
+    projectId: projectId,
+    actorUserId: reviewedBy.id,
+    resourceType: 'EligibilityAssessment',
+    resourceId: assessmentId,
+    description: `Staff reviewed eligibility assessment${notes ? ': ' + notes : ''}`,
+    metadata: {
+      reviewedBy: reviewedBy.email,
+      reviewNotes: notes,
+      timestamp: new Date().toISOString(),
+    },
+  });
 }
 
 /**
@@ -135,31 +118,25 @@ export async function logEligibilityReEvaluation(
   newDecision: EligibilityDecision,
   reason: string
 ): Promise<void> {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        category: AuditEventCategory.MANUAL_CHANGE,
-        action: 'ELIGIBILITY_REEVALUATED',
-        outcome: AuditEventOutcome.SUCCESS,
-        sensitivityLevel: AuditSensitivityLevel.CONFIDENTIAL,
-        projectId: projectId,
-        resourceType: 'EligibilityAssessment',
-        resourceId: newAssessmentId,
-        description: `Eligibility re-evaluated: ${oldDecision} → ${newDecision}. Reason: ${reason}`,
-        beforeState: { assessmentId: oldAssessmentId, decision: oldDecision },
-        afterState: { assessmentId: newAssessmentId, decision: newDecision },
-        metadata: {
-          oldAssessmentId,
-          newAssessmentId,
-          oldDecision,
-          newDecision,
-          reason,
-        },
-      },
-    });
-  } catch (error) {
-    console.warn('Failed to log eligibility re-evaluation event:', error);
-  }
+  await logAuditEventNonBlocking({
+    category: AuditEventCategory.MANUAL_CHANGE,
+    action: 'ELIGIBILITY_REEVALUATED',
+    outcome: AuditEventOutcome.SUCCESS,
+    sensitivityLevel: AuditSensitivityLevel.CONFIDENTIAL,
+    projectId: projectId,
+    resourceType: 'EligibilityAssessment',
+    resourceId: newAssessmentId,
+    description: `Eligibility re-evaluated: ${oldDecision} → ${newDecision}. Reason: ${reason}`,
+    beforeState: { assessmentId: oldAssessmentId, decision: oldDecision },
+    afterState: { assessmentId: newAssessmentId, decision: newDecision },
+    metadata: {
+      oldAssessmentId,
+      newAssessmentId,
+      oldDecision,
+      newDecision,
+      reason,
+    },
+  });
 }
 
 /**
@@ -170,25 +147,19 @@ export async function logEligibilityNeedsMoreInfo(
   assessmentId: string,
   missingFields: string[]
 ): Promise<void> {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        category: AuditEventCategory.MANUAL_CHANGE,
-        action: 'ELIGIBILITY_NEEDS_MORE_INFO',
-        outcome: AuditEventOutcome.SUCCESS,
-        sensitivityLevel: AuditSensitivityLevel.INTERNAL,
-        projectId: projectId,
-        resourceType: 'EligibilityAssessment',
-        resourceId: assessmentId,
-        description: `Eligibility assessment requires more information: ${missingFields.join(', ')}`,
-        metadata: {
-          missingFields,
-        },
-      },
-    });
-  } catch (error) {
-    console.warn('Failed to log eligibility needs more info event:', error);
-  }
+  await logAuditEventNonBlocking({
+    category: AuditEventCategory.MANUAL_CHANGE,
+    action: 'ELIGIBILITY_NEEDS_MORE_INFO',
+    outcome: AuditEventOutcome.SUCCESS,
+    sensitivityLevel: AuditSensitivityLevel.INTERNAL,
+    projectId: projectId,
+    resourceType: 'EligibilityAssessment',
+    resourceId: assessmentId,
+    description: `Eligibility assessment requires more information: ${missingFields.join(', ')}`,
+    metadata: {
+      missingFields,
+    },
+  });
 }
 
 /**
@@ -199,25 +170,19 @@ export async function logEligibilityAssessmentError(
   errorMessage: string,
   performedBy?: User
 ): Promise<void> {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        category: AuditEventCategory.SENSITIVE_ACCESS,
-        action: 'ELIGIBILITY_ASSESSMENT_FAILED',
-        outcome: AuditEventOutcome.FAILURE,
-        sensitivityLevel: AuditSensitivityLevel.INTERNAL,
-        projectId: projectId,
-        actorUserId: performedBy?.id,
-        resourceType: 'EligibilityAssessment',
-        description: `Eligibility assessment failed: ${errorMessage}`,
-        metadata: {
-          error: errorMessage,
-        },
-      },
-    });
-  } catch (error) {
-    console.warn('Failed to log eligibility assessment error event:', error);
-  }
+  await logAuditEventNonBlocking({
+    category: AuditEventCategory.SENSITIVE_ACCESS,
+    action: 'ELIGIBILITY_ASSESSMENT_FAILED',
+    outcome: AuditEventOutcome.FAILURE,
+    sensitivityLevel: AuditSensitivityLevel.INTERNAL,
+    projectId: projectId,
+    actorUserId: performedBy?.id,
+    resourceType: 'EligibilityAssessment',
+    description: `Eligibility assessment failed: ${errorMessage}`,
+    metadata: {
+      error: errorMessage,
+    },
+  });
 }
 
 /**

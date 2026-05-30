@@ -33,6 +33,12 @@ export const emailQueue = new Queue<{
   estimateMax?: number;
   manualFallbackExportLink?: string | null;
   manualFallbackExportRetentionDays?: number;
+  subject?: string | null;
+  html?: string | null;
+  text?: string | null;
+  noticeId?: string | null;
+  accountDeletionRequestId?: string | null;
+  scheduledFor?: string | null;
 }>("email", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
@@ -95,6 +101,12 @@ export function createEmailWorker(
       estimateLink?: string | null;
       estimateMin?: number;
       estimateMax?: number;
+      subject?: string | null;
+      html?: string | null;
+      text?: string | null;
+      noticeId?: string | null;
+      accountDeletionRequestId?: string | null;
+      scheduledFor?: string | null;
       manualFallbackExportLink?: string | null;
       manualFallbackExportRetentionDays?: number;
     };
