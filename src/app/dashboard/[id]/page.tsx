@@ -118,7 +118,7 @@ export default async function ProjectDetailPage({
         },
       },
     });
-  } catch (error) {
+  } catch {
     if (process.env.NODE_ENV === "development") {
       project = {
         id: resolvedParams.id,
@@ -156,7 +156,7 @@ export default async function ProjectDetailPage({
 
   const estimateSummary = getEstimateSummary(typedProject);
 
-  let photosWithSignedUrls: any[] = [];
+  let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
   try {
     photosWithSignedUrls = await Promise.all(
       project.photos.map(async (photo) => {

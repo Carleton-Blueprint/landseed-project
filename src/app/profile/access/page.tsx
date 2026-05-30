@@ -53,7 +53,7 @@ export default async function AccessManagementPage() {
         user: { id: a.user.id, name: a.user.name, email: a.user.email },
       })),
     }));
-  } catch (error) {
+  } catch {
     // No DB in dev — renders empty access list
   }
 

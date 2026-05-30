@@ -2,7 +2,6 @@
 
 import React from "react";
 import Image from "next/image";
-import { Button } from "@/frontend/components/ui/button";
 import { CameraIcon, HourglassIcon } from "@/frontend/components/icons";
 
 /* ------------------------------------------------------------------ */
