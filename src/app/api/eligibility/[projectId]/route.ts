@@ -125,24 +125,24 @@ export async function GET(
       projectId: assessment.projectId,
       overallDecision: assessment.overallDecision,
       createdAt: assessment.createdAt,
+      discovery: {
+        provider: assessment.discoveryProvider,
+        metadata: assessment.discoveryMetadata,
+        discoveredGrants: assessment.discoveredGrants,
+        version: {
+          engineVersion: assessment.discoveryEngineVersion,
+          promptVersion: assessment.discoveryPromptVersion,
+          scoringVersion: assessment.discoveryScoringVersion,
+          modelVersion: assessment.discoveryModelVersion,
+          sourceSnapshotId: assessment.discoverySourceSnapshotId,
+        },
+      },
       ...(canViewDetailedReasons && {
         // Staff can see detailed information
         detailedReasons: {
           programDecisions: assessment.programDecisions,
           reasonCodes: assessment.reasonCodes,
           missingRequirements: assessment.missingRequirements,
-        },
-        discovery: {
-          provider: assessment.discoveryProvider,
-          metadata: assessment.discoveryMetadata,
-          discoveredGrants: assessment.discoveredGrants,
-          version: {
-            engineVersion: assessment.discoveryEngineVersion,
-            promptVersion: assessment.discoveryPromptVersion,
-            scoringVersion: assessment.discoveryScoringVersion,
-            modelVersion: assessment.discoveryModelVersion,
-            sourceSnapshotId: assessment.discoverySourceSnapshotId,
-          },
         },
       }),
       ...(!canViewDetailedReasons && {

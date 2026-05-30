@@ -83,7 +83,7 @@ export async function gatherPersonalData(userId: string, userEmail: string, user
       projectId: rec.projectId,
       projectAddress: rec.project.address,
       collaboratorName: rec.user.name,
-      collaboratorEmail: rec.user.email,
+      collaboratorEmail: rec.user.email || "",
       role: rec.role,
       grantedAt: rec.createdAt.toISOString(),
     }));
@@ -92,7 +92,7 @@ export async function gatherPersonalData(userId: string, userEmail: string, user
       user: {
         id: userProfile.id,
         name: userProfile.name,
-        email: userProfile.email,
+        email: userProfile.email || userEmail,
         phone: userProfile.phone,
       },
       projects: projects.map((p) => ({
