@@ -5,6 +5,10 @@ import { requireMinimumRole, HttpError } from "@/backend/auth/requireRole";
 const ADMIN_PATHS = ["/admin", "/api/admin"];
 
 export async function middleware(request: NextRequest) {
+  // ── DEV BYPASS: skip auth in local development ──────────────────────
+  if (process.env.NODE_ENV === "development") return NextResponse.next();
+  // ────────────────────────────────────────────────────────────────────
+
   const { pathname } = request.nextUrl;
 
   // Only care about configured admin paths

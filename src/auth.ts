@@ -8,8 +8,11 @@ import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "lib/prisma";
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma),
+const isDev = process.env.NODE_ENV === "development";
+
+const nextAuthResult = NextAuth({
+  // Skip DB adapter in dev — pure JWT sessions, no database needed
+  ...(isDev ? {} : { adapter: PrismaAdapter(prisma) }),
   session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
   pages: {
     signIn: "/auth/signin",
@@ -48,6 +51,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               : "";
           if (!name || !email) return null;
 
+          // ── DEV MODE: skip DB, accept any valid credentials ──────────
+          if (process.env.NODE_ENV === "development") {
+            return {
+              id: "dev-user-" + Buffer.from(email).toString("hex").slice(0, 8),
+              name,
+              email,
+              image: null,
+            };
+          }
+          // ────────────────────────────────────────────────────────────
+
           const user = await prisma.user.findUnique({
             where: { email },
           });
@@ -69,3 +83,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // Prefer AUTH_SECRET but fall back to NEXTAUTH_SECRET for backwards compatibility
   secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
 });
+
+export const handlers = nextAuthResult.handlers;
+export const signIn = nextAuthResult.signIn;
+export const signOut = nextAuthResult.signOut;
+
+// Custom auth wrapper to bypass login in development environment
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const auth = async (...args: any[]) => {
+  console.log("=== CUSTOM AUTH CALLED ===");
+  console.log("NODE_ENV is:", process.env.NODE_ENV);
+  if (process.env.NODE_ENV === "development") {
+    const mockSession = {
+      user: {
+        id: "dev-user-id",
+        name: "Dev User",
+        email: "dev@example.com",
+      },
+      expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+    console.log("Returning mock session:", mockSession);
+    return mockSession;
+  }
+  const realResult = await (nextAuthResult.auth as any)(...args);
+  console.log("Returning real session:", realResult);
+  return realResult;
+};

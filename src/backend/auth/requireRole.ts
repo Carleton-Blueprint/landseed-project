@@ -23,6 +23,9 @@ function parseAllowedEmails(): string[] {
 export async function hasMinimumRole(session: Session | null | undefined, requiredRole: "USER" | "ADMIN"): Promise<boolean> {
   if (!session?.user?.id) return false;
 
+  // In dev, all authenticated users pass all role checks
+  if (process.env.NODE_ENV === "development") return true;
+
   const email = session.user.email?.toLowerCase();
 
   if (requiredRole === "USER") return true;

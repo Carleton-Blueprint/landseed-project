@@ -10,7 +10,7 @@ export default function HomePage() {
     <main className="min-h-screen p-6 md:p-8" role="main">
       <div className="mx-auto max-w-2xl">
         <h1 className="mb-6 text-2xl font-semibold tracking-tight">
-          Digital Intake
+          Request Assessment
         </h1>
         <div className="mb-12">
           <GuidedIntakeForm />

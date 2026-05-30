@@ -199,53 +199,44 @@ function countByScope(grants: DiscoveredGrantSummary[]): Record<string, number> 
 
 export default async function DashboardPage() {
   const session = await auth();
-  if (!session?.user?.id) {
-    redirect("/api/auth/signin?callbackUrl=/dashboard");
-  }
+  if (!session?.user?.id) redirect("/api/auth/signin?callbackUrl=/dashboard");
 
-  const projects = await prisma.project.findMany({
-    where: {
-      projectAccess: {
-        some: { userId: session.user.id },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    include: { photos: true },
-  });
+  let projects: Awaited<ReturnType<typeof prisma.project.findMany<{ include: { photos: true } }>>> = [];
+  let eligibilityByProject = new Map<string, ProjectEligibility>();
+
+  try {
+    projects = await prisma.project.findMany({
+      where: { projectAccess: { some: { userId: session.user.id } } },
+      orderBy: { createdAt: "desc" },
+      include: { photos: true },
+    });
+
+    const projectIds = projects.map((p) => p.id);
+    const assessments = projectIds.length > 0
+      ? await prisma.eligibilityAssessment.findMany({
+          where: { projectId: { in: projectIds }, isLatest: true },
+          orderBy: { createdAt: "desc" },
+        })
+      : [];
+
+    for (const a of assessments) {
+      if (eligibilityByProject.has(a.projectId)) continue;
+      const aExtended = a as typeof a & { discoveredGrants?: unknown; discoveryProvider?: string | null };
+      eligibilityByProject.set(a.projectId, {
+        overallDecision: a.overallDecision,
+        discoveredGrants: Array.isArray(aExtended.discoveredGrants) ? (aExtended.discoveredGrants as DiscoveredGrantSummary[]) : [],
+        provider: aExtended.discoveryProvider ?? null,
+        assessedAt: a.createdAt,
+      });
+    }
+  } catch {
+    // No DB in dev — renders empty dashboard
+  }
 
   const notifications = getMockNotifications(
     projects.map((p) => ({ id: p.id, address: p.address, status: p.status }))
   );
 
-  /* ---- Batch-fetch latest eligibility assessments for all projects ---- */
-  const projectIds = projects.map((p) => p.id);
-  const assessments = projectIds.length > 0
-    ? await prisma.eligibilityAssessment.findMany({
-        where: {
-          projectId: { in: projectIds },
-          isLatest: true,
-        },
-        orderBy: { createdAt: "desc" },
-      })
-    : [];
-
-  const eligibilityByProject = new Map<string, ProjectEligibility>();
-  for (const a of assessments) {
-    if (eligibilityByProject.has(a.projectId)) continue; // already have latest
-    const aExtended = a as typeof a & {
-      discoveredGrants?: unknown;
-      discoveryProvider?: string | null;
-    };
-    const grants = Array.isArray(aExtended.discoveredGrants)
-      ? (aExtended.discoveredGrants as DiscoveredGrantSummary[])
-      : [];
-    eligibilityByProject.set(a.projectId, {
-      overallDecision: a.overallDecision,
-      discoveredGrants: grants,
-      provider: aExtended.discoveryProvider ?? null,
-      assessedAt: a.createdAt,
-    });
-  }
 
   return (
     <main className="relative min-h-screen bg-gray-50 z-0 overflow-hidden">
@@ -280,7 +271,7 @@ export default async function DashboardPage() {
         <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-start sm:justify-between md:px-8">
           <div className="min-w-0">
             <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-              Your Dashboard
+              My Projects
             </h1>
             <p className="mt-1 text-sm text-gray-500">
               Track your home modification projects and AI-discovered grant eligibility.

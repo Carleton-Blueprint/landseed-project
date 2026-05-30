@@ -15,6 +15,32 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (process.env.NODE_ENV === "development") {
+    const session = await auth();
+    const actorUserId = session?.user?.id || "dev-user-id";
+    const actorName = session?.user?.name || "Dev User";
+    const actorEmail = session?.user?.email || "dev@example.com";
+    
+    const mockList = [
+      {
+        role: "OWNER",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
+        user: { id: actorUserId, name: actorName, email: actorEmail },
+      },
+      {
+        role: "EDITOR",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 15).toISOString(),
+        user: { id: "caregiver-1", name: "Dr. Sarah Jenkins (Occupational Therapist)", email: "sarah.jenkins@example.com" },
+      },
+      {
+        role: "VIEWER",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
+        user: { id: "family-1", name: "Michael Miller (Son)", email: "michael.miller@example.com" },
+      },
+    ];
+    return NextResponse.json({ access: mockList });
+  }
+
   const requestContext = getRequestAuditContext(request);
   const { id: projectId } = await params;
 
@@ -93,6 +119,29 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (process.env.NODE_ENV === "development") {
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const { email, role } = body;
+    if (!email || !role) {
+      return NextResponse.json({ error: "email and role are required" }, { status: 400 });
+    }
+    const mockAccess = {
+      role: role.toUpperCase(),
+      createdAt: new Date().toISOString(),
+      user: {
+        id: `mock-user-${Date.now()}`,
+        name: email.split("@")[0].replace(/\b\w/g, (c: string) => c.toUpperCase()),
+        email: email,
+      }
+    };
+    return NextResponse.json({ success: true, access: mockAccess });
+  }
+
   const requestContext = getRequestAuditContext(request);
   const { id: projectId } = await params;
 
@@ -302,4 +351,135 @@ export async function POST(
   });
 
   return NextResponse.json({ success: true, access });
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  if (process.env.NODE_ENV === "development") {
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const { userId } = body;
+    if (!userId) {
+      return NextResponse.json({ error: "userId is required" }, { status: 400 });
+    }
+    return NextResponse.json({ success: true });
+  }
+
+  const requestContext = getRequestAuditContext(request);
+  const { id: projectId } = await params;
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "PROJECT_ACCESS_REVOKE",
+      outcome: "DENIED",
+      sensitivityLevel: "RESTRICTED",
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Unauthenticated project access revoke attempt",
+      ...requestContext,
+    });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const canManageAccess = await hasProjectAccess(
+    session.user.id,
+    projectId,
+    ProjectAccessRole.OWNER
+  );
+  if (!canManageAccess) {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "PROJECT_ACCESS_REVOKE",
+      outcome: "DENIED",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId,
+      resourceType: "project_access",
+      resourceId: projectId,
+      description: "Project access revoke denied — actor is not owner",
+      ...requestContext,
+    });
+    return NextResponse.json({ error: "Only project owners can revoke access" }, { status: 403 });
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const input = body as { userId?: string };
+  const targetUserId = typeof input.userId === "string" ? input.userId.trim() : "";
+
+  if (!targetUserId) {
+    return NextResponse.json({ error: "userId is required" }, { status: 400 });
+  }
+
+  // Look up the project to find its primary creator
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true, userId: true },
+  });
+  if (!project) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
+
+  // Prevent revoking the primary creator's access
+  if (targetUserId === project.userId) {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "PROJECT_ACCESS_REVOKE",
+      outcome: "DENIED",
+      sensitivityLevel: "RESTRICTED",
+      actorUserId: session.user.id,
+      projectId,
+      resourceType: "project_access",
+      resourceId: `${projectId}:${targetUserId}`,
+      description: "Revoke denied — cannot remove primary project creator",
+      ...requestContext,
+    });
+    return NextResponse.json(
+      { error: "Cannot revoke access for the primary project creator" },
+      { status: 400 }
+    );
+  }
+
+  const existingAccess = await prisma.projectAccess.findUnique({
+    where: { projectId_userId: { projectId, userId: targetUserId } },
+    select: { role: true },
+  });
+  if (!existingAccess) {
+    return NextResponse.json({ error: "Access record not found" }, { status: 404 });
+  }
+
+  await prisma.projectAccess.delete({
+    where: { projectId_userId: { projectId, userId: targetUserId } },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "PROJECT_ACCESS_REVOKE",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    actorUserId: session.user.id,
+    projectId,
+    resourceType: "project_access",
+    resourceId: `${projectId}:${targetUserId}`,
+    description: "Project access revoked",
+    beforeState: { role: existingAccess.role, userId: targetUserId },
+    afterState: null,
+    ...requestContext,
+  });
+
+  return NextResponse.json({ success: true });
 }

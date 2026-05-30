@@ -2,7 +2,6 @@
 
 import React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import {
   CheckCircleIcon,
@@ -26,6 +25,7 @@ export interface SerializedProject {
   status: string;
   createdAt: string;
   updatedAt: string;
+  modificationType: string;
   client: {
     id: string;
     name: string | null;
@@ -63,17 +63,6 @@ export interface SerializedProject {
     attempts: number;
     lastError: string | null;
     sentAt: string | null;
-  } | null;
-  manualFallbackExport: {
-    id: string;
-    status: string;
-    requestedAt: string;
-    readyAt: string | null;
-    expiresAt: string | null;
-    fileName: string | null;
-    retentionDays: number;
-    maxSizeBytes: number | null;
-    lastError: string | null;
   } | null;
 }
 
@@ -241,36 +230,10 @@ function StatCard({
 /* ================================================================== */
 
 function ProjectDetailPanel({ project }: { project: SerializedProject }) {
-  const router = useRouter();
-  const [isRequestingExport, setIsRequestingExport] = React.useState(false);
-  const [exportError, setExportError] = React.useState<string | null>(null);
   const eligibility = project.eligibility;
   const quote = project.quote;
   const transfer = project.builderTrendTransfer;
-  const fallbackExport = project.manualFallbackExport;
   const eligibleGrants = eligibility?.discoveredGrants.filter((g) => g.decision === "ELIGIBLE") ?? [];
-
-  async function requestFallbackExport() {
-    setIsRequestingExport(true);
-    setExportError(null);
-
-    try {
-      const response = await fetch(`/api/project/${project.id}/manual-fallback-export`, {
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "Failed to queue export");
-      }
-
-      router.refresh();
-    } catch (error) {
-      setExportError(error instanceof Error ? error.message : "Failed to queue export");
-    } finally {
-      setIsRequestingExport(false);
-    }
-  }
 
   return (
     <div className="border-t bg-gray-50/70 px-6 py-5 space-y-5">
@@ -429,59 +392,6 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
             </div>
           </div>
 
-          {/* Manual fallback export */}
-          <div className="rounded-md border border-dashed border-blue-200 bg-blue-50/60 p-3 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-blue-900">Manual fallback export</p>
-                <p className="text-[11px] text-blue-700">
-                  Bundle quotes, photos, and grants for manual upload if BuilderTrend fails.
-                </p>
-              </div>
-              {fallbackExport?.status === "READY" && fallbackExport.fileName ? (
-                <Button asChild variant="outline" size="sm">
-                  <a href={`/api/project/${project.id}/manual-fallback-export/${fallbackExport.id}/download`}>
-                    Download
-                  </a>
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={requestFallbackExport}
-                  disabled={isRequestingExport}
-                >
-                  {isRequestingExport ? "Queuing…" : "Request export"}
-                </Button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2 text-[11px] text-blue-700">
-              <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
-                {fallbackExport?.status ?? "Not requested"}
-              </span>
-              <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
-                Retention: {fallbackExport?.retentionDays ?? 7} day{(fallbackExport?.retentionDays ?? 7) === 1 ? "" : "s"}
-              </span>
-              {fallbackExport?.expiresAt && (
-                <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
-                  Expires {fmtDate(fallbackExport.expiresAt)}
-                </span>
-              )}
-            </div>
-            {fallbackExport?.lastError && (
-              <p className="text-[11px] text-red-600 truncate" title={fallbackExport.lastError}>
-                Last error: {fallbackExport.lastError}
-              </p>
-            )}
-            {exportError && (
-              <p className="text-[11px] text-red-600">{exportError}</p>
-            )}
-            <p className="text-[10px] text-blue-600/80">
-              Only project owners can queue a new export.
-            </p>
-          </div>
-
           {/* Quick links */}
           <div className="flex gap-2">
             <Link href={`/dashboard/${project.id}`} className="flex-1">
@@ -518,6 +428,7 @@ export function AdminDashboardClient({
   const [filterStatus, setFilterStatus] = React.useState<FilterStatus>("all");
   const [filterConfidence, setFilterConfidence] = React.useState<FilterConfidence>("all");
   const [filterDecision, setFilterDecision] = React.useState<FilterDecision>("all");
+  const [filterModification, setFilterModification] = React.useState<string>("all");
   const [sortKey, setSortKey] = React.useState<SortKey>("newest");
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
 
@@ -546,6 +457,11 @@ export function AdminDashboardClient({
         if (!p.eligibility) return false;
         return p.eligibility.overallDecision === filterDecision;
       });
+    }
+
+    // Modification type filter
+    if (filterModification !== "all") {
+      result = result.filter((p) => p.modificationType === filterModification);
     }
 
     // Text search
@@ -589,13 +505,14 @@ export function AdminDashboardClient({
     });
 
     return result;
-  }, [projects, filterStatus, filterConfidence, filterDecision, sortKey, search]);
+  }, [projects, filterStatus, filterConfidence, filterDecision, filterModification, sortKey, search]);
 
   /* ---- Active filter count (for the badge) ---- */
   const activeFilterCount =
     (filterStatus !== "all" ? 1 : 0) +
     (filterConfidence !== "all" ? 1 : 0) +
-    (filterDecision !== "all" ? 1 : 0);
+    (filterDecision !== "all" ? 1 : 0) +
+    (filterModification !== "all" ? 1 : 0);
 
   /* ---- Stats ---- */
   const totalProjects = projects.length;
@@ -626,30 +543,20 @@ export function AdminDashboardClient({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-                Advisory Team Dashboard
+                Advisor Panel
               </h1>
               <p className="mt-0.5 text-sm text-gray-500">
                 Welcome back, {userName}. Monitor all project requests and AI-driven assessments.
               </p>
             </div>
-            <div className="flex gap-2">
-              <Link href="/admin/flagged-projects">
-                <Button variant="outline" className="gap-1.5 text-sm">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c.866 1.08.969 2.178.75 3.124M15.75 12c0 .866-.166 1.693-.484 2.449m0 0c.574.575 1.088 1.09 1.56 1.409M9.75 15c0 .866.166 1.693.484 2.449m0 0c-.574.575-1.088 1.09-1.56 1.409M21 12a9 9 0 11-18 0 9 9 0 0118 0Z" />
-                  </svg>
-                  Flagged Projects
-                </Button>
-              </Link>
-              <Link href="/dashboard">
-                <Button variant="outline" className="gap-1.5 text-sm">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                  </svg>
-                  Client Dashboard
-                </Button>
-              </Link>
-            </div>
+            <Link href="/dashboard">
+              <Button variant="outline" className="gap-1.5 text-sm">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                </svg>
+                My Projects
+              </Button>
+            </Link>
           </div>
         </div>
       </div>
@@ -773,6 +680,24 @@ export function AdminDashboardClient({
               <option value="INELIGIBLE">Ineligible</option>
             </select>
 
+            {/* Modification Type filter */}
+            <select
+              id="filter-modification"
+              value={filterModification}
+              onChange={(e) => setFilterModification(e.target.value)}
+              className={`rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 ${filterModification !== "all"
+                  ? "border-blue-300 bg-blue-50 text-blue-700 font-medium"
+                  : "border-gray-200 bg-gray-50 text-gray-600"
+                }`}
+            >
+              <option value="all">Modification: All</option>
+              <option value="GRAB_BARS">Grab Bars</option>
+              <option value="RAMPS">Wheelchair Ramps</option>
+              <option value="STAIR_LIFT">Stair Lift</option>
+              <option value="SHOWER">Walk-in Shower</option>
+              <option value="DOORS">Door Widening</option>
+            </select>
+
             {/* Clear all filters */}
             {activeFilterCount > 0 && (
               <button
@@ -781,6 +706,7 @@ export function AdminDashboardClient({
                   setFilterStatus("all");
                   setFilterConfidence("all");
                   setFilterDecision("all");
+                  setFilterModification("all");
                   setSearch("");
                 }}
                 className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-100"
@@ -835,6 +761,21 @@ export function AdminDashboardClient({
                               <span className={`h-1.5 w-1.5 rounded-full ${statusConfig.dot}`} />
                               {statusConfig.label}
                             </span>
+
+                            <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
+                              project.modificationType === "GRAB_BARS" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                              project.modificationType === "RAMPS" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                              project.modificationType === "STAIR_LIFT" ? "bg-violet-50 text-violet-700 border-violet-200" :
+                              project.modificationType === "SHOWER" ? "bg-teal-50 text-teal-700 border-teal-200" :
+                              "bg-amber-50 text-amber-700 border-amber-200"
+                            }`}>
+                              {project.modificationType === "GRAB_BARS" ? "Grab Bars" :
+                               project.modificationType === "RAMPS" ? "Wheelchair Ramps" :
+                               project.modificationType === "STAIR_LIFT" ? "Stair Lift" :
+                               project.modificationType === "SHOWER" ? "Walk-in Shower" :
+                               "Door Widening"}
+                            </span>
+
                             <span>{fmtDate(project.createdAt)}</span>
                           </div>
                         </div>
