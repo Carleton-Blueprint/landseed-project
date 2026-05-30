@@ -29,6 +29,17 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    if (process.env.NODE_ENV === "development") {
+      return NextResponse.json({
+        success: true,
+        quote: {
+          id: resolvedParams.id,
+          status: "PENDING",
+          lastClientActivityAt: new Date().toISOString(),
+        }
+      }, { status: 200 });
+    }
+
     const quote = await prisma.quote.findUnique({
       where: { id: resolvedParams.id },
       include: {

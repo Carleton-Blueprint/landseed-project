@@ -303,7 +303,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
         {/* Accept/Decline Component */}
         <EstimateClientComponent
           quoteId={latestQuote.id}
-          initialStatus={latestQuote.status}
+          initialStatus={latestQuote.status as any}
           initialReason={latestQuote.declinedReason}
         />
 
