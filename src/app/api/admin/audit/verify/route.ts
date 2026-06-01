@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyAuditChain } from "@/backend/audit/verify";
 import { auth } from "@/auth";
 import { requireMinimumRole, HttpError } from "@/backend/auth/requireRole";
-import { getRequestAuditContext } from "@/backend/audit/log";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
 
 export async function GET(request: Request) {

@@ -6,7 +6,7 @@
 
 import { auth } from '@/auth';
 import { hasProjectAccess } from '@/backend/auth/projectAccess';
-import { getRequestAuditContext } from '@/backend/audit/log';
+import { getRequestAuditContext } from '@/backend/audit/requestContext';
 import { logDeniedAdminAccessAttempt } from '@/backend/audit/adminAccess';
 import { evaluateProjectEligibility } from '@/backend/eligibility/service';
 import { prisma } from 'lib/prisma';

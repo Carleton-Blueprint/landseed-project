@@ -35,7 +35,7 @@ jest.mock("@/backend/audit/adminAccess", () => ({
   logDeniedAdminAccessAttempt: jest.fn<() => Promise<void>>(() => Promise.resolve(undefined)),
 }));
 
-jest.mock("@/backend/audit/log", () => ({
+jest.mock("@/backend/audit/requestContext", () => ({
   getRequestAuditContext: jest.fn(() => ({ ipAddress: "198.51.100.1", userAgent: "jest" })),
 }));
 

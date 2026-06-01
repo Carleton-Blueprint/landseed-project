@@ -24,7 +24,7 @@ jest.mock("@/backend/eligibility/service", () => ({
   evaluateProjectEligibility: jest.fn(),
 }));
 
-jest.mock("@/backend/audit/log", () => ({
+jest.mock("@/backend/audit/requestContext", () => ({
   getRequestAuditContext: jest.fn(() => ({ ipAddress: "198.51.100.2", userAgent: "jest" })),
 }));
 

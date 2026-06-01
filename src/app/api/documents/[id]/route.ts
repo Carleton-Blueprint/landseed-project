@@ -7,7 +7,8 @@ import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { ProjectAccessRole } from "@prisma/client";
-import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
 
 export async function DELETE(
   request: Request,
