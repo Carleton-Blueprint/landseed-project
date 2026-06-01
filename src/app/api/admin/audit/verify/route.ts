@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { verifyAuditChain } from "@/backend/audit/verify";
 import { auth } from "@/auth";
 import { requireMinimumRole, HttpError } from "@/backend/auth/requireRole";
+import { getRequestAuditContext } from "@/backend/audit/log";
+import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
 
 export async function GET(request: Request) {
   try {
@@ -11,6 +13,23 @@ export async function GET(request: Request) {
       await requireMinimumRole(session, "ADMIN");
     } catch (err) {
       if (err instanceof HttpError) {
+        const auditContext = getRequestAuditContext(request);
+        await logDeniedAdminAccessAttempt({
+          surface: "route",
+          actorUserId: session?.user?.id ?? null,
+          routePath: new URL(request.url).pathname,
+          method: request.method,
+          resourceType: "AdminRoute",
+          resourceId: "/api/admin/audit/verify",
+          reason: err.message,
+          description: "Denied access to audit verification route",
+          ...auditContext,
+          metadata: {
+            source: "route-handler",
+            requiredRole: "ADMIN",
+          },
+        });
+
         return new NextResponse(JSON.stringify({ error: err.message }), { status: err.status });
       }
       return new NextResponse(JSON.stringify({ error: "forbidden" }), { status: 403 });

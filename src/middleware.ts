@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { requireMinimumRole, HttpError } from "@/backend/auth/requireRole";
+import { getRequestAuditContext } from "@/backend/audit/log";
+import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
 
 const ADMIN_PATHS = ["/admin", "/api/admin"];
 
@@ -26,6 +28,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   } catch (err) {
     if (err instanceof HttpError) {
+      const auditContext = getRequestAuditContext(request);
+      await logDeniedAdminAccessAttempt({
+        surface: "route",
+        actorUserId: session?.user?.id ?? null,
+        routePath: pathname,
+        method: request.method,
+        resourceType: "AdminRoute",
+        resourceId: pathname,
+        reason: err.message,
+        description: `Denied access to admin route ${pathname}`,
+        ...auditContext,
+        metadata: {
+          source: "middleware",
+          requiredRole: "ADMIN",
+        },
+      });
+
       if (!session?.user?.id) {
         // redirect unauthenticated browser requests to sign-in
         if (request.headers.get("accept")?.includes("text/html")) {
