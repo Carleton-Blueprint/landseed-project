@@ -3,7 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { getSignedDownloadUrl } from "lib/s3";
-import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
 
 const DEFAULT_DOWNLOAD_EXPIRY_SECONDS = 3600;
 const MIN_DOWNLOAD_EXPIRY_SECONDS = 60;

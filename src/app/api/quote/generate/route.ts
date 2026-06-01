@@ -9,7 +9,8 @@ import { auth } from '@/auth';
 import { generateQuote } from '@/backend/services/quote';
 import { markEstimateReadyForReview } from '@/backend/services/estimateReadyTransition';
 import { ESTIMATE_READY_TRIGGER_SOURCE } from '@/backend/notifications/estimateReadyContract';
-import { getRequestAuditContext, logAuditEventNonBlocking } from '@/backend/audit/log';
+import { logAuditEventNonBlocking } from '@/backend/audit/log';
+import { getRequestAuditContext } from '@/backend/audit/requestContext';
 
 export async function POST(req: NextRequest) {
   const requestContext = getRequestAuditContext(req);

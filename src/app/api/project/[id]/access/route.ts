@@ -3,7 +3,8 @@ import { ProjectAccessRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
 
 const VALID_ROLES = new Set<ProjectAccessRole>([
   ProjectAccessRole.OWNER,
