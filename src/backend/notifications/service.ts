@@ -194,7 +194,15 @@ export async function processNotification(payload: NotificationJobPayload): Prom
     throw new Error(`Notification delivery record not found for ${payload.idempotencyKey}`);
   }
 
-  if (delivery.status === NotificationDeliveryStatus.SENT) {
+  const claimed = await prisma.notificationDelivery.updateMany({
+    where: {
+      idempotencyKey: payload.idempotencyKey,
+      status: { not: NotificationDeliveryStatus.SENT },
+    },
+    data: { status: NotificationDeliveryStatus.PROCESSING },
+  });
+
+  if (claimed.count === 0) {
     return;
   }
 
