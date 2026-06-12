@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextFetchEvent, NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { requireMinimumRole, HttpError } from "@/backend/auth/requireRole";
+import { queueDeniedAdminAccessAudit } from "@/backend/audit/adminAccessDispatch";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
 
 const ADMIN_PATHS = ["/admin", "/api/admin"];
 
-export async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest, event: NextFetchEvent) {
   // ── DEV BYPASS: skip auth in local development ──────────────────────
   if (process.env.NODE_ENV === "development") return NextResponse.next();
   // ────────────────────────────────────────────────────────────────────
@@ -30,6 +32,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   } catch (err) {
     if (err instanceof HttpError) {
+      const auditContext = getRequestAuditContext(request);
+      queueDeniedAdminAccessAudit(event, request, {
+        surface: 'route',
+        actorUserId: session?.user?.id ?? null,
+        routePath: pathname,
+        method: request.method,
+        resourceType: 'AdminRoute',
+        resourceId: pathname,
+        reason: err.message,
+        description: `Denied access to admin route ${pathname}`,
+        ...auditContext,
+        metadata: {
+          source: 'middleware',
+          requiredRole: 'ADMIN',
+        },
+      });
+
       if (!session?.user?.id) {
         // redirect unauthenticated browser requests to sign-in
         if (request.headers.get("accept")?.includes("text/html")) {

@@ -617,6 +617,7 @@ enum AccountDeletionNoticeStatus {
 
 enum NotificationDeliveryStatus {
   PENDING
+  PROCESSING
   SENT
   FAILED
 }

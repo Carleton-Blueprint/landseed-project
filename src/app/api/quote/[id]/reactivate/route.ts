@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { NotificationEventType, QuoteStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
-import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
 
 export async function POST(
