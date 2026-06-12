@@ -3,7 +3,7 @@
  * Used by the API route handler and by auth(), signIn(), signOut() across the app.
  * v5 supports Next.js 15; requires AUTH_SECRET in env.
  */
-import NextAuth from "next-auth";
+import NextAuth, { Session } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "lib/prisma";
@@ -90,7 +90,7 @@ export const signOut = nextAuthResult.signOut;
 
 // Custom auth wrapper to bypass login in development environment
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const auth = async (...args: any[]) => {
+export const auth = async (...args: any[]): Promise<Session | null> => {
   console.log("=== CUSTOM AUTH CALLED ===");
   console.log("NODE_ENV is:", process.env.NODE_ENV);
   if (process.env.NODE_ENV === "development") {
@@ -105,7 +105,7 @@ export const auth = async (...args: any[]) => {
     console.log("Returning mock session:", mockSession);
     return mockSession;
   }
-  const realResult = await (nextAuthResult.auth as any)(...args);
+  const realResult = await (nextAuthResult.auth as unknown as (...args: unknown[]) => Promise<Session | null>)(...args);
   console.log("Returning real session:", realResult);
   return realResult;
 };

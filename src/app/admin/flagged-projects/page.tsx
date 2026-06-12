@@ -20,6 +20,28 @@ const reasonBadgeColor: Record<string, string> = {
   BOTH: "bg-red-100 text-red-800 border border-red-300",
 };
 
+interface FlaggedProject {
+  id: string;
+  reason: string;
+  description: string | null;
+  createdAt: Date;
+  lastEvaluatedAt: Date;
+  project: {
+    id: string;
+    name: string;
+    createdAt: Date;
+    user: {
+      id: string;
+      name: string | null;
+      email: string | null;
+    };
+    _count: {
+      eligibilityAssessments: number;
+      quotes: number;
+    };
+  };
+}
+
 export default async function FlaggedProjectsPage() {
   const session = await auth();
 
@@ -27,7 +49,7 @@ export default async function FlaggedProjectsPage() {
     redirect("/api/auth/signin?callbackUrl=/admin/flagged-projects");
   }
 
-  let flaggedProjects: any[] = [];
+  let flaggedProjects: FlaggedProject[] = [];
   try {
     const staffAccess = await prisma.projectAccess.findFirst({
       where: {
@@ -86,7 +108,7 @@ export default async function FlaggedProjectsPage() {
         };
       })
       .filter((flaggedProject): flaggedProject is NonNullable<typeof flaggedProject> => Boolean(flaggedProject));
-  } catch (error) {
+  } catch {
     console.log("Database fetch failed in admin flagged projects page, using empty fallback.");
   }
 

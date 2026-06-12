@@ -15,7 +15,7 @@
  * Run with: npm run test -- --testPathPattern=manualReviewIntegration
  */
 
-import { prisma } from "@/lib/prisma";
+import { prisma } from "lib/prisma";
 import { evaluateProjectEligibility } from "@/backend/eligibility/service";
 import { manualReviewQueue, createManualReviewWorker } from "@/backend/queue";
 import { FeatureFlag, isFeatureFlagEnabled } from "@/backend/features/flags";

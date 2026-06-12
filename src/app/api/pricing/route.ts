@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   try {
     const result = await getMaterialPrice(query);
     return Response.json(result);
-  } catch (error) {
+  } catch {
     return Response.json(
       { error: "Failed to fetch pricing" },
       { status: 500 }

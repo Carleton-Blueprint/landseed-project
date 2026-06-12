@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { Session } from "next-auth";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
+
 import {
   gatherPersonalData,
   generatePersonalDataCsv,
@@ -14,8 +17,9 @@ export async function GET(
   const requestContext = getRequestAuditContext(request);
   const { format } = await params;
 
+  let session: Session | null = null;
   try {
-    const session = await auth();
+    session = await auth();
 
     // 1. Authenticate user session
     if (!session?.user?.id || !session?.user?.email) {
@@ -25,6 +29,8 @@ export async function GET(
         outcome: "DENIED",
         sensitivityLevel: "RESTRICTED",
         description: "Unauthenticated personal data export request attempt",
+        resourceType: "PersonalData",
+        resourceId: "anonymous",
         ...requestContext,
       });
 
@@ -46,6 +52,8 @@ export async function GET(
         sensitivityLevel: "RESTRICTED",
         actorUserId: userId,
         description: `Failed personal data export: invalid format requested (${format})`,
+        resourceType: "PersonalData",
+        resourceId: userId,
         ...requestContext,
       });
 
@@ -69,10 +77,12 @@ export async function GET(
         sensitivityLevel: "RESTRICTED",
         actorUserId: userId,
         description: "Client successfully exported personal data in PDF format",
+        resourceType: "PersonalData",
+        resourceId: userId,
         ...requestContext,
       });
 
-      return new NextResponse(pdfBuffer, {
+      return new NextResponse(new Uint8Array(pdfBuffer), {
         headers: {
           "Content-Type": "application/pdf",
           "Content-Disposition": "attachment; filename=personal_data_export.pdf",
@@ -90,10 +100,12 @@ export async function GET(
         sensitivityLevel: "RESTRICTED",
         actorUserId: userId,
         description: "Client successfully exported personal data in CSV format",
+        resourceType: "PersonalData",
+        resourceId: userId,
         ...requestContext,
       });
 
-      return new NextResponse(csvBuffer, {
+      return new NextResponse(new Uint8Array(csvBuffer), {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": "attachment; filename=personal_data_export.csv",
@@ -113,6 +125,8 @@ export async function GET(
       metadata: {
         errorMessage: error instanceof Error ? error.message : "Unknown export error",
       },
+      resourceType: "PersonalData",
+      resourceId: session?.user?.id ?? "anonymous",
       ...requestContext,
     });
 

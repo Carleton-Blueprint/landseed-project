@@ -6,7 +6,8 @@ import { auth } from "@/auth";
 import { EstimateClientComponent } from "./EstimateClientComponent";
 import { AskQuestionPanel } from "@/frontend/components/AskQuestionPanel";
 import { ProjectTimeline } from "@/frontend/components/ProjectTimeline";
-import { getAuditContextFromHeaders, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { getAuditContextFromHeaders } from "@/backend/audit/requestContext";
 import type { RefinedEstimate } from "@/backend/services/refinedEstimate";
 
 function modificationItemsFromDraft(draftData: unknown): string[] {
@@ -303,7 +304,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
         {/* Accept/Decline Component */}
         <EstimateClientComponent
           quoteId={latestQuote.id}
-          initialStatus={latestQuote.status as any}
+          initialStatus={latestQuote.status as "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED"}
           initialReason={latestQuote.declinedReason}
         />
 

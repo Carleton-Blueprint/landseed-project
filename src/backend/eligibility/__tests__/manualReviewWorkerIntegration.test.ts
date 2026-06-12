@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "lib/prisma";
 import { manualReviewQueue, createManualReviewWorker } from "@/backend/queue";
 import { AuditEventAction, ProjectManualReviewReasonCode } from "@prisma/client";
 import type { Job } from "bullmq";

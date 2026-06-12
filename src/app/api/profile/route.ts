@@ -33,7 +33,7 @@ function readMockProfile(defaultUser: { id: string; name: string; email: string 
   };
 }
 
-function writeMockProfile(data: { name: string; email: string; phone: string | null | undefined }) {
+function writeMockProfile(data: { name: string; email: string; phone?: string | null | undefined }) {
   const dir = path.dirname(MOCK_DB_FILE);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

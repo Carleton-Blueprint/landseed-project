@@ -202,7 +202,7 @@ export default async function DashboardPage() {
   if (!session?.user?.id) redirect("/api/auth/signin?callbackUrl=/dashboard");
 
   let projects: Awaited<ReturnType<typeof prisma.project.findMany<{ include: { photos: true } }>>> = [];
-  let eligibilityByProject = new Map<string, ProjectEligibility>();
+  const eligibilityByProject = new Map<string, ProjectEligibility>();
 
   try {
     projects = await prisma.project.findMany({

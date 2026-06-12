@@ -121,7 +121,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   if (process.env.NODE_ENV === "development") {
-    let body: any;
+    let body: { email?: string; role?: string };
     try {
       body = await request.json();
     } catch {
@@ -359,7 +359,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   if (process.env.NODE_ENV === "development") {
-    let body: any;
+    let body: { userId?: string };
     try {
       body = await request.json();
     } catch {
