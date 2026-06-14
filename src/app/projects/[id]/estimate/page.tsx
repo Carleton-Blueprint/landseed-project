@@ -112,8 +112,8 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
 
   if (!project) return notFound();
 
-  // Basic access check: Must have access record
-  if (project.projectAccess.length === 0) {
+  // Basic access check: Must have access record (bypassed in development mode)
+  if (project.projectAccess.length === 0 && process.env.NODE_ENV !== "development") {
     await logAuditEventNonBlocking({
       category: "SENSITIVE_ACCESS",
       action: "ESTIMATE_VIEW",

@@ -25,6 +25,8 @@ import { FeatureFlag, isFeatureFlagEnabled } from "@/backend/features/flags";
 import { Worker } from "bullmq";
 import Redis from "ioredis";
 
+jest.setTimeout(15000);
+
 describe("FR-2.6: Manual Review Integration Tests", () => {
   let worker: Worker;
   let redisClient: Redis;
@@ -40,7 +42,6 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
   ];
 
   beforeAll(async () => {
-    jest.setTimeout(15000);
     redisClient = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
 
     // Clean up any stale test users
