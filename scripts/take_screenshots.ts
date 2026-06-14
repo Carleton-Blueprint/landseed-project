@@ -9,8 +9,8 @@ async function main() {
   await page.setViewportSize({ width: 1280, height: 900 });
 
   const routes = [
-    { name: "my_projects", url: "http://localhost:3000/dashboard" },
-    { name: "caregivers", url: "http://localhost:3000/profile/access" },
+    { name: "project_tracker", url: "http://localhost:3000/dashboard" },
+    { name: "share_access", url: "http://localhost:3000/profile/access" },
     { name: "advisor_panel", url: "http://localhost:3000/admin" },
     { name: "profile", url: "http://localhost:3000/profile" },
     { name: "estimate_timeline", url: "http://localhost:3000/projects/dev-project-id/estimate" },
@@ -26,7 +26,7 @@ async function main() {
 
       if (r.name === "estimate_timeline") {
         // 1. Take initial screenshot
-        const path = `/Users/diandrainturire/.gemini/antigravity/brain/8c49e1b5-989d-41b3-b456-9e89d3bfdddf/${r.name}.png`;
+        const path = `/Users/diandrainturire/.gemini/antigravity/brain/56f247bc-e56b-46e1-8d59-11e479da592d/${r.name}.png`;
         console.log(`Taking initial screenshot for ${r.name} at ${path}...`);
         await page.screenshot({ path, fullPage: true });
 
@@ -51,7 +51,7 @@ async function main() {
         await page.waitForTimeout(200);
 
         // 6. Capture filled survey screenshot
-        const surveyPath = `/Users/diandrainturire/.gemini/antigravity/brain/8c49e1b5-989d-41b3-b456-9e89d3bfdddf/decline_survey_filled.png`;
+        const surveyPath = `/Users/diandrainturire/.gemini/antigravity/brain/56f247bc-e56b-46e1-8d59-11e479da592d/decline_survey_filled.png`;
         console.log(`Taking screenshot for filled survey at ${surveyPath}...`);
         await page.screenshot({ path: surveyPath, fullPage: true });
 
@@ -61,11 +61,11 @@ async function main() {
         await page.waitForTimeout(3000);
 
         // 8. Capture submitted banner
-        const submittedPath = `/Users/diandrainturire/.gemini/antigravity/brain/8c49e1b5-989d-41b3-b456-9e89d3bfdddf/decline_survey_submitted.png`;
+        const submittedPath = `/Users/diandrainturire/.gemini/antigravity/brain/56f247bc-e56b-46e1-8d59-11e479da592d/decline_survey_submitted.png`;
         console.log(`Taking screenshot for submitted decline banner at ${submittedPath}...`);
         await page.screenshot({ path: submittedPath, fullPage: true });
       } else {
-        const path = `/Users/diandrainturire/.gemini/antigravity/brain/8c49e1b5-989d-41b3-b456-9e89d3bfdddf/${r.name}.png`;
+        const path = `/Users/diandrainturire/.gemini/antigravity/brain/56f247bc-e56b-46e1-8d59-11e479da592d/${r.name}.png`;
         console.log(`Taking screenshot for ${r.name} at ${path}...`);
         await page.screenshot({ path, fullPage: true });
       }

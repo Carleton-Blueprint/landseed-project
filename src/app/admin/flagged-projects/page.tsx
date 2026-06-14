@@ -2,6 +2,7 @@ import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
+import { hasMinimumRole } from "@/backend/auth/requireRole";
 
 export const metadata: Metadata = {
   title: "Flagged Projects — Landseed Project Admin",
@@ -51,15 +52,8 @@ export default async function FlaggedProjectsPage() {
 
   let flaggedProjects: FlaggedProject[] = [];
   try {
-    const staffAccess = await prisma.projectAccess.findFirst({
-      where: {
-        userId: session.user.id,
-        role: { in: ["EDITOR", "OWNER"] },
-      },
-      select: { id: true },
-    });
-
-    if (!staffAccess && process.env.NODE_ENV !== "development") {
+    const isAdmin = await hasMinimumRole(session, "ADMIN");
+    if (!isAdmin) {
       redirect("/dashboard");
     }
 

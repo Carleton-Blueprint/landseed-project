@@ -7,6 +7,7 @@ import NextAuth, { Session } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "lib/prisma";
+import { hasMinimumRole } from "@/backend/auth/requireRole";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -30,6 +31,10 @@ const nextAuthResult = NextAuth({
     async session({ session, token }) {
       if (session.user && token.id) {
         (session.user as { id?: string }).id = token.id as string;
+        
+        // Expose user role to client side
+        const isAdmin = await hasMinimumRole(session, "ADMIN");
+        session.user.role = isAdmin ? "ADMIN" : "USER";
       }
       return session;
     },
@@ -91,10 +96,8 @@ export const signOut = nextAuthResult.signOut;
 // Custom auth wrapper to bypass login in development environment
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const auth = async (...args: any[]): Promise<Session | null> => {
-  console.log("=== CUSTOM AUTH CALLED ===");
-  console.log("NODE_ENV is:", process.env.NODE_ENV);
   if (process.env.NODE_ENV === "development") {
-    const mockSession = {
+    return {
       user: {
         id: "dev-user-id",
         name: "Dev User",
@@ -102,10 +105,6 @@ export const auth = async (...args: any[]): Promise<Session | null> => {
       },
       expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     };
-    console.log("Returning mock session:", mockSession);
-    return mockSession;
   }
-  const realResult = await (nextAuthResult.auth as unknown as (...args: unknown[]) => Promise<Session | null>)(...args);
-  console.log("Returning real session:", realResult);
-  return realResult;
+  return await (nextAuthResult.auth as unknown as (...args: unknown[]) => Promise<Session | null>)(...args);
 };

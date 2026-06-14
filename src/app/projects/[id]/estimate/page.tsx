@@ -304,6 +304,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
         {/* Accept/Decline Component */}
         <EstimateClientComponent
           quoteId={latestQuote.id}
+          projectId={project.id}
           initialStatus={latestQuote.status as "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED"}
           initialReason={latestQuote.declinedReason}
         />

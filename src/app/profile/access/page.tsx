@@ -13,8 +13,8 @@ import {
 } from "@/frontend/components/AccessManagementClient";
 
 export const metadata = {
-  title: "Caregivers — Landseed",
-  description: "Manage caregiver and family member access to your projects.",
+  title: "Share Access — Landseed",
+  description: "Manage trusted access to your projects.",
 };
 
 export default async function AccessManagementPage() {
@@ -132,16 +132,16 @@ export default async function AccessManagementPage() {
             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
             </svg>
-            <span className="font-medium text-gray-900">Caregivers</span>
+            <span className="font-medium text-gray-900">Share Access</span>
           </nav>
 
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-                Caregivers
+                Share Access
               </h1>
               <p className="mt-1 text-sm text-gray-500">
-                Manage access permissions for your caregivers and family members.
+                Manage access permissions for your family members and caregivers.
               </p>
             </div>
 

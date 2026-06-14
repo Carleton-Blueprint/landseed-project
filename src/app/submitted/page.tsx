@@ -80,7 +80,7 @@ export default async function SubmittedPage({ searchParams }: SubmittedPageProps
             Submission successful!
           </h1>
           <p className="mt-3 max-w-xl text-base text-gray-700 md:text-lg">
-            Thanks for finalizing your intake. Here’s what happens next with your
+            Thanks for submitting your request. Here’s what happens next with your
             estimate — so you know exactly what to expect.
           </p>
         </div>
@@ -122,7 +122,7 @@ export default async function SubmittedPage({ searchParams }: SubmittedPageProps
                   Initial estimate range — available now
                 </h3>
                 <p className="mt-1 text-sm text-gray-700">
-                  Right after you finalize your intake, we generate an automatic{" "}
+                  Right after you submit your request, we generate an automatic{" "}
                   <strong>price range (min–max)</strong> based on your selected
                   modifications and live retail pricing data. It’s a range (not a
                   single fixed price) so you always see the realistic spread.
@@ -150,7 +150,7 @@ export default async function SubmittedPage({ searchParams }: SubmittedPageProps
                   <strong>next business day</strong>.
                 </p>
                 <p className="mt-2 text-sm text-gray-500">
-                  We’ll email you and post a notification on your dashboard as
+                  We’ll email you and post a notification in your projects list as
                   soon as it’s ready.
                 </p>
               </div>
@@ -161,7 +161,7 @@ export default async function SubmittedPage({ searchParams }: SubmittedPageProps
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link href="/dashboard" className="w-full sm:w-auto">
             <Button className="w-full sm:w-auto" size="lg">
-              Go to my dashboard
+              Go to projects
             </Button>
           </Link>
           {projectId && (

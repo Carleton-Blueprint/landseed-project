@@ -9,6 +9,7 @@ import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
 import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
 import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
+import { ConsultationScheduler } from "@/frontend/components/ConsultationScheduler";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -36,9 +37,9 @@ function getEstimateSummary(project: {
 
   if (!isFinalized) {
     return {
-      value: "Available after intake finalization",
+      value: "Available after project finalization",
       explanation:
-        "Your initial estimate range will appear here after intake finalization. Pricing is dynamically generated from real-time external retail data.",
+        "Your initial estimate range will appear here after your project request is finalized. Pricing is dynamically generated from real-time external retail data.",
     };
   }
 
@@ -308,6 +309,11 @@ export default async function ProjectDetailPage({
 
         {/* ═══════ AI-Sourced Grant Discovery Summary ═══════ */}
         <GrantDiscoverySummary projectId={project.id} />
+
+        {/* ═══════ Mandatory Consultation Scheduler ═══════ */}
+        {project.status !== "draft" && (
+          <ConsultationScheduler projectId={project.id} />
+        )}
 
         <SupportingDocumentsSection grantApplicationId={project.id} />
 

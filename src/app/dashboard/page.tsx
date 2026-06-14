@@ -3,6 +3,11 @@ import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+
+export const metadata = {
+  title: "Project Tracker — Landseed",
+  description: "Track your home modification projects and AI-discovered grant eligibility.",
+};
 import {
   NotificationCenter,
   NotificationItem,
@@ -54,9 +59,9 @@ function getEstimateSummary(project: {
   if (!isFinalized) {
     return {
       title: "Initial estimate range",
-      value: "Available after intake finalization",
+      value: "Available after project finalization",
       explanation:
-        "Once your intake is finalized, an initial estimate range will appear here. Pricing is dynamically generated from real-time external retail data.",
+        "Once your project request is finalized, an initial estimate range will appear here. Pricing is dynamically generated from real-time external retail data.",
     };
   }
 
@@ -271,7 +276,7 @@ export default async function DashboardPage() {
         <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-start sm:justify-between md:px-8">
           <div className="min-w-0">
             <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-              My Projects
+              Project Tracker
             </h1>
             <p className="mt-1 text-sm text-gray-500">
               Track your home modification projects and AI-discovered grant eligibility.
@@ -321,11 +326,11 @@ export default async function DashboardPage() {
             <HomeIcon size={36} className="mx-auto text-gray-300" />
             <h2 className="mt-3 text-lg font-semibold text-gray-900">No Projects Yet</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Submit an intake form to start a new home modification project.
+              Submit a request to start a new home modification project.
             </p>
             <Link href="/">
               <Button variant="default" className="mt-4">
-                Start New Intake
+                Start New Project
               </Button>
             </Link>
           </div>
@@ -496,7 +501,7 @@ export default async function DashboardPage() {
                                   AI Grant Discovery Pending
                                 </p>
                                 <p className="mt-0.5 text-xs text-gray-500">
-                                  Grant eligibility will be automatically assessed once intake is finalized.
+                                  Grant eligibility will be automatically assessed once your project request is finalized.
                                 </p>
                               </div>
                             </div>

@@ -9,8 +9,8 @@ async function main() {
   await page.setViewportSize({ width: 1280, height: 900 });
 
   const routes = [
-    { name: "my_projects", url: "http://localhost:3000/dashboard" },
-    { name: "caregivers", url: "http://localhost:3000/profile/access" },
+    { name: "project_tracker", url: "http://localhost:3000/dashboard" },
+    { name: "share_access", url: "http://localhost:3000/profile/access" },
     { name: "advisor_panel", url: "http://localhost:3000/admin" },
     { name: "profile", url: "http://localhost:3000/profile" },
     { name: "estimate_timeline", url: "http://localhost:3000/projects/dev-project-id/estimate" },

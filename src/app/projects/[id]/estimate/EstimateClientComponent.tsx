@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { ConsultationScheduler } from "@/frontend/components/ConsultationScheduler";
 import {
   DollarIcon,
   ClockIcon,
@@ -15,6 +16,7 @@ type Step = "decision" | "confirm-accept" | "survey" | "done";
 
 interface EstimateClientProps {
   quoteId: string;
+  projectId: string;
   initialStatus: QuoteStatus;
   initialReason: string | null;
 }
@@ -45,7 +47,7 @@ const SUB_REASONS: Record<string, string[]> = {
   not_ready: ["Need to save more", "Waiting on approval", "Personal reasons"],
 };
 
-export function EstimateClientComponent({ quoteId, initialStatus, initialReason }: EstimateClientProps) {
+export function EstimateClientComponent({ quoteId, projectId, initialStatus, initialReason }: EstimateClientProps) {
   const [status, setStatus] = useState<QuoteStatus>(initialStatus);
   const [step, setStep] = useState<Step>(initialStatus === "PENDING" ? "decision" : "done");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -129,21 +131,24 @@ export function EstimateClientComponent({ quoteId, initialStatus, initialReason 
   // ─── Accepted State ───
   if (status === "ACCEPTED" && step === "done") {
     return (
-      <div id="estimate-accepted-banner" style={{
-        background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
-        borderRadius: 16, padding: "32px 28px", color: "#fff", position: "relative", overflow: "hidden",
-      }}>
-        <div style={{ position: "absolute", top: -20, right: -20, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>✓</div>
-          <div>
-            <h3 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Estimate Accepted</h3>
-            <p style={{ margin: "4px 0 0", fontSize: 14, opacity: 0.85 }}>Your project is moving forward</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div id="estimate-accepted-banner" style={{
+          background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+          borderRadius: 16, padding: "32px 28px", color: "#fff", position: "relative", overflow: "hidden",
+        }}>
+          <div style={{ position: "absolute", top: -20, right: -20, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>✓</div>
+            <div>
+              <h3 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Estimate Accepted</h3>
+              <p style={{ margin: "4px 0 0", fontSize: 14, opacity: 0.85 }}>Your project is moving forward</p>
+            </div>
           </div>
+          <p style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6, margin: 0 }}>
+            Thank you for accepting! To finalize your budget approval, please schedule the mandatory consultation meeting below.
+          </p>
         </div>
-        <p style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
-          Thank you for accepting! Our team will contact you shortly to schedule the next steps for your home modifications.
-        </p>
+        <ConsultationScheduler projectId={projectId} />
       </div>
     );
   }

@@ -52,7 +52,7 @@ describe("GrantDiscoverySummary", () => {
       expect(screen.getByText("AI Grant Assessment")).toBeInTheDocument();
       expect(screen.getByText("Assessment Pending")).toBeInTheDocument();
       expect(
-        screen.getByText("Grant eligibility discovery will run automatically once your intake is finalized.")
+        screen.getByText("Grant eligibility discovery will run automatically once your project is finalized.")
       ).toBeInTheDocument();
     });
   });

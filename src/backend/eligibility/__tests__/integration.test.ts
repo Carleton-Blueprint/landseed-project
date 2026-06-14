@@ -10,7 +10,6 @@
  * 6. Audit logging
  */
 
-import { EligibilityDecision } from '../types';
 
 describe('FR-3.1 Eligibility Integration Tests', () => {
   describe('Full eligibility evaluation flow', () => {

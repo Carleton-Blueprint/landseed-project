@@ -64,7 +64,13 @@ export const DOCUMENT_CATEGORIES: DocumentCategory[] = [
     value: "DISABILITY_CERTIFICATE",
     label: "Disability Certificate",
     description: "Provincial disability verification or certificate",
-    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-sky-600"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>,
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-sky-600">
+        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+        <path d="M13 14.5V22l-1-1-1 1v-7.5" />
+        <path d="M20 12A8 8 0 1 1 4 12a8 8 0 0 1 16 0Z" />
+      </svg>
+    ),
   },
   {
     value: "OTHER",

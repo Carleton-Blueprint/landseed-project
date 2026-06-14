@@ -12,7 +12,7 @@ import {
 
 // Mock react-dropzone
 jest.mock("react-dropzone", () => ({
-  useDropzone: jest.fn(({ onDrop, disabled }) => ({
+  useDropzone: jest.fn(({ disabled }) => ({
     getRootProps: () => ({
       onClick: disabled
         ? undefined
@@ -56,7 +56,7 @@ describe("DocumentUploadInterface", () => {
     render(<DocumentUploadInterface {...defaultProps} />);
 
     for (const cat of DOCUMENT_CATEGORIES) {
-      expect(screen.getByText(cat.label)).toBeInTheDocument();
+      expect(screen.getAllByText(cat.label).length).toBeGreaterThan(0);
     }
   });
 
@@ -71,7 +71,7 @@ describe("DocumentUploadInterface", () => {
     render(<DocumentUploadInterface {...defaultProps} />);
 
     expect(
-      screen.getByText("⚠️ Please select a document type above first")
+      screen.getByText(/Please select a document type above first/i)
     ).toBeInTheDocument();
   });
 
@@ -79,11 +79,11 @@ describe("DocumentUploadInterface", () => {
     render(<DocumentUploadInterface {...defaultProps} />);
 
     // Click on "Proof of Income"
-    fireEvent.click(screen.getByText("Proof of Income"));
+    fireEvent.click(screen.getByRole("button", { name: /Proof of Income/ }));
 
     // The warning should be replaced with selected category info
     expect(
-      screen.queryByText("⚠️ Please select a document type above first")
+      screen.queryByText(/Please select a document type above first/i)
     ).not.toBeInTheDocument();
   });
 

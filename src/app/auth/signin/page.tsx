@@ -93,7 +93,7 @@ function SignInForm() {
         disabled={isLoading}
         className="w-full py-6 mt-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 text-base"
       >
-        {isLoading ? "Signing in..." : "Sign In"}
+        {isLoading ? "Entering Portal..." : "Enter Portal"}
       </Button>
     </form>
   );
@@ -123,14 +123,16 @@ export default function SignInPage() {
         }
       `}</style>
       
+      <title>Client Portal — Landseed</title>
+      
       {/* Background Layers */}
       <div className="fixed inset-0 -z-10 bg-houses-1 opacity-20 pointer-events-none" />
       <div className="fixed inset-0 -z-10 bg-houses-2 opacity-50 pointer-events-none" />
       
       <div className="relative z-10 w-full max-w-md mx-4 p-8 bg-white/90 backdrop-blur-md border border-gray-200/60 rounded-3xl shadow-xl">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Welcome</h1>
-          <p className="text-sm text-gray-500 mt-2">Enter your details to sign in to Landseed</p>
+          <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Client Portal</h1>
+          <p className="text-sm text-gray-500 mt-2">Enter your details to access your projects</p>
         </div>
 
         <Suspense fallback={<div className="h-[300px] flex items-center justify-center"><div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>}>

@@ -25,4 +25,14 @@ const config: Config = {
   ],
 };
 
-export default createJestConfig(config);
+const customJestConfig = createJestConfig(config);
+
+export default async () => {
+  const resolved = await customJestConfig();
+  return {
+    ...resolved,
+    transformIgnorePatterns: [
+      "/node_modules/(?!(bullmq|msgpackr|packr)/)",
+    ],
+  };
+};

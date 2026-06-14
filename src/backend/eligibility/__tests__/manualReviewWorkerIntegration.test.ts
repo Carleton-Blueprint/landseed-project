@@ -1,9 +1,43 @@
+/**
+ * @jest-environment node
+ */
 import { prisma } from "lib/prisma";
-import { manualReviewQueue, createManualReviewWorker } from "@/backend/queue";
 import { AuditEventAction, ProjectManualReviewReasonCode } from "@prisma/client";
-import type { Job } from "bullmq";
 
 describe("FR-2.6: Manual Review Worker Integration Tests", () => {
+  const testUserIds = [
+    "test-user-new-flag",
+    "test-user-update-flag",
+    "test-user-stale-eval",
+    "test-user-fallback",
+    "test-user-fallback-audit",
+    "test-user-audit-create",
+    "test-user-audit-update",
+    "test-user-audit-failure",
+    "test-user-uniqueness",
+    "test-user-concurrent",
+  ];
+
+  beforeAll(async () => {
+    await prisma.user.deleteMany({
+      where: { id: { in: testUserIds } },
+    });
+
+    await prisma.user.createMany({
+      data: testUserIds.map((id) => ({
+        id,
+        email: `${id}@example.com`,
+        name: `Test User ${id}`,
+      })),
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.user.deleteMany({
+      where: { id: { in: testUserIds } },
+    });
+  });
+
   describe("Successful Job Processing", () => {
     it("should create a new flag on first evaluation", async () => {
       const project = await prisma.project.create({
@@ -18,7 +52,10 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
           projectId: project.id,
           overallDecision: "ELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 
@@ -64,7 +101,10 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
           projectId: project.id,
           overallDecision: "ELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 
@@ -89,13 +129,19 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
           projectId: project.id,
           overallDecision: "ELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 
       flag = await prisma.projectManualReviewFlag.upsert({
         where: { projectId: project.id },
-        create: {},
+        create: {
+          projectId: project.id,
+          reason: "HIGH_COMPLEXITY",
+        },
         update: {
           reason: "HIGH_COMPLEXITY",
           lastEvaluatedAt: new Date(),
@@ -127,7 +173,10 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
           projectId: project.id,
           overallDecision: "ELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 
@@ -136,11 +185,14 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
           projectId: project.id,
           overallDecision: "INELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 
-      const newFlag = await prisma.projectManualReviewFlag.create({
+      await prisma.projectManualReviewFlag.create({
         data: {
           projectId: project.id,
           reason: "HIGH_COMPLEXITY",
@@ -177,12 +229,15 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
         },
       });
 
-      const assessment = await prisma.eligibilityAssessment.create({
+      await prisma.eligibilityAssessment.create({
         data: {
           projectId: project.id,
           overallDecision: "ELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 
@@ -229,7 +284,9 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
       const auditEvent = await prisma.auditEvent.create({
         data: {
           action: "MANUAL_REVIEW_FLAG_CREATED" as AuditEventAction,
-          userId: "system",
+          category: "MANUAL_CHANGE",
+          outcome: "SUCCESS",
+          resourceType: "manual_review_flag",
           description: `System created fallback flag for project ${project.id}`,
           metadata: {
             flagId: fallbackFlag.id,
@@ -270,7 +327,9 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
       const auditEvent = await prisma.auditEvent.create({
         data: {
           action: "MANUAL_REVIEW_FLAG_CREATED" as AuditEventAction,
-          userId: "system",
+          category: "MANUAL_CHANGE",
+          outcome: "SUCCESS",
+          resourceType: "manual_review_flag",
           description: `Manual review flag created for project ${project.id}`,
           metadata: {
             flagId: flag.id,
@@ -316,7 +375,9 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
       const auditEvent = await prisma.auditEvent.create({
         data: {
           action: "MANUAL_REVIEW_FLAG_UPDATED" as AuditEventAction,
-          userId: "system",
+          category: "MANUAL_CHANGE",
+          outcome: "SUCCESS",
+          resourceType: "manual_review_flag",
           description: `Manual review flag updated for project ${project.id}`,
           metadata: {
             flagId: flag.id,
@@ -345,7 +406,9 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
       const auditEvent = await prisma.auditEvent.create({
         data: {
           action: "MANUAL_REVIEW_FLAG_PROCESSING_FAILED" as AuditEventAction,
-          userId: "system",
+          category: "MANUAL_CHANGE",
+          outcome: "FAILURE",
+          resourceType: "manual_review_flag",
           description: `Failed to process manual review flag for project ${project.id}`,
           metadata: {
             projectId: project.id,
@@ -415,7 +478,10 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
           projectId: project.id,
           overallDecision: "ELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 

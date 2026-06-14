@@ -1,4 +1,7 @@
 /**
+ * @jest-environment node
+ */
+/**
  * FR-2.6: Manual Review Integration Tests
  *
  * Integration tests for the complete manual review auto-flag pipeline:
@@ -20,17 +23,39 @@ import { evaluateProjectEligibility } from "@/backend/eligibility/service";
 import { manualReviewQueue, createManualReviewWorker } from "@/backend/queue";
 import { FeatureFlag, isFeatureFlagEnabled } from "@/backend/features/flags";
 import { Worker } from "bullmq";
-import redis from "redis";
+import Redis from "ioredis";
 
 describe("FR-2.6: Manual Review Integration Tests", () => {
   let worker: Worker;
-  let redisClient: redis.RedisClient;
+  let redisClient: Redis;
+
+  const testUserIds = [
+    "test-user-123",
+    "test-user-456",
+    "test-user-789",
+    "test-user-stale",
+    "test-user-audit",
+    "test-user-unique",
+    "test-user-events",
+  ];
 
   beforeAll(async () => {
-    redisClient = redis.createClient({
-      url: process.env.REDIS_URL || "redis://localhost:6379",
+    jest.setTimeout(15000);
+    redisClient = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+
+    // Clean up any stale test users
+    await prisma.user.deleteMany({
+      where: { id: { in: testUserIds } },
     });
-    await redisClient.connect();
+
+    // Create test users
+    await prisma.user.createMany({
+      data: testUserIds.map((id) => ({
+        id,
+        email: `${id}@example.com`,
+        name: `Test User ${id}`,
+      })),
+    });
 
     worker = createManualReviewWorker(async (job) => {
       console.log(`[Test Worker] Processing job: ${job.id}`);
@@ -44,6 +69,10 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
     if (redisClient) {
       await redisClient.quit();
     }
+    // Clean up test users
+    await prisma.user.deleteMany({
+      where: { id: { in: testUserIds } },
+    });
   });
 
   beforeEach(async () => {
@@ -70,27 +99,16 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
         data: {
           address: "123 Integration Test St",
           userId: "test-user-123",
+          draftData: {
+            province: "ON",
+            ownershipStatus: "owner",
+            clientConsentConfirmed: false,
+            modificationItems: ["grab bars"],
+          },
         },
       });
 
-      const eligibilityInput = {
-        project: {
-          id: project.id,
-          address: project.address,
-          squareFeet: 2000,
-          yearBuilt: 1990,
-          constructionType: "WOOD_FRAME",
-          roofType: "ASPHALT_SHINGLE",
-          foundationType: "CONCRETE_SLAB",
-        },
-        required: {
-          totalHouseholdIncome: 45000,
-          householdSize: 4,
-        },
-        optional: {},
-      };
-
-      const result = await evaluateProjectEligibility(project.id, eligibilityInput);
+      const result = await evaluateProjectEligibility(project);
 
       expect(result).toBeDefined();
       expect(result.overallDecision).toBeDefined();
@@ -114,31 +132,17 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
         data: {
           address: "456 Simple Project Ave",
           userId: "test-user-456",
+          draftData: {
+            province: "ON",
+            ownershipStatus: "owner",
+            clientConsentConfirmed: true,
+            modificationItems: ["grab bars"],
+          },
         },
       });
 
-      const eligibilityInput = {
-        project: {
-          id: project.id,
-          address: project.address,
-          squareFeet: 1500,
-          yearBuilt: 2010,
-          constructionType: "WOOD_FRAME",
-          roofType: "ASPHALT_SHINGLE",
-          foundationType: "CONCRETE_SLAB",
-        },
-        required: {
-          totalHouseholdIncome: 55000,
-          householdSize: 2,
-        },
-        optional: {
-          clientConsent: "CONFIRMED",
-          existingInsurance: "COMPREHENSIVE",
-        },
-      };
-
       // Execute eligibility evaluation
-      const result = await evaluateProjectEligibility(project.id, eligibilityInput);
+      const result = await evaluateProjectEligibility(project);
 
       expect(result).toBeDefined();
 
@@ -168,7 +172,10 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
           projectId: project.id,
           overallDecision: "ELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 
@@ -211,7 +218,10 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
           projectId: project.id,
           overallDecision: "ELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 
@@ -220,7 +230,10 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
           projectId: project.id,
           overallDecision: "INELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 
@@ -329,7 +342,10 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
           projectId: project.id,
           overallDecision: "ELIGIBLE",
           discoveredGrants: [],
-          provider: "TEST",
+          discoveryProvider: "TEST",
+          programDecisions: {},
+          reasonCodes: {},
+          missingRequirements: {},
         },
       });
 

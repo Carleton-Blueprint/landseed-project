@@ -222,14 +222,10 @@ export function ProjectVisualizationGallery({
     label: string;
   } | null>(null);
 
-  const hasGeneratedImages = photos.some(
-    (photo) => photo.generatedImageUrl
-  );
-
   const viewModes: { key: ViewMode; label: string; icon: React.ReactNode; disabled?: boolean }[] = [
     { key: "original", label: "Original Photos", icon: <CameraIcon size={16} /> },
-    { key: "generated", label: "AI Renditions", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>, disabled: !hasGeneratedImages },
-    { key: "compare", label: "Before / After", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h3M16 3h3a2 2 0 012 2v14a2 2 0 01-2 2h-3M12 3v18" /></svg>, disabled: !hasGeneratedImages },
+    { key: "generated", label: "AI Renditions", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>, disabled: photos.length === 0 },
+    { key: "compare", label: "Before / After", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h3M16 3h3a2 2 0 012 2v14a2 2 0 01-2 2h-3M12 3v18" /></svg>, disabled: photos.length === 0 },
   ];
 
   return (
@@ -303,12 +299,21 @@ export function ProjectVisualizationGallery({
                 return (
                   <div
                     key={photo.id}
-                    className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4"
+                    className="group relative overflow-hidden rounded-xl border border-dashed border-violet-200 bg-gradient-to-br from-violet-50/20 to-indigo-50/20 p-6 flex flex-col items-center justify-center text-center shadow-sm"
+                    style={{ aspectRatio: "3/2" }}
                   >
-                    <HourglassIcon size={18} className="text-gray-400" />
-                    <p className="text-sm text-gray-500">
+                    <div className="relative mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-violet-100 text-violet-600 shadow-inner">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-20"></span>
+                      <HourglassIcon size={24} className="text-violet-600 animate-spin [animation-duration:3s]" />
+                    </div>
+                    <h4 className="text-sm font-semibold text-gray-900">Before & After Slider</h4>
+                    <p className="mt-1 max-w-[260px] text-xs text-gray-500 leading-normal">
                       AI rendition pending — comparison will appear when generated.
                     </p>
+                    <span className="mt-3.5 inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-0.5 text-[10px] font-semibold text-violet-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
+                      Generating AI View
+                    </span>
                   </div>
                 );
               }
@@ -323,17 +328,20 @@ export function ProjectVisualizationGallery({
             }
 
             /* --- Single image mode (original or generated) --- */
+            const isShowingGenerated =
+              viewMode === "generated" && !!photo.generatedImageUrl;
+            
+            const isPendingGenerated =
+              viewMode === "generated" && !photo.generatedImageUrl;
+
             const displaySrc =
               viewMode === "generated"
                 ? photo.generatedImageUrl || originalSrc
                 : originalSrc;
 
-            const isShowingGenerated =
-              viewMode === "generated" && !!photo.generatedImageUrl;
-
             const label = isShowingGenerated
               ? "AI-generated modification visual"
-              : viewMode === "generated" && !photo.generatedImageUrl
+              : isPendingGenerated
               ? "AI visual not available yet — showing original"
               : "Original uploaded photo";
 
@@ -363,26 +371,49 @@ export function ProjectVisualizationGallery({
                       AI Rendition
                     </span>
                   )}
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors duration-200 group-hover:bg-black/10">
-                    <svg
-                      className="h-8 w-8 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-80 drop-shadow-md"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth={1.5}
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6"
-                      />
-                    </svg>
-                  </div>
+                  
+                  {isPendingGenerated ? (
+                    /* Frosted glass overlay for pending state */
+                    <div className="absolute inset-0 bg-slate-900/65 backdrop-blur-[3px] flex flex-col items-center justify-center p-4 text-center">
+                      <div className="relative mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-violet-500/20 text-violet-300 border border-violet-400/30">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-20"></span>
+                        <svg className="h-5 w-5 animate-pulse" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                        </svg>
+                      </div>
+                      <h4 className="text-sm font-semibold text-white">AI Visual Rendering</h4>
+                      <p className="mt-1 max-w-[220px] text-xs text-slate-300 leading-normal">
+                        Visual projection is generating. The original photo will be updated automatically.
+                      </p>
+                      <span className="mt-3 inline-flex items-center gap-1 rounded-full bg-violet-500/30 border border-violet-400/40 px-2.5 py-0.5 text-[10px] font-medium text-violet-200">
+                        <span className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse" />
+                        Processing
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors duration-200 group-hover:bg-black/10">
+                      <svg
+                        className="h-8 w-8 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-80 drop-shadow-md"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={1.5}
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6"
+                        />
+                      </svg>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 border-t bg-gray-50/80 px-3 py-2 text-sm text-gray-600">
                   {isShowingGenerated ? (
                     <span className="inline-block h-2 w-2 rounded-full bg-violet-500" />
+                  ) : isPendingGenerated ? (
+                    <span className="inline-block h-2 w-2 rounded-full bg-violet-400 animate-pulse" />
                   ) : (
                     <span className="inline-block h-2 w-2 rounded-full bg-gray-400" />
                   )}
