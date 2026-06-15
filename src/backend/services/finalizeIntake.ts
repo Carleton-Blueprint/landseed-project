@@ -1,5 +1,8 @@
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { generateQuote } from "@/backend/services/quote";
+import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
+import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 
 export interface FinalizeIntakeInput {
   projectId: string;
@@ -11,13 +14,25 @@ export interface FinalizeIntakeInput {
 export interface PreliminaryRange {
   min: number;
   max: number;
+  source: "serp_api" | "serp_api_partial";
+  generatedAt: string;
 }
+
+type QuoteRangeResult =
+  | {
+      quoteId: string;
+      range: PreliminaryRange;
+    }
+  | {
+      quoteId: string;
+      range?: never;
+    };
 
 export type FinalizeIntakeResult =
   | {
       ok: true;
       projectId: string;
-      status: "submitted" | "already_finalized";
+      status: "submitted" | "estimate_ready" | "already_finalized";
       message: string;
       range?: PreliminaryRange;
       quoteId?: string;
@@ -30,7 +45,29 @@ export type FinalizeIntakeResult =
       message: string;
     };
 
-function toRangeFromQuote(quote: { id: string; estimateMin: { toString(): string } | null; estimateMax: { toString(): string } | null }) {
+interface QuoteRecordShape {
+  id: string;
+  estimateMin: { toString(): string } | null;
+  estimateMax: { toString(): string } | null;
+  generatedAt: Date;
+  refinedEstimate: unknown;
+}
+
+function getPricingSourceFromRefinedEstimate(refinedEstimate: unknown): PreliminaryRange["source"] {
+  if (!refinedEstimate || typeof refinedEstimate !== "object" || Array.isArray(refinedEstimate)) {
+    return "serp_api_partial";
+  }
+
+  const lineItems = (refinedEstimate as { lineItems?: Array<{ pricingSource?: string | null }> }).lineItems ?? [];
+  if (lineItems.length === 0) {
+    return "serp_api_partial";
+  }
+
+  const allSerpSourced = lineItems.every((item) => item.pricingSource !== null);
+  return allSerpSourced ? "serp_api" : "serp_api_partial";
+}
+
+function toQuoteRangeResult(quote: QuoteRecordShape): QuoteRangeResult {
   if (quote.estimateMin == null || quote.estimateMax == null) {
     return { quoteId: quote.id };
   }
@@ -40,8 +77,33 @@ function toRangeFromQuote(quote: { id: string; estimateMin: { toString(): string
     range: {
       min: Number(quote.estimateMin.toString()),
       max: Number(quote.estimateMax.toString()),
+      source: getPricingSourceFromRefinedEstimate(quote.refinedEstimate),
+      generatedAt: quote.generatedAt.toISOString(),
     },
   };
+}
+
+function buildQuoteItems(draftData: unknown): Array<{ description: string; quantity: number; unitPrice: number }> {
+  const modificationItems =
+    draftData && typeof draftData === "object" && !Array.isArray(draftData)
+      ? (draftData as { modificationItems?: unknown }).modificationItems
+      : undefined;
+
+  if (!Array.isArray(modificationItems) || modificationItems.length === 0) {
+    return [
+      {
+        description: "Home modifications (initial intake estimate)",
+        quantity: 1,
+        unitPrice: 150,
+      },
+    ];
+  }
+
+  return modificationItems.map((item) => ({
+    description: typeof item === "string" ? item : String(item),
+    quantity: 1,
+    unitPrice: 150,
+  }));
 }
 
 export async function finalizeIntake(input: FinalizeIntakeInput): Promise<FinalizeIntakeResult> {
@@ -50,10 +112,7 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
     select: {
       id: true,
       status: true,
-      userId: true,
-      photos: {
-        select: { id: true },
-      },
+      draftData: true,
       quotes: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -61,6 +120,8 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
           id: true,
           estimateMin: true,
           estimateMax: true,
+          generatedAt: true,
+          refinedEstimate: true,
         },
       },
     },
@@ -78,14 +139,15 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
 
   if (project.status !== "draft") {
     const latestQuote = project.quotes[0];
-    const quoteData = latestQuote ? toRangeFromQuote(latestQuote) : {};
+    const quoteData = latestQuote ? toQuoteRangeResult(latestQuote) : null;
 
     return {
       ok: true,
       projectId: project.id,
       status: "already_finalized",
       message: "Project is already finalized.",
-      ...quoteData,
+      ...(quoteData ? { quoteId: quoteData.quoteId } : {}),
+      ...(quoteData && "range" in quoteData ? { range: quoteData.range } : {}),
     };
   }
 
@@ -102,7 +164,6 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
   });
 
   if (transitionResult.count === 0) {
-    // Race condition safety: another request finalized in parallel.
     const latestQuote = await prisma.quote.findFirst({
       where: { projectId: project.id },
       orderBy: { createdAt: "desc" },
@@ -110,17 +171,19 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
         id: true,
         estimateMin: true,
         estimateMax: true,
+        generatedAt: true,
+        refinedEstimate: true,
       },
     });
 
-    const quoteData = latestQuote ? toRangeFromQuote(latestQuote) : {};
-
+    const quoteData = latestQuote ? toQuoteRangeResult(latestQuote) : null;
     return {
       ok: true,
       projectId: project.id,
       status: "already_finalized",
       message: "Project was finalized by another request.",
-      ...quoteData,
+      ...(quoteData ? { quoteId: quoteData.quoteId } : {}),
+      ...(quoteData && "range" in quoteData ? { range: quoteData.range } : {}),
     };
   }
 
@@ -137,17 +200,65 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
     metadata: {
       previousStatus: "draft",
       nextStatus: "submitted",
-      photoCount: project.photos.length,
       idempotent: false,
     },
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
   });
 
-  return {
-    ok: true,
-    projectId: project.id,
-    status: "submitted",
-    message: "Intake finalized successfully.",
-  };
+  const quoteItems = buildQuoteItems(project.draftData);
+
+  try {
+    const quoteResult = await generateQuote({
+      projectId: project.id,
+      items: quoteItems,
+    });
+
+    const pricingSource = getPricingSourceFromRefinedEstimate(quoteResult.refinedEstimate);
+    const range: PreliminaryRange = {
+      min: quoteResult.estimateMin,
+      max: quoteResult.estimateMax,
+      source: pricingSource,
+      generatedAt: new Date().toISOString(),
+    };
+
+    try {
+      const readyResult = await markEstimateReadyForReview({
+        projectId: project.id,
+        quoteId: quoteResult.quoteId,
+        triggerSource: ESTIMATE_READY_TRIGGER_SOURCE.LEGACY_QUOTE_GENERATION,
+        actorUserId: input.actorUserId,
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+      });
+
+      return {
+        ok: true,
+        projectId: project.id,
+        status: readyResult.projectStatus === "estimate_ready" ? "estimate_ready" : "submitted",
+        quoteId: quoteResult.quoteId,
+        range,
+        message: "Intake finalized, preliminary quote generated, and estimate marked ready.",
+      };
+    } catch (readyError) {
+      console.warn("Estimate ready transition failed after quote generation:", readyError);
+      return {
+        ok: true,
+        projectId: project.id,
+        status: "submitted",
+        quoteId: quoteResult.quoteId,
+        range,
+        message: "Intake finalized and preliminary quote generated.",
+      };
+    }
+  } catch (quoteError) {
+    console.warn("Quote generation failed after intake finalization:", quoteError);
+
+    return {
+      ok: true,
+      projectId: project.id,
+      status: "submitted",
+      message: "Intake finalized successfully. Preliminary quote generation is pending.",
+    };
+  }
 }

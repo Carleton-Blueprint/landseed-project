@@ -2,11 +2,9 @@
  * Next.js config. Currently sets a 10MB body size limit for server actions (e.g. uploads).
  * Add other options (images, redirects, env) here as needed.
  */
-import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  outputFileTracingRoot: path.resolve(__dirname, "../../.."),
   images: {
     remotePatterns: [
       {
