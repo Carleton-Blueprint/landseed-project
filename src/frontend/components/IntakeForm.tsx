@@ -321,6 +321,8 @@ export function IntakeForm() {
                 name: values.name,
                 email: values.email,
                 phone: values.phone,
+                addressLine1: values.addressLine1,
+                addressLine2: values.addressLine2 ?? null,
                 city: values.city,
                 postalCode: values.postalCode,
                 province: values.province,
@@ -365,6 +367,26 @@ export function IntakeForm() {
               }
             }
             console.log("All photos uploaded!");
+          }
+
+          const finalizeResponse = await fetch("/api/intake/finalize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectId: project.id }),
+          });
+
+          if (!finalizeResponse.ok) {
+            let finalizeError = `Failed to finalize intake (${finalizeResponse.status})`;
+            try {
+              const finalizeBody = await finalizeResponse.json();
+              if (typeof finalizeBody?.message === "string") {
+                finalizeError = finalizeBody.message;
+              }
+            } catch {
+              // Ignore non-JSON responses
+            }
+            console.error("Intake finalization error:", finalizeError);
+            return;
           }
 
           router.push(`/submitted?projectId=${encodeURIComponent(project.id)}`);
