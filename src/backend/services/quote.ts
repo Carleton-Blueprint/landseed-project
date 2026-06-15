@@ -34,6 +34,7 @@ interface QuoteResult {
   eligibilityAssessmentId?: string;
   estimateMin: number;
   estimateMax: number;
+  pricingSource: "serp_api" | "serp_api_partial";
   refinedEstimate: RefinedEstimate;
 }
 
@@ -57,6 +58,11 @@ async function getActivePricingMatrixVersion() {
   }
 
   return activeVersion;
+}
+
+function getPricingSourceFromRefinedEstimate(refinedEstimate: RefinedEstimate): "serp_api" | "serp_api_partial" {
+  const allSerpSourced = refinedEstimate.lineItems.every((item) => item.pricingSource !== null);
+  return allSerpSourced ? "serp_api" : "serp_api_partial";
 }
 
 /**
@@ -156,8 +162,9 @@ export async function generateQuote(
     total: Number(quote.total.toString()),
     pricingMatrixVersion: quote.pricingMatrixVersion.versionNumber,
     eligibilityAssessmentId: latestEligibility?.assessmentId,
-    estimateMin: Number((quote as any).estimateMin?.toString()) ?? refinedEstimate.estimateMin,
-    estimateMax: Number((quote as any).estimateMax?.toString()) ?? refinedEstimate.estimateMax,
+    estimateMin: Number(quote.estimateMin!.toString()),
+    estimateMax: Number(quote.estimateMax!.toString()),
+    pricingSource: getPricingSourceFromRefinedEstimate(refinedEstimate),
     refinedEstimate,
   };
 }
