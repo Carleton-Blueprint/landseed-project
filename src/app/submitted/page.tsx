@@ -12,6 +12,7 @@ import Link from "next/link";
 import { prisma } from "lib/prisma";
 import { Button } from "@/frontend/components/ui/button";
 import { InitialEstimateSummaryCard } from "@/frontend/components/InitialEstimateSummaryCard";
+import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
 
 const BUSINESS_START_HOUR = 9;
 const BUSINESS_END_HOUR = 17;
@@ -42,15 +43,24 @@ export default async function SubmittedPage({ searchParams }: SubmittedPageProps
   const { projectId } = await searchParams;
 
   const project = projectId
-    ? await prisma.project.findUnique({ where: { id: projectId } })
+    ? await prisma.project.findUnique({
+        where: { id: projectId },
+        include: {
+          quotes: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              estimateMin: true,
+              estimateMax: true,
+              generatedAt: true,
+            },
+          },
+        },
+      })
     : null;
 
-  const typedProject = project as
-    | (NonNullable<typeof project> & {
-        estimateMin?: number | null;
-        estimateMax?: number | null;
-      })
-    | null;
+  const latestQuote = project?.quotes?.[0] ?? null;
+  const estimateRange = getEstimateRangeFromQuote(latestQuote);
 
   const eta = getRefinedEstimateEta();
 
@@ -85,14 +95,14 @@ export default async function SubmittedPage({ searchParams }: SubmittedPageProps
           </p>
         </div>
 
-        {typedProject && (
+        {project && (
           <div className="mb-8">
             <InitialEstimateSummaryCard
-              projectStatus={typedProject.status}
-              estimateMin={typedProject.estimateMin}
-              estimateMax={typedProject.estimateMax}
-              refinedEstimateReady={false}
-              projectId={typedProject.id}
+              projectStatus={project.status}
+              estimateMin={estimateRange?.min}
+              estimateMax={estimateRange?.max}
+              refinedEstimateReady={project.status === "estimate_ready"}
+              projectId={project.id}
             />
           </div>
         )}

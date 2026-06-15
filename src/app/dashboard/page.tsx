@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
 import {
   NotificationCenter,
   NotificationItem,
@@ -45,9 +46,13 @@ function getStatusStyle(status: string) {
 
 function getEstimateSummary(project: {
   status: string;
-  estimateMin?: number | null;
-  estimateMax?: number | null;
+  quotes?: Array<{
+    estimateMin?: { toString(): string } | number | string | null;
+    estimateMax?: { toString(): string } | number | string | null;
+  }>;
 }) {
+  const latestQuote = project.quotes?.[0] ?? null;
+  const estimateRange = getEstimateRangeFromQuote(latestQuote);
   const isFinalized = project.status !== "draft";
 
   if (!isFinalized) {
@@ -59,10 +64,10 @@ function getEstimateSummary(project: {
     };
   }
 
-  if (project.estimateMin != null && project.estimateMax != null) {
+  if (estimateRange) {
     return {
       title: "Initial estimate range",
-      value: `$${project.estimateMin.toLocaleString()} – $${project.estimateMax.toLocaleString()}`,
+      value: `$${estimateRange.min.toLocaleString()} – $${estimateRange.max.toLocaleString()}`,
       explanation:
         "This pricing is dynamically generated from real-time external retail data and may change as retailer pricing and product availability update.",
     };
@@ -195,7 +200,18 @@ export default async function DashboardPage() {
       },
     },
     orderBy: { createdAt: "desc" },
-    include: { photos: true },
+    include: {
+      photos: true,
+      quotes: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: {
+          estimateMin: true,
+          estimateMax: true,
+          generatedAt: true,
+        },
+      },
+    },
   });
 
   const notifications = getMockNotifications(
@@ -268,12 +284,7 @@ export default async function DashboardPage() {
         ) : (
           <div className="space-y-5">
             {projects.map((project) => {
-              const typedProject = project as typeof project & {
-                estimateMin?: number | null;
-                estimateMax?: number | null;
-              };
-
-              const estimateSummary = getEstimateSummary(typedProject);
+              const estimateSummary = getEstimateSummary(project);
               const eligibility = eligibilityByProject.get(project.id);
 
               /* Score breakdown for eligible grants */
