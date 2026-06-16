@@ -33,9 +33,9 @@ function getEstimateState({
   if (!isFinalized) {
     return {
       label: "Pending finalization",
-      value: "Available after intake finalization",
+      value: "Available after project finalization",
       helper:
-        "Your initial estimate range will appear here once you finalize your intake. Ranges are generated from real-time retail pricing data.",
+        "Your initial estimate range will appear here once you finalize your project request. Ranges are generated from real-time retail pricing data.",
       tone: "pending" as const,
     };
   }

@@ -10,6 +10,12 @@ jest.mock("next-auth/react", () => ({
   signIn: jest.fn(),
 }));
 
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+  }),
+}));
+
 import { IntakeForm } from "../IntakeForm";
 
 function createWrapper() {

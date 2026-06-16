@@ -271,7 +271,7 @@ describe('FR-2.6: Manual Review Classifier', () => {
             'WIDENED_DOORWAY',
           ] as ModificationCode[],
         },
-        missingRequiredFields: ['PROVINCE', 'MODIFICATION_ITEMS'],
+        missingRequiredFields: ['PROVINCE', 'MODIFICATION_ITEMS', 'CLIENT_NAME'],
       });
 
       const result = classifyManualReviewNeed(input, 'MEDIUM', 10, 20);

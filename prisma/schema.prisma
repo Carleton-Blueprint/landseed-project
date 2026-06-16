@@ -88,7 +88,20 @@ model Project {
   auditEvents                   AuditEvent[]
   manualReviewFlag              ProjectManualReviewFlag?
   communicationHistory          CommunicationHistory[]
+  consultationRequest           ConsultationRequest?
 }
+
+model ConsultationRequest {
+  id          String   @id @default(cuid())
+  projectId   String   @unique
+  scheduledAt DateTime
+  status      String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, COMPLETED
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
 
 model AccountDeletionRequest {
   id                      String                        @id @default(cuid())

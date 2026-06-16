@@ -2,7 +2,6 @@
 
 import React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import {
   CheckCircleIcon,
@@ -26,6 +25,9 @@ export interface SerializedProject {
   status: string;
   createdAt: string;
   updatedAt: string;
+  modificationType: string;
+  hasManualReviewFlag?: boolean;
+  manualReviewReason?: string | null;
   client: {
     id: string;
     name: string | null;
@@ -41,6 +43,8 @@ export interface SerializedProject {
     status: string;
     generatedAt: string;
     openQuestions: number;
+    estimateMin?: string | null;
+    estimateMax?: string | null;
   } | null;
   eligibility: {
     id: string;
@@ -63,17 +67,6 @@ export interface SerializedProject {
     attempts: number;
     lastError: string | null;
     sentAt: string | null;
-  } | null;
-  manualFallbackExport: {
-    id: string;
-    status: string;
-    requestedAt: string;
-    readyAt: string | null;
-    expiresAt: string | null;
-    fileName: string | null;
-    retentionDays: number;
-    maxSizeBytes: number | null;
-    lastError: string | null;
   } | null;
 }
 
@@ -241,36 +234,9 @@ function StatCard({
 /* ================================================================== */
 
 function ProjectDetailPanel({ project }: { project: SerializedProject }) {
-  const router = useRouter();
-  const [isRequestingExport, setIsRequestingExport] = React.useState(false);
-  const [exportError, setExportError] = React.useState<string | null>(null);
   const eligibility = project.eligibility;
   const quote = project.quote;
   const transfer = project.builderTrendTransfer;
-  const fallbackExport = project.manualFallbackExport;
-  const eligibleGrants = eligibility?.discoveredGrants.filter((g) => g.decision === "ELIGIBLE") ?? [];
-
-  async function requestFallbackExport() {
-    setIsRequestingExport(true);
-    setExportError(null);
-
-    try {
-      const response = await fetch(`/api/project/${project.id}/manual-fallback-export`, {
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "Failed to queue export");
-      }
-
-      router.refresh();
-    } catch (error) {
-      setExportError(error instanceof Error ? error.message : "Failed to queue export");
-    } finally {
-      setIsRequestingExport(false);
-    }
-  }
 
   return (
     <div className="border-t bg-gray-50/70 px-6 py-5 space-y-5">
@@ -429,59 +395,6 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
             </div>
           </div>
 
-          {/* Manual fallback export */}
-          <div className="rounded-md border border-dashed border-blue-200 bg-blue-50/60 p-3 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-blue-900">Manual fallback export</p>
-                <p className="text-[11px] text-blue-700">
-                  Bundle quotes, photos, and grants for manual upload if BuilderTrend fails.
-                </p>
-              </div>
-              {fallbackExport?.status === "READY" && fallbackExport.fileName ? (
-                <Button asChild variant="outline" size="sm">
-                  <a href={`/api/project/${project.id}/manual-fallback-export/${fallbackExport.id}/download`}>
-                    Download
-                  </a>
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={requestFallbackExport}
-                  disabled={isRequestingExport}
-                >
-                  {isRequestingExport ? "Queuing…" : "Request export"}
-                </Button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2 text-[11px] text-blue-700">
-              <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
-                {fallbackExport?.status ?? "Not requested"}
-              </span>
-              <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
-                Retention: {fallbackExport?.retentionDays ?? 7} day{(fallbackExport?.retentionDays ?? 7) === 1 ? "" : "s"}
-              </span>
-              {fallbackExport?.expiresAt && (
-                <span className="rounded-full bg-white px-2 py-0.5 border border-blue-100">
-                  Expires {fmtDate(fallbackExport.expiresAt)}
-                </span>
-              )}
-            </div>
-            {fallbackExport?.lastError && (
-              <p className="text-[11px] text-red-600 truncate" title={fallbackExport.lastError}>
-                Last error: {fallbackExport.lastError}
-              </p>
-            )}
-            {exportError && (
-              <p className="text-[11px] text-red-600">{exportError}</p>
-            )}
-            <p className="text-[10px] text-blue-600/80">
-              Only project owners can queue a new export.
-            </p>
-          </div>
-
           {/* Quick links */}
           <div className="flex gap-2">
             <Link href={`/dashboard/${project.id}`} className="flex-1">
@@ -514,12 +427,102 @@ export function AdminDashboardClient({
   projects: SerializedProject[];
   userName: string;
 }) {
+  const [activeTab, setActiveTab] = React.useState<"projects" | "analytics">("projects");
   const [search, setSearch] = React.useState("");
   const [filterStatus, setFilterStatus] = React.useState<FilterStatus>("all");
   const [filterConfidence, setFilterConfidence] = React.useState<FilterConfidence>("all");
   const [filterDecision, setFilterDecision] = React.useState<FilterDecision>("all");
+  const [filterModification, setFilterModification] = React.useState<string>("all");
   const [sortKey, setSortKey] = React.useState<SortKey>("newest");
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
+
+  /* ---- Analytics Computation ---- */
+  const analyticsData = React.useMemo(() => {
+    const total = projects.length;
+    const automatedCount = projects.filter((p) => !p.hasManualReviewFlag).length;
+    const automationRate = total > 0 ? (automatedCount / total) * 100 : 0;
+
+    // Filter projects with quotes that have valid min/max estimates
+    const projectsWithQuotes = projects.filter(
+      (p) =>
+        p.quote &&
+        p.quote.estimateMin !== null &&
+        p.quote.estimateMin !== undefined &&
+        p.quote.estimateMax !== null &&
+        p.quote.estimateMax !== undefined
+    );
+
+    let inRangeCount = 0;
+    let underEstimateCount = 0;
+    let overEstimateCount = 0;
+    let totalDeviationPct = 0;
+    let deviationCount = 0;
+
+    projectsWithQuotes.forEach((p) => {
+      const q = p.quote!;
+      const totalCost = parseFloat(q.total);
+      const min = parseFloat(q.estimateMin!);
+      const max = parseFloat(q.estimateMax!);
+
+      if (!isNaN(totalCost) && !isNaN(min) && !isNaN(max)) {
+        if (totalCost < min) {
+          underEstimateCount++;
+        } else if (totalCost > max) {
+          overEstimateCount++;
+        } else {
+          inRangeCount++;
+        }
+
+        const midpoint = (min + max) / 2;
+        if (midpoint > 0) {
+          totalDeviationPct += (Math.abs(totalCost - midpoint) / midpoint) * 100;
+          deviationCount++;
+        }
+      }
+    });
+
+    const quoteCount = projectsWithQuotes.length;
+    const pricingAccuracy = quoteCount > 0 ? (inRangeCount / quoteCount) * 100 : 0;
+    const avgDeviation = deviationCount > 0 ? totalDeviationPct / deviationCount : 0;
+
+    // Automation by modification type
+    const modTypes = ["GRAB_BARS", "RAMPS", "STAIR_LIFT", "SHOWER", "DOORS"];
+    const automationByMod = modTypes.map((type) => {
+      const typeProjects = projects.filter((p) => p.modificationType === type);
+      const typeTotal = typeProjects.length;
+      const typeAutomated = typeProjects.filter((p) => !p.hasManualReviewFlag).length;
+      const rate = typeTotal > 0 ? (typeAutomated / typeTotal) * 100 : 0;
+      return {
+        type,
+        total: typeTotal,
+        automated: typeAutomated,
+        rate,
+      };
+    });
+
+    // Manual review reasons
+    const flaggedProjects = projects.filter((p) => p.hasManualReviewFlag);
+    const reasonCounts: Record<string, number> = {};
+    flaggedProjects.forEach((p) => {
+      const reason = p.manualReviewReason ?? "UNKNOWN";
+      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+    });
+
+    return {
+      total,
+      automatedCount,
+      automationRate,
+      quoteCount,
+      inRangeCount,
+      underEstimateCount,
+      overEstimateCount,
+      pricingAccuracy,
+      avgDeviation,
+      automationByMod,
+      flaggedProjects,
+      reasonCounts,
+    };
+  }, [projects]);
 
   /* ---- Filter + Sort pipeline ---- */
   const filtered = React.useMemo(() => {
@@ -546,6 +549,11 @@ export function AdminDashboardClient({
         if (!p.eligibility) return false;
         return p.eligibility.overallDecision === filterDecision;
       });
+    }
+
+    // Modification type filter
+    if (filterModification !== "all") {
+      result = result.filter((p) => p.modificationType === filterModification);
     }
 
     // Text search
@@ -589,13 +597,14 @@ export function AdminDashboardClient({
     });
 
     return result;
-  }, [projects, filterStatus, filterConfidence, filterDecision, sortKey, search]);
+  }, [projects, filterStatus, filterConfidence, filterDecision, filterModification, sortKey, search]);
 
   /* ---- Active filter count (for the badge) ---- */
   const activeFilterCount =
     (filterStatus !== "all" ? 1 : 0) +
     (filterConfidence !== "all" ? 1 : 0) +
-    (filterDecision !== "all" ? 1 : 0);
+    (filterDecision !== "all" ? 1 : 0) +
+    (filterModification !== "all" ? 1 : 0);
 
   /* ---- Stats ---- */
   const totalProjects = projects.length;
@@ -626,30 +635,54 @@ export function AdminDashboardClient({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-                Advisory Team Dashboard
+                Advisor Panel
               </h1>
               <p className="mt-0.5 text-sm text-gray-500">
-                Welcome back, {userName}. Monitor all project requests and AI-driven assessments.
+                {userName === "Dev User" ? "Welcome back. " : `Welcome back, ${userName}. `}
+                Monitor all project requests and AI-driven assessments.
               </p>
             </div>
-            <div className="flex gap-2">
-              <Link href="/admin/flagged-projects">
-                <Button variant="outline" className="gap-1.5 text-sm">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c.866 1.08.969 2.178.75 3.124M15.75 12c0 .866-.166 1.693-.484 2.449m0 0c.574.575 1.088 1.09 1.56 1.409M9.75 15c0 .866.166 1.693.484 2.449m0 0c-.574.575-1.088 1.09-1.56 1.409M21 12a9 9 0 11-18 0 9 9 0 0118 0Z" />
-                  </svg>
-                  Flagged Projects
-                </Button>
-              </Link>
-              <Link href="/dashboard">
-                <Button variant="outline" className="gap-1.5 text-sm">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                  </svg>
-                  Client Dashboard
-                </Button>
-              </Link>
-            </div>
+            <Link href="/dashboard">
+              <Button variant="outline" className="gap-1.5 text-sm">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                </svg>
+                Project Tracker
+              </Button>
+            </Link>
+          </div>
+
+          {/* Navigation Tabs */}
+          <div className="mt-5 flex gap-6 border-b border-gray-150">
+            <button
+              type="button"
+              onClick={() => setActiveTab("projects")}
+              className={`pb-3 px-1 border-b-2 font-medium text-sm transition-all -mb-px flex items-center gap-1.5 ${
+                activeTab === "projects"
+                  ? "border-blue-600 text-blue-600 font-semibold"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}
+              id="tab-projects"
+            >
+              <ClipboardIcon size={16} />
+              Projects List
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("analytics")}
+              className={`pb-3 px-1 border-b-2 font-medium text-sm transition-all -mb-px flex items-center gap-1.5 ${
+                activeTab === "analytics"
+                  ? "border-blue-600 text-blue-600 font-semibold"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}
+              id="tab-analytics"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" />
+              </svg>
+              Real-Time Analytics
+            </button>
           </div>
         </div>
       </div>
@@ -663,8 +696,384 @@ export function AdminDashboardClient({
           <StatCard label="Open Questions" value={openQuestions} icon={<MessageIcon size={20} className="text-violet-600" />} accent="bg-violet-100" />
         </div>
 
-        {/* ─── Search + Filters + Sort ─── */}
-        <div className="rounded-xl border bg-white p-4 shadow-sm space-y-3">
+        {activeTab === "analytics" ? (
+          <div className="space-y-6">
+            {/* Top KPI Cards (Large circles / stats) */}
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+              {/* Automation Rate KPI Card */}
+              <div className="rounded-xl border bg-white p-6 shadow-sm flex flex-col items-center justify-between text-center relative overflow-hidden group hover:shadow-md transition-all">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Project Automation Rate</h3>
+                  <p className="text-xs text-gray-400">Target: 80% automated</p>
+                </div>
+
+                {/* Progress Ring */}
+                <div className="my-6 relative flex items-center justify-center">
+                  <svg className="w-32 h-32 transform -rotate-90">
+                    <circle cx="64" cy="64" r="54" className="stroke-gray-100" strokeWidth="10" fill="transparent" />
+                    <circle
+                      cx="64"
+                      cy="64"
+                      r="54"
+                      className="stroke-blue-600 transition-all duration-1000 ease-out"
+                      strokeWidth="10"
+                      fill="transparent"
+                      strokeDasharray={2 * Math.PI * 54}
+                      strokeDashoffset={2 * Math.PI * 54 * (1 - analyticsData.automationRate / 100)}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute text-center">
+                    <span className="text-2xl font-bold text-gray-900">{analyticsData.automationRate.toFixed(1)}%</span>
+                    <span className="block text-[10px] text-gray-400">{analyticsData.automatedCount} / {analyticsData.total} projects</span>
+                  </div>
+                </div>
+
+                <div className="text-xs text-gray-500 mt-2">
+                  Projects built without triggering manual human advisor review flags.
+                </div>
+              </div>
+
+              {/* Pricing Accuracy KPI Card */}
+              <div className="rounded-xl border bg-white p-6 shadow-sm flex flex-col items-center justify-between text-center relative overflow-hidden group hover:shadow-md transition-all">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Pricing Accuracy</h3>
+                  <p className="text-xs text-gray-400">Quotes matching estimate range</p>
+                </div>
+
+                {/* Progress Ring */}
+                <div className="my-6 relative flex items-center justify-center">
+                  <svg className="w-32 h-32 transform -rotate-90">
+                    <circle cx="64" cy="64" r="54" className="stroke-gray-100" strokeWidth="10" fill="transparent" />
+                    <circle
+                      cx="64"
+                      cy="64"
+                      r="54"
+                      className="stroke-emerald-500 transition-all duration-1000 ease-out"
+                      strokeWidth="10"
+                      fill="transparent"
+                      strokeDasharray={2 * Math.PI * 54}
+                      strokeDashoffset={2 * Math.PI * 54 * (1 - analyticsData.pricingAccuracy / 100)}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute text-center">
+                    <span className="text-2xl font-bold text-gray-900">{analyticsData.pricingAccuracy.toFixed(1)}%</span>
+                    <span className="block text-[10px] text-gray-400">{analyticsData.inRangeCount} / {analyticsData.quoteCount} quotes</span>
+                  </div>
+                </div>
+
+                <div className="text-xs text-gray-500 mt-2">
+                  Quotes where final total is within the initial estimate min/max range.
+                </div>
+              </div>
+
+              {/* Average Deviation KPI Card */}
+              <div className="rounded-xl border bg-white p-6 shadow-sm flex flex-col items-center justify-between text-center relative overflow-hidden group hover:shadow-md transition-all">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-violet-500 to-purple-500" />
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Average Midpoint Deviation</h3>
+                  <p className="text-xs text-gray-400">Mean absolute variation</p>
+                </div>
+
+                {/* Big Metric with Subtext */}
+                <div className="my-10 flex flex-col items-center justify-center">
+                  <span className="text-4xl font-extrabold text-gray-900">
+                    ±{analyticsData.avgDeviation.toFixed(1)}%
+                  </span>
+                  <span className="mt-2 text-xs text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full font-medium">
+                    {analyticsData.quoteCount} active quote{analyticsData.quoteCount === 1 ? "" : "s"}
+                  </span>
+                </div>
+
+                <div className="text-xs text-gray-500 mt-2">
+                  Average percentage variance of the final quote from the initial estimate range midpoint.
+                </div>
+              </div>
+            </div>
+
+            {/* Double Column Layout: Charts & Insights */}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              {/* Left Column: Visual Charts */}
+              <div className="space-y-6">
+                {/* Automation by Modification Type Bar Chart */}
+                <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-950">Automation Rate by Modification Type</h3>
+                    <p className="text-xs text-gray-500">Compare automated processing across project types</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    {analyticsData.automationByMod.map((item) => {
+                      const modNames: Record<string, string> = {
+                        GRAB_BARS: "Grab Bars",
+                        RAMPS: "Wheelchair Ramps",
+                        STAIR_LIFT: "Stair Lift",
+                        SHOWER: "Walk-in Shower",
+                        DOORS: "Door Widening",
+                      };
+                      const modColors: Record<string, string> = {
+                        GRAB_BARS: "bg-emerald-500",
+                        RAMPS: "bg-blue-500",
+                        STAIR_LIFT: "bg-violet-500",
+                        SHOWER: "bg-teal-500",
+                        DOORS: "bg-amber-500",
+                      };
+
+                      return (
+                        <div key={item.type} className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="font-semibold text-gray-800">{modNames[item.type] ?? item.type}</span>
+                            <span className="text-gray-500 font-medium">
+                              {item.rate.toFixed(0)}% ({item.automated}/{item.total})
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                            <div
+                              className={`${modColors[item.type] ?? "bg-gray-500"} h-full rounded-full transition-all duration-700`}
+                              style={{ width: `${item.rate}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Pricing Deviation Distribution */}
+                <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-950">Pricing Deviation Distribution</h3>
+                    <p className="text-xs text-gray-500">Distribution of quotes relative to estimates</p>
+                  </div>
+
+                  {/* Stacked bar or distribution visualization */}
+                  {analyticsData.quoteCount > 0 ? (
+                    <div className="space-y-6">
+                      <div className="flex h-6 rounded-full overflow-hidden border">
+                        {analyticsData.underEstimateCount > 0 && (
+                          <div
+                            className="bg-blue-400 text-white flex items-center justify-center text-[10px] font-bold transition-all"
+                            style={{ width: `${(analyticsData.underEstimateCount / analyticsData.quoteCount) * 100}%` }}
+                            title={`Under Estimate: ${analyticsData.underEstimateCount}`}
+                          >
+                            {((analyticsData.underEstimateCount / analyticsData.quoteCount) * 100).toFixed(0)}%
+                          </div>
+                        )}
+                        {analyticsData.inRangeCount > 0 && (
+                          <div
+                            className="bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold transition-all"
+                            style={{ width: `${(analyticsData.inRangeCount / analyticsData.quoteCount) * 100}%` }}
+                            title={`In Range: ${analyticsData.inRangeCount}`}
+                          >
+                            {((analyticsData.inRangeCount / analyticsData.quoteCount) * 100).toFixed(0)}%
+                          </div>
+                        )}
+                        {analyticsData.overEstimateCount > 0 && (
+                          <div
+                            className="bg-red-400 text-white flex items-center justify-center text-[10px] font-bold transition-all"
+                            style={{ width: `${(analyticsData.overEstimateCount / analyticsData.quoteCount) * 100}%` }}
+                            title={`Over Estimate: ${analyticsData.overEstimateCount}`}
+                          >
+                            {((analyticsData.overEstimateCount / analyticsData.quoteCount) * 100).toFixed(0)}%
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-100">
+                          <span className="block font-bold text-blue-700">{analyticsData.underEstimateCount}</span>
+                          <span className="text-[10px] text-gray-500 font-medium">Under Estimate</span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-100">
+                          <span className="block font-bold text-emerald-700">{analyticsData.inRangeCount}</span>
+                          <span className="text-[10px] text-gray-500 font-medium">In Estimate Range</span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-red-50 border border-red-100">
+                          <span className="block font-bold text-red-700">{analyticsData.overEstimateCount}</span>
+                          <span className="text-[10px] text-gray-500 font-medium">Over Estimate</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-6 text-center text-xs text-gray-400 italic">
+                      No active quotes to display pricing deviation.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: Insights & Flags Breakdown */}
+              <div className="space-y-6">
+                {/* Manual Review Reasons Breakdown */}
+                <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-950">Manual Review Flags Analysis</h3>
+                    <p className="text-xs text-gray-500">Distribution of manual review triggers</p>
+                  </div>
+
+                  {analyticsData.flaggedProjects.length > 0 ? (
+                    <div className="space-y-3">
+                      {Object.entries(analyticsData.reasonCounts).map(([reason, count]) => {
+                        const label = reason === "HIGH_COMPLEXITY" ? "High Complexity Project" :
+                                      reason === "LOW_CONFIDENCE" ? "Low AI Confidence" :
+                                      reason === "DOCUMENT_MISMATCH" ? "Document Verification Required" :
+                                      reason;
+                        const percentage = (count / analyticsData.flaggedProjects.length) * 100;
+                        return (
+                          <div key={reason} className="p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-semibold text-gray-800">{label}</span>
+                              <span className="font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded border border-orange-100">
+                                {count} trigger{count > 1 ? "s" : ""}
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                              <div className="bg-orange-500 h-full rounded-full" style={{ width: `${percentage}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="py-6 text-center text-xs text-gray-400 italic">
+                      Excellent! No manual review flags currently active.
+                    </div>
+                  )}
+                </div>
+
+                {/* Dynamic Advisor Insights Panel */}
+                <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500 to-orange-500" />
+                  <h3 className="text-base font-bold text-gray-950 flex items-center gap-1.5">
+                    <svg className="h-5 w-5 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0-10.5v.008H12v-.008zm0 10.5L9 12h6l-3 6.75z" />
+                    </svg>
+                    Advisor Insights
+                  </h3>
+
+                  <div className="space-y-4 text-sm text-gray-600">
+                    {/* Insight 1: Automation Rate */}
+                    {analyticsData.automationRate < 80 ? (
+                      <div className="flex gap-3">
+                        <div className="shrink-0 h-2 w-2 rounded-full bg-amber-500 mt-1.5" />
+                        <div>
+                          <p className="font-semibold text-gray-800 text-xs">Automation rate below target</p>
+                          <p className="text-xs mt-0.5">
+                            The current automation rate is {analyticsData.automationRate.toFixed(1)}%, which is below the 80% operational target.
+                            {analyticsData.reasonCounts["HIGH_COMPLEXITY"] && " The primary bottleneck is 'High Complexity' flags. Consider revising the complexity threshold."}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-3">
+                        <div className="shrink-0 h-2 w-2 rounded-full bg-emerald-500 mt-1.5" />
+                        <div>
+                          <p className="font-semibold text-gray-800 text-xs">Automation rate exceeds target</p>
+                          <p className="text-xs mt-0.5">
+                            Fantastic! The automation rate is at {analyticsData.automationRate.toFixed(1)}%, exceeding the target of 80%. System overhead is minimal.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Insight 2: Pricing Accuracy */}
+                    {analyticsData.pricingAccuracy < 90 ? (
+                      <div className="flex gap-3">
+                        <div className="shrink-0 h-2 w-2 rounded-full bg-amber-500 mt-1.5" />
+                        <div>
+                          <p className="font-semibold text-gray-800 text-xs">Pricing accuracy alert</p>
+                          <p className="text-xs mt-0.5">
+                            {analyticsData.pricingAccuracy.toFixed(1)}% of quotes are in the estimate range.
+                            {analyticsData.overEstimateCount > 0 && ` There are ${analyticsData.overEstimateCount} quotes exceeding maximum estimates. Check if contractors are including extra scope or if materials inflation has spiked.`}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-3">
+                        <div className="shrink-0 h-2 w-2 rounded-full bg-emerald-500 mt-1.5" />
+                        <div>
+                          <p className="font-semibold text-gray-800 text-xs">High pricing consistency</p>
+                          <p className="text-xs mt-0.5">
+                            Pricing model is highly calibrated. {analyticsData.pricingAccuracy.toFixed(1)}% of quotes are matching initial client estimates.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Insight 3: Hardest Type to Automate */}
+                    {(() => {
+                      const sortedMods = [...analyticsData.automationByMod].sort((a, b) => a.rate - b.rate);
+                      const hardest = sortedMods[0];
+                      if (hardest && hardest.rate < 100 && hardest.total > 0) {
+                        const modNames: Record<string, string> = {
+                          GRAB_BARS: "Grab Bars",
+                          RAMPS: "Wheelchair Ramps",
+                          STAIR_LIFT: "Stair Lifts",
+                          SHOWER: "Walk-in Showers",
+                          DOORS: "Door Widenings",
+                        };
+                        return (
+                          <div className="flex gap-3">
+                            <div className="shrink-0 h-2 w-2 rounded-full bg-violet-500 mt-1.5" />
+                            <div>
+                              <p className="font-semibold text-gray-800 text-xs">
+                                {modNames[hardest.type]} require the most reviews
+                              </p>
+                              <p className="text-xs mt-0.5">
+                                {modNames[hardest.type]} projects have the lowest automation rate ({hardest.rate.toFixed(0)}%).
+                                Consider adding specific guidelines or improving the prompt template for this modification type.
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Table of Flagged Projects */}
+            {analyticsData.flaggedProjects.length > 0 && (
+              <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b bg-gray-50/50">
+                  <h3 className="text-sm font-bold text-gray-900">Projects Requiring Attention ({analyticsData.flaggedProjects.length})</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">These projects triggered manual review and require human advisor approval</p>
+                </div>
+                <div className="divide-y text-xs">
+                  {analyticsData.flaggedProjects.map((p) => (
+                    <div key={p.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                      <div>
+                        <p className="font-semibold text-gray-900">{p.address}</p>
+                        <p className="text-gray-500 mt-0.5">
+                          Client: {p.client.name} · Reason: <span className="font-mono text-orange-600 bg-orange-50 px-1 rounded">{p.manualReviewReason ?? "UNKNOWN"}</span>
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab("projects");
+                          setSearch(p.id);
+                          setExpandedId(p.id);
+                        }}
+                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-100 transition-colors"
+                      >
+                        Locate Project
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* ─── Search + Filters + Sort ─── */}
+            <div className="rounded-xl border bg-white p-4 shadow-sm space-y-3">
           {/* Row 1: Search + Sort */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             {/* Search */}
@@ -773,6 +1182,24 @@ export function AdminDashboardClient({
               <option value="INELIGIBLE">Ineligible</option>
             </select>
 
+            {/* Modification Type filter */}
+            <select
+              id="filter-modification"
+              value={filterModification}
+              onChange={(e) => setFilterModification(e.target.value)}
+              className={`rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 ${filterModification !== "all"
+                  ? "border-blue-300 bg-blue-50 text-blue-700 font-medium"
+                  : "border-gray-200 bg-gray-50 text-gray-600"
+                }`}
+            >
+              <option value="all">Modification: All</option>
+              <option value="GRAB_BARS">Grab Bars</option>
+              <option value="RAMPS">Wheelchair Ramps</option>
+              <option value="STAIR_LIFT">Stair Lift</option>
+              <option value="SHOWER">Walk-in Shower</option>
+              <option value="DOORS">Door Widening</option>
+            </select>
+
             {/* Clear all filters */}
             {activeFilterCount > 0 && (
               <button
@@ -781,6 +1208,7 @@ export function AdminDashboardClient({
                   setFilterStatus("all");
                   setFilterConfidence("all");
                   setFilterDecision("all");
+                  setFilterModification("all");
                   setSearch("");
                 }}
                 className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-100"
@@ -835,6 +1263,21 @@ export function AdminDashboardClient({
                               <span className={`h-1.5 w-1.5 rounded-full ${statusConfig.dot}`} />
                               {statusConfig.label}
                             </span>
+
+                            <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
+                              project.modificationType === "GRAB_BARS" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                              project.modificationType === "RAMPS" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                              project.modificationType === "STAIR_LIFT" ? "bg-violet-50 text-violet-700 border-violet-200" :
+                              project.modificationType === "SHOWER" ? "bg-teal-50 text-teal-700 border-teal-200" :
+                              "bg-amber-50 text-amber-700 border-amber-200"
+                            }`}>
+                              {project.modificationType === "GRAB_BARS" ? "Grab Bars" :
+                               project.modificationType === "RAMPS" ? "Wheelchair Ramps" :
+                               project.modificationType === "STAIR_LIFT" ? "Stair Lift" :
+                               project.modificationType === "SHOWER" ? "Walk-in Shower" :
+                               "Door Widening"}
+                            </span>
+
                             <span>{fmtDate(project.createdAt)}</span>
                           </div>
                         </div>
@@ -918,6 +1361,8 @@ export function AdminDashboardClient({
           Showing {filtered.length} of {totalProjects} project{totalProjects === 1 ? "" : "s"} ·
           Grant eligibility data is AI-sourced and should be verified before client communication.
         </p>
+          </>
+        )}
       </div>
     </main>
   );

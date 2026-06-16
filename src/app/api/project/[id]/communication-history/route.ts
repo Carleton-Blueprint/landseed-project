@@ -6,8 +6,9 @@ import { ProjectAccessRole, CommunicationCategory, CommunicationType, Communicat
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     // Authentication check
     const session = await auth();
@@ -18,7 +19,7 @@ export async function GET(
     // Authorization check
     const hasAccess = await hasProjectAccess(
       session.user.id,
-      params.id,
+      id,
       ProjectAccessRole.VIEWER
     );
 
@@ -37,7 +38,7 @@ export async function GET(
     const since = searchParams.get("since") ? new Date(searchParams.get("since")!) : undefined;
 
     // Fetch communication history
-    const result = await getCommunicationHistoryForProject(params.id, {
+    const result = await getCommunicationHistoryForProject(id, {
       limit,
       offset,
       ...(category && { category }),

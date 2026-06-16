@@ -454,12 +454,22 @@ export function GrantDiscoverySummary({ projectId }: { projectId: string }) {
     return (
       <section className="rounded-xl border bg-white p-5 shadow-sm" id="grant-discovery-section">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">AI Grant Assessment</h2>
-        <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4">
-          <SearchIcon size={24} className="text-gray-400" />
-          <div>
-            <p className="text-sm font-medium text-gray-700">Assessment Pending</p>
-            <p className="text-xs text-gray-500">
-              Grant eligibility discovery will run automatically once your intake is finalized.
+        <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-200 bg-gradient-to-br from-indigo-50/20 to-violet-50/20 p-6 flex flex-col sm:flex-row items-center gap-4 shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
+          <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-500 shadow-inner">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-20"></span>
+            <SearchIcon size={24} className="text-indigo-500 animate-pulse" />
+          </div>
+          <div className="text-center sm:text-left">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900">Assessment Pending</p>
+              <span className="self-center sm:self-auto inline-flex items-center gap-1 rounded-full bg-indigo-100/80 px-2.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                Queued for finalization
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-gray-500 leading-relaxed max-w-xl">
+              Grant eligibility discovery will run automatically once your project is finalized.
             </p>
           </div>
         </div>
@@ -504,8 +514,19 @@ export function GrantDiscoverySummary({ projectId }: { projectId: string }) {
           ))}
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-center">
-          <p className="text-sm text-gray-500">No grant programs were discovered for this project&apos;s profile.</p>
+        <div className="rounded-xl border border-dashed border-gray-300 bg-slate-50/50 p-8 flex flex-col items-center justify-center text-center shadow-sm">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+            </svg>
+          </div>
+          <h4 className="text-sm font-semibold text-gray-900 mb-1">No Matching Programs</h4>
+          <p className="max-w-[340px] text-xs text-gray-500 leading-normal">
+            No grant programs were discovered for this project&apos;s profile.
+          </p>
+          <p className="mt-1 max-w-[280px] text-[11px] text-gray-400">
+            We will continue tracking new funding opportunities as they release.
+          </p>
         </div>
       )}
 

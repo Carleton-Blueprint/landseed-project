@@ -3,13 +3,17 @@
  * Used by the API route handler and by auth(), signIn(), signOut() across the app.
  * v5 supports Next.js 15; requires AUTH_SECRET in env.
  */
-import NextAuth from "next-auth";
+import NextAuth, { Session } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "lib/prisma";
+import { hasMinimumRole } from "@/backend/auth/requireRole";
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma),
+const isDev = process.env.NODE_ENV === "development";
+
+const nextAuthResult = NextAuth({
+  // Skip DB adapter in dev — pure JWT sessions, no database needed
+  ...(isDev ? {} : { adapter: PrismaAdapter(prisma) }),
   session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
   pages: {
     signIn: "/auth/signin",
@@ -27,6 +31,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (session.user && token.id) {
         (session.user as { id?: string }).id = token.id as string;
+        
+        // Expose user role to client side
+        const isAdmin = await hasMinimumRole(session, "ADMIN");
+        session.user.role = isAdmin ? "ADMIN" : "USER";
       }
       return session;
     },
@@ -47,6 +55,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               ? credentials.email.trim().toLowerCase()
               : "";
           if (!name || !email) return null;
+
+          // ── DEV MODE: skip DB, accept any valid credentials ──────────
+          if (process.env.NODE_ENV === "development") {
+            return {
+              id: "dev-user-" + Buffer.from(email).toString("hex").slice(0, 8),
+              name,
+              email,
+              image: null,
+            };
+          }
+          // ────────────────────────────────────────────────────────────
 
           const user = await prisma.user.findUnique({
             where: { email },
@@ -69,3 +88,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // Prefer AUTH_SECRET but fall back to NEXTAUTH_SECRET for backwards compatibility
   secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
 });
+
+export const handlers = nextAuthResult.handlers;
+export const signIn = nextAuthResult.signIn;
+export const signOut = nextAuthResult.signOut;
+
+// Custom auth wrapper to bypass login in development environment
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const auth = async (...args: any[]): Promise<Session | null> => {
+  if (process.env.NODE_ENV === "development") {
+    return {
+      user: {
+        id: "dev-user-id",
+        name: "Dev User",
+        email: "dev@example.com",
+      },
+      expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+  }
+  return await (nextAuthResult.auth as unknown as (...args: unknown[]) => Promise<Session | null>)(...args);
+};

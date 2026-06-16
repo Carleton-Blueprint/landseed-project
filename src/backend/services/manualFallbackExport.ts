@@ -1,4 +1,4 @@
-import archiver from "archiver";
+import { ZipArchive, Archiver } from "archiver";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
@@ -151,7 +151,7 @@ async function fetchBufferFromUrl(
 }
 
 async function appendJsonEntry(
-  archive: archiver.Archiver,
+  archive: Archiver,
   name: string,
   value: unknown,
   tracker?: ExportByteTracker
@@ -164,7 +164,7 @@ async function appendJsonEntry(
   archive.append(buffer, { name });
 }
 
-async function uploadArchiveToS3(archive: archiver.Archiver, s3Key: string): Promise<string> {
+async function uploadArchiveToS3(archive: Archiver, s3Key: string): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), "manual-fallback-export-"));
   const tempFilePath = join(tempDir, `${s3Key.replace(/[\\/]+/g, "-")}.zip`);
   const fileStream = createWriteStream(tempFilePath);
@@ -296,7 +296,7 @@ async function buildArchiveForProject(
   settings: ManualFallbackExportSettings
 ): Promise<{ fileName: string; s3Key: string }> {
   const tracker: ExportByteTracker = { totalBytes: 0, maxBytes: settings.maxSizeBytes };
-  const archive = archiver("zip", { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
   const fileName = buildManualFallbackExportArchiveFileName(project.id, exportRequestId);
   const s3Key = buildManualFallbackExportS3ObjectKey(project.id, exportRequestId);
 

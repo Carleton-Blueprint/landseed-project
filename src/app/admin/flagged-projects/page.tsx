@@ -2,6 +2,7 @@ import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
+import { hasMinimumRole } from "@/backend/auth/requireRole";
 
 export const metadata: Metadata = {
   title: "Flagged Projects — Landseed Project Admin",
@@ -20,6 +21,28 @@ const reasonBadgeColor: Record<string, string> = {
   BOTH: "bg-red-100 text-red-800 border border-red-300",
 };
 
+interface FlaggedProject {
+  id: string;
+  reason: string;
+  description: string | null;
+  createdAt: Date;
+  lastEvaluatedAt: Date;
+  project: {
+    id: string;
+    name: string;
+    createdAt: Date;
+    user: {
+      id: string;
+      name: string | null;
+      email: string | null;
+    };
+    _count: {
+      eligibilityAssessments: number;
+      quotes: number;
+    };
+  };
+}
+
 export default async function FlaggedProjectsPage() {
   const session = await auth();
 
@@ -27,63 +50,61 @@ export default async function FlaggedProjectsPage() {
     redirect("/api/auth/signin?callbackUrl=/admin/flagged-projects");
   }
 
-  const staffAccess = await prisma.projectAccess.findFirst({
-    where: {
-      userId: session.user.id,
-      role: { in: ["EDITOR", "OWNER"] },
-    },
-    select: { id: true },
-  });
+  let flaggedProjects: FlaggedProject[] = [];
+  try {
+    const isAdmin = await hasMinimumRole(session, "ADMIN");
+    if (!isAdmin) {
+      redirect("/dashboard");
+    }
 
-  if (!staffAccess) {
-    redirect("/dashboard");
+    const projectsWithFlags = await prisma.project.findMany({
+      where: {
+        manualReviewFlag: {
+          isActive: true,
+        },
+      },
+      include: {
+        manualReviewFlag: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        _count: {
+          select: {
+            eligibilityAssessments: true,
+            quotes: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    flaggedProjects = projectsWithFlags
+      .map((project) => {
+        if (!project.manualReviewFlag) {
+          return null;
+        }
+
+        return {
+          ...project.manualReviewFlag,
+          project: {
+            id: project.id,
+            name: project.address,
+            createdAt: project.createdAt,
+            user: project.user,
+            _count: project._count,
+          },
+        };
+      })
+      .filter((flaggedProject): flaggedProject is NonNullable<typeof flaggedProject> => Boolean(flaggedProject));
+  } catch {
+    console.log("Database fetch failed in admin flagged projects page, using empty fallback.");
   }
-
-  const projectsWithFlags = await prisma.project.findMany({
-    where: {
-      manualReviewFlag: {
-        isActive: true,
-      },
-    },
-    include: {
-      manualReviewFlag: true,
-      user: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
-      },
-      _count: {
-        select: {
-          eligibilityAssessments: true,
-          quotes: true,
-        },
-      },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
-
-  const flaggedProjects = projectsWithFlags
-    .map((project) => {
-      if (!project.manualReviewFlag) {
-        return null;
-      }
-
-      return {
-        ...project.manualReviewFlag,
-        project: {
-          id: project.id,
-          name: project.address,
-          createdAt: project.createdAt,
-          user: project.user,
-          _count: project._count,
-        },
-      };
-    })
-    .filter((flaggedProject): flaggedProject is NonNullable<typeof flaggedProject> => Boolean(flaggedProject));
 
   return (
     <main className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">

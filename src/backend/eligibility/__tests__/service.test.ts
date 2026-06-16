@@ -4,7 +4,6 @@
  * depends on Prisma client availability. These tests verify module structure.
  */
 
-import { EligibilityDecision } from '../types';
 
 // Import to verify files exist and compile
 import '../service';

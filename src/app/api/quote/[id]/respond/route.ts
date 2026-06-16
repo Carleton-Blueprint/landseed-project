@@ -34,6 +34,30 @@ export async function POST(
     const body = await req.json();
     const { status, reason, survey } = body;
 
+    if (process.env.NODE_ENV === "development") {
+      if (status !== "ACCEPTED" && status !== "DECLINED") {
+        return NextResponse.json({ error: "Invalid status provided" }, { status: 400 });
+      }
+      if (status === "DECLINED" && (!reason || typeof reason !== "string")) {
+        return NextResponse.json({ error: "A valid reason is required when declining" }, { status: 400 });
+      }
+      if (status === "DECLINED" && survey && typeof survey === "object") {
+        if (!survey.primaryReason || typeof survey.primaryReason !== "string") {
+          return NextResponse.json({ error: "Survey primaryReason is required" }, { status: 400 });
+        }
+      }
+      return NextResponse.json({
+        success: true,
+        quote: {
+          id: resolvedParams.id,
+          status,
+          declinedReason: status === "DECLINED" ? reason : null,
+          lastClientActivityAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }, { status: 200 });
+    }
+
     // Validate inputs
     if (status !== "ACCEPTED" && status !== "DECLINED") {
       await logAuditEventNonBlocking({

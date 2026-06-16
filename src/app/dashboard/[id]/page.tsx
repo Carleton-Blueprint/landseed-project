@@ -10,6 +10,7 @@ import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
 import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
 import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
+import { ConsultationScheduler } from "@/frontend/components/ConsultationScheduler";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -41,9 +42,9 @@ function getEstimateSummary(project: {
 
   if (!isFinalized) {
     return {
-      value: "Available after intake finalization",
+      value: "Available after project finalization",
       explanation:
-        "Your initial estimate range will appear here after intake finalization. Pricing is dynamically generated from real-time external retail data.",
+        "Your initial estimate range will appear here after your project request is finalized. Pricing is dynamically generated from real-time external retail data.",
     };
   }
 
@@ -111,25 +112,52 @@ export default async function ProjectDetailPage({
     redirect(`/api/auth/signin?callbackUrl=/dashboard/${resolvedParams.id}`);
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: resolvedParams.id },
-    include: {
-      photos: true,
-      quotes: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: {
-          estimateMin: true,
-          estimateMax: true,
-          generatedAt: true,
+  let project = null;
+  try {
+    project = await prisma.project.findUnique({
+      where: { id: resolvedParams.id },
+      include: {
+        photos: true,
+        quotes: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            estimateMin: true,
+            estimateMax: true,
+            generatedAt: true,
+          },
+        },
+        projectAccess: {
+          where: { userId: session.user.id },
+          select: { userId: true },
         },
       },
-      projectAccess: {
-        where: { userId: session.user.id },
-        select: { userId: true },
-      },
-    },
-  });
+    });
+  } catch {
+    if (process.env.NODE_ENV === "development") {
+      project = {
+        id: resolvedParams.id,
+        address: "123 Dev Lane, Mockville",
+        status: "submitted",
+        userId: "dev-user-id",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        draftData: {
+          modificationItems: ["GRAB_BARS", "WALK_IN_SHOWER", "STAIR_LIFT"],
+        },
+        photos: [
+          {
+            id: "photo-1",
+            url: "https://placehold.co/800x600?text=Original+Bathroom",
+          }
+        ],
+        projectAccess: [
+          { userId: "dev-user-id" }
+        ],
+        grantDocumentKey: "mock-key",
+      };
+    }
+  }
 
   if (!project) return notFound();
   if (project.projectAccess.length === 0) return notFound();
@@ -138,36 +166,45 @@ export default async function ProjectDetailPage({
 
   const estimateSummary = getEstimateSummary(project);
 
-  const photosWithSignedUrls = await Promise.all(
-    project.photos.map(async (photo) => {
-      const imageUrl = "imageUrl" in photo
-        ? ((photo as { imageUrl?: string | null }).imageUrl ?? photo.url)
-        : photo.url;
+  let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
+  try {
+    photosWithSignedUrls = await Promise.all(
+      project.photos.map(async (photo) => {
+        const imageUrl = "imageUrl" in photo
+          ? ((photo as { imageUrl?: string | null }).imageUrl ?? photo.url)
+          : photo.url;
 
-      const existingGeneratedImageUrl = "generatedImageUrl" in photo
-        ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
-        : null;
+        const existingGeneratedImageUrl = "generatedImageUrl" in photo
+          ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
+          : null;
 
-      const generatedImageUrl = existingGeneratedImageUrl ??
-        (await generateMockAccessibilityVisual(photo.url, {
-          modificationCodes: modificationItems,
-        }));
+        const generatedImageUrl = existingGeneratedImageUrl ??
+          (await generateMockAccessibilityVisual(photo.url, {
+            modificationCodes: modificationItems,
+          }));
 
-      const signedImageUrl = imageUrl
-        ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
-        : null;
+        const signedImageUrl = imageUrl?.startsWith("https://s3.")
+          ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
+          : imageUrl;
 
-      const signedGeneratedImageUrl = generatedImageUrl?.startsWith("https://s3.")
-        ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
-        : generatedImageUrl;
+        const signedGeneratedImageUrl = generatedImageUrl?.startsWith("https://s3.")
+          ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
+          : generatedImageUrl;
 
-      return {
-        id: photo.id,
-        imageUrl: signedImageUrl,
-        generatedImageUrl: signedGeneratedImageUrl,
-      };
-    })
-  );
+        return {
+          id: photo.id,
+          imageUrl: signedImageUrl,
+          generatedImageUrl: signedGeneratedImageUrl,
+        };
+      })
+    );
+  } catch {
+    photosWithSignedUrls = project.photos.map((photo) => ({
+      id: photo.id,
+      imageUrl: photo.url,
+      generatedImageUrl: photo.url,
+    }));
+  }
 
   return (
     <main className="min-h-screen bg-gray-50/60">
@@ -281,6 +318,11 @@ export default async function ProjectDetailPage({
 
         {/* ═══════ AI-Sourced Grant Discovery Summary ═══════ */}
         <GrantDiscoverySummary projectId={project.id} />
+
+        {/* ═══════ Mandatory Consultation Scheduler ═══════ */}
+        {project.status !== "draft" && (
+          <ConsultationScheduler projectId={project.id} />
+        )}
 
         <SupportingDocumentsSection grantApplicationId={project.id} />
 

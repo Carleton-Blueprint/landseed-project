@@ -23,10 +23,8 @@
     "worker:estimate-expiry": "tsx src/backend/queue/estimateExpiryWorker.ts",
     "worker:manual-review": "tsx src/backend/queue/manualReviewWorker.ts",
     "worker:manual-fallback-export": "tsx src/backend/queue/manualFallbackExportWorker.ts",
-    "worker:manual-fallback-export-cleanup": "tsx src/backend/queue/manualFallbackExportCleanupWorker.ts"
-    ,
-    "worker:account-deletion": "tsx src/backend/queue/accountDeletionWorker.ts"
-    ,
+    "worker:manual-fallback-export-cleanup": "tsx src/backend/queue/manualFallbackExportCleanupWorker.ts",
+    "worker:account-deletion": "tsx src/backend/queue/accountDeletionWorker.ts",
     "worker:account-deletion-finalizer": "tsx src/backend/queue/accountDeletionFinalizerWorker.ts"
   },
   "dependencies": {
@@ -37,6 +35,7 @@
     "@prisma/client": "^6.0.0",
     "@radix-ui/react-slot": "^1.1.0",
     "@tanstack/react-query": "^5.60.0",
+    "archiver": "^8.0.0",
     "bullmq": "^5.0.0",
     "clamscan": "^2.4.0",
     "class-variance-authority": "^0.7.0",
@@ -60,6 +59,7 @@
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.0",
+    "@types/archiver": "^8.0.0",
     "@types/clamscan": "^2.4.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.0.0",
