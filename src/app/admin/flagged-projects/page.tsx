@@ -1,5 +1,6 @@
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
+import { redirectToSignIn } from "lib/auth-redirect";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
@@ -47,7 +48,7 @@ export default async function FlaggedProjectsPage() {
   const session = await auth();
 
   if (!session?.user?.id) {
-    redirect("/api/auth/signin?callbackUrl=/admin/flagged-projects");
+    redirectToSignIn("/admin/flagged-projects");
   }
 
   let flaggedProjects: FlaggedProject[] = [];

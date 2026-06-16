@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { redirectToSignIn } from "lib/auth-redirect";
 import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
 
 export const metadata = {
@@ -101,7 +102,7 @@ function getMockNotifications(projects: { id: string; address: string; status: s
         title: "Estimate Awaiting Approval",
         body: `Your final estimate for ${first.address} requires your approval to proceed to the next steps.`,
         href: `/projects/${first.id}/estimate`,
-        createdAt: new Date(now - 1000 * 60 * 5),
+        createdAt: new Date(now - 1000 * 60 * 5).toISOString(),
         urgent: true,
       });
     }
@@ -112,7 +113,7 @@ function getMockNotifications(projects: { id: string; address: string; status: s
       title: "Supporting documents requested",
       body: "Please upload proof of income and property ownership to continue your grant application.",
       href: `/dashboard/${first.id}`,
-      createdAt: new Date(now - 1000 * 60 * 60 * 3),
+      createdAt: new Date(now - 1000 * 60 * 60 * 3).toISOString(),
       urgent: true,
     });
     
@@ -122,7 +123,7 @@ function getMockNotifications(projects: { id: string; address: string; status: s
       title: "Refined estimate ready for review",
       body: `Your refined estimate for ${first.address} is ready. Review the updated pricing and grant details.`,
       href: `/dashboard/${first.id}`,
-      createdAt: new Date(now - 1000 * 60 * 12),
+      createdAt: new Date(now - 1000 * 60 * 12).toISOString(),
     });
   }
 
@@ -131,7 +132,7 @@ function getMockNotifications(projects: { id: string; address: string; status: s
     kind: "info",
     title: "Welcome to Landseed",
     body: "You can track every project you submit from this dashboard.",
-    createdAt: new Date(now - 1000 * 60 * 60 * 26),
+    createdAt: new Date(now - 1000 * 60 * 60 * 26).toISOString(),
     read: true,
   });
 
@@ -209,7 +210,9 @@ function countByScope(grants: DiscoveredGrantSummary[]): Record<string, number> 
 
 export default async function DashboardPage() {
   const session = await auth();
-  if (!session?.user?.id) redirect("/api/auth/signin?callbackUrl=/dashboard");
+  if (!session?.user?.id) {
+    redirectToSignIn("/dashboard");
+  }
 
   let projects: Awaited<
     ReturnType<
@@ -560,7 +563,7 @@ export default async function DashboardPage() {
                         </Link>
 
                         {project.grantDocumentKey ? (
-                          <Link href={`/api/documents/${project.id}/download`} target="_blank">
+                          <Link href={`/api/documents/${project.id}/download`}>
                             <Button
                               variant="default"
                               className="flex w-full items-center gap-2 sm:w-auto"

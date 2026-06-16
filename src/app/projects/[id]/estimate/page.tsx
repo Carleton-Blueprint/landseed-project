@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
+import { redirectToSignIn } from "lib/auth-redirect";
 import { EstimateClientComponent } from "./EstimateClientComponent";
 import { AskQuestionPanel } from "@/frontend/components/AskQuestionPanel";
 import { ProjectTimeline } from "@/frontend/components/ProjectTimeline";
@@ -24,7 +25,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
 
   const session = await auth();
   if (!session?.user?.id) {
-    redirect(`/api/auth/signin?callbackUrl=/projects/${params.id}/estimate`);
+    redirectToSignIn(`/projects/${params.id}/estimate`);
   }
 
   // Find the project and ensure user has access (either OWNER or admin-like)

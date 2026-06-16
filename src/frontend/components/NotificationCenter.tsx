@@ -67,7 +67,7 @@ export function NotificationCenter({
   onMarkAllRead,
 }: NotificationCenterProps) {
   const [local, setLocal] = useState<NotificationItem[]>(notifications);
-  const [open, setOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -75,14 +75,14 @@ export function NotificationCenter({
   }, [notifications]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
     const handleClick = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
+        setIsOpen(false);
       }
     };
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") setIsOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     document.addEventListener("keydown", handleKey);
@@ -90,7 +90,7 @@ export function NotificationCenter({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [open]);
+  }, [isOpen]);
 
   const unreadCount = local.filter((n) => !n.read).length;
 
@@ -114,8 +114,8 @@ export function NotificationCenter({
           unreadCount > 0 ? `, ${unreadCount} unread` : ""
         }`}
         aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((prev) => !prev)}
         className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
       >
         <Bell className="h-5 w-5" />
@@ -126,7 +126,7 @@ export function NotificationCenter({
         )}
       </button>
 
-      {open && (
+      {isOpen && (
         <div
           role="menu"
           className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg sm:w-96"
@@ -199,7 +199,7 @@ export function NotificationCenter({
                         href={n.href}
                         onClick={() => {
                           markRead(n.id);
-                          setOpen(false);
+                          setIsOpen(false);
                         }}
                         className="block"
                       >

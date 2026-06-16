@@ -1,5 +1,6 @@
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
+import { redirectToSignIn } from "lib/auth-redirect";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient";
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
 
 export default async function AdminDashboardPage() {
   const session = await auth();
-  if (!session?.user?.id) redirect("/api/auth/signin?callbackUrl=/admin");
+  if (!session?.user?.id) redirectToSignIn("/admin");
   const isAdmin = await hasMinimumRole(session, "ADMIN");
   if (!isAdmin) redirect("/dashboard");
   const userName = session.user.name ?? "Team Member";
