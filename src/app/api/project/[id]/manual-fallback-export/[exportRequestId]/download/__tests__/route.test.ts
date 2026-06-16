@@ -50,7 +50,7 @@ jest.mock("lib/s3", () => ({
   getSignedDownloadUrl: jest.fn(),
 }));
 
-jest.mock("@/backend/audit/log", () => ({
+jest.mock("@/backend/audit/requestContext", () => ({
   getRequestAuditContext: jest.fn(() => ({ ipAddress: null, userAgent: null })),
   logAuditEventNonBlocking: jest.fn(),
 }));

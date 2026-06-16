@@ -6,6 +6,7 @@ export type VerificationResult = {
   index: number;
   ok: boolean;
   reason?: string;
+  error?: string;
 };
 
 export async function verifyAuditChain(limit?: number): Promise<{ total: number; mismatches: VerificationResult[] }>{
@@ -62,7 +63,7 @@ export async function verifyAuditChain(limit?: number): Promise<{ total: number;
           continue;
         }
       } catch (err) {
-        mismatches.push({ id: ev.id, index: i, ok: false, reason: 'signature_verification_error' });
+        mismatches.push({ id: ev.id, index: i, ok: false, reason: 'signature_verification_error', error: (err as Error).message });
         continue;
       }
     }

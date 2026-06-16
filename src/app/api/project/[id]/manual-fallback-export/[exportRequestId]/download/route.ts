@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { getSignedDownloadUrl } from "lib/s3";
 
 const DEFAULT_DOWNLOAD_EXPIRY_SECONDS = 3600;

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { getRequestAuditContext, logAuditEventNonBlocking } from "@/backend/audit/log";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { retryBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
 
 export async function POST(

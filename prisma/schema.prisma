@@ -29,6 +29,8 @@ model User {
   sessions                      Session[]
   sentCommunications            CommunicationHistory[]          @relation("CommunicationHistorySender")
   receivedCommunications        CommunicationHistory[]          @relation("CommunicationHistoryRecipient")
+  accountDeletionRequests       AccountDeletionRequest[]        @relation("AccountDeletionTarget")
+  accountDeletionRequestIssuers AccountDeletionRequest[]        @relation("AccountDeletionRequestedBy")
 }
 
 model Account {
@@ -86,6 +88,59 @@ model Project {
   auditEvents                   AuditEvent[]
   manualReviewFlag              ProjectManualReviewFlag?
   communicationHistory          CommunicationHistory[]
+}
+
+model AccountDeletionRequest {
+  id                      String                        @id @default(cuid())
+  targetUserId            String?
+  targetUserEmailSnapshot String
+  targetUserNameSnapshot   String?
+  requestedByUserId       String?
+  requestedByEmailSnapshot String?
+  requestedByNameSnapshot  String?
+  status                  AccountDeletionRequestStatus  @default(REQUESTED)
+  requestedAt             DateTime                      @default(now())
+  gracePeriodEndsAt       DateTime
+  advanceNoticeDueAt      DateTime
+  noticeSentAt            DateTime?
+  cancelledAt             DateTime?
+  deletedAt               DateTime?
+  lastError               String?                       @db.Text
+  requestMetadata         Json?
+  targetUser              User?                         @relation("AccountDeletionTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  requestedByUser         User?                         @relation("AccountDeletionRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  notices                 AccountDeletionNotice[]
+
+  @@index([targetUserId])
+  @@index([requestedByUserId])
+  @@index([status])
+  @@index([requestedAt(sort: Desc)])
+  @@index([gracePeriodEndsAt])
+  @@index([advanceNoticeDueAt])
+}
+
+model AccountDeletionNotice {
+  id                      String                      @id @default(cuid())
+  accountDeletionRequestId String
+  noticeType             AccountDeletionNoticeType
+  status                 AccountDeletionNoticeStatus  @default(PENDING)
+  recipientEmail         String
+  recipientName          String?
+  subject                String?
+  scheduledFor           DateTime
+  sentAt                 DateTime?
+  failedAt               DateTime?
+  communicationHistoryId String?
+  lastError              String?                     @db.Text
+  metadata               Json?
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+  accountDeletionRequest AccountDeletionRequest      @relation(fields: [accountDeletionRequestId], references: [id], onDelete: Cascade)
+
+  @@index([accountDeletionRequestId, noticeType])
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([sentAt])
 }
 
 model GrantApplicationStatusHistory {
@@ -540,8 +595,29 @@ enum NotificationEventType {
   FILE_MALWARE_DETECTED
 }
 
+enum AccountDeletionRequestStatus {
+  REQUESTED
+  IN_GRACE_PERIOD
+  CANCELLED
+  READY_FOR_DELETION
+  DELETED
+}
+
+enum AccountDeletionNoticeType {
+  ADVANCE_NOTICE
+  FINAL_NOTICE
+}
+
+enum AccountDeletionNoticeStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
 enum NotificationDeliveryStatus {
   PENDING
+  PROCESSING
   SENT
   FAILED
 }
