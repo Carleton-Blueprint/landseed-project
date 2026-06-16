@@ -341,7 +341,17 @@ export function IntakeForm() {
           });
 
           if (!projectResponse.ok) {
-            console.error("Failed to create project");
+            let projectError = `Failed to create project (${projectResponse.status})`;
+            try {
+              const body = await projectResponse.json();
+              if (typeof body?.error === "string") {
+                projectError = body.error;
+              }
+            } catch {
+              /* response body wasn't JSON */
+            }
+            console.error("Failed to create project:", projectError);
+            setSaveError(projectError);
             return;
           }
 

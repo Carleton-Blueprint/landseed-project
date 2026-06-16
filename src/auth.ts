@@ -56,28 +56,36 @@ const nextAuthResult = NextAuth({
               : "";
           if (!name || !email) return null;
 
-          // ── DEV MODE: skip DB, accept any valid credentials ──────────
-          if (process.env.NODE_ENV === "development") {
-            return {
-              id: "dev-user-" + Buffer.from(email).toString("hex").slice(0, 8),
-              name,
-              email,
-              image: null,
-            };
-          }
-          // ────────────────────────────────────────────────────────────
-
           const user = await prisma.user.findUnique({
             where: { email },
           });
-          if (!user) return null;
 
-          return {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            image: user.image || null,
-          };
+          // Intake creates the user first; sign-in must reuse that DB id so
+          // project FK constraints succeed (dev and prod).
+          if (user) {
+            return {
+              id: user.id,
+              name: user.name ?? name,
+              email: user.email,
+              image: user.image || null,
+            };
+          }
+
+          if (process.env.NODE_ENV === "development") {
+            const phone =
+              typeof credentials?.phone === "string" ? credentials.phone.trim() : null;
+            const created = await prisma.user.create({
+              data: { name, email, phone: phone || null },
+            });
+            return {
+              id: created.id,
+              name: created.name,
+              email: created.email,
+              image: null,
+            };
+          }
+
+          return null;
         } catch (error) {
           console.error("Error in authorize:", error);
           return null;
@@ -93,9 +101,17 @@ export const handlers = nextAuthResult.handlers;
 export const signIn = nextAuthResult.signIn;
 export const signOut = nextAuthResult.signOut;
 
-// Custom auth wrapper to bypass login in development environment
+// Prefer the real JWT session when present; fall back to a dev guest only when unsigned-in.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const auth = async (...args: any[]): Promise<Session | null> => {
+  const session = await (
+    nextAuthResult.auth as unknown as (...args: unknown[]) => Promise<Session | null>
+  )(...args);
+
+  if (session?.user?.id) {
+    return session;
+  }
+
   if (process.env.NODE_ENV === "development") {
     return {
       user: {
@@ -106,5 +122,6 @@ export const auth = async (...args: any[]): Promise<Session | null> => {
       expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     };
   }
-  return await (nextAuthResult.auth as unknown as (...args: unknown[]) => Promise<Session | null>)(...args);
+
+  return session;
 };
