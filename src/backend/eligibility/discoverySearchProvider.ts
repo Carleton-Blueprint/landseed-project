@@ -175,6 +175,7 @@ function extractMetaDescription(html: string): string | null {
 
 function buildSearchQueries(input: EligibilityInput): { scope: GrantDiscoveryScope; query: string }[] {
   const province = input.required.province ?? 'Canada';
+  const city = input.optional.city?.trim();
   const mods = input.required.modificationCodes.join(', ') || 'accessibility modifications';
 
   return [
@@ -188,7 +189,9 @@ function buildSearchQueries(input: EligibilityInput): { scope: GrantDiscoverySco
     },
     {
       scope: 'MUNICIPAL' as GrantDiscoveryScope,
-      query: `${province} municipal city home accessibility grant program ${mods} 2024 2025`,
+      query: city
+        ? `${city} ${province} municipal home accessibility grant program ${mods} 2024 2025`
+        : `${province} municipal city home accessibility grant program ${mods} 2024 2025`,
     },
   ];
 }
@@ -540,6 +543,97 @@ function scoreCandidate(
 // AI web-search discovery
 // ---------------------------------------------------------------------------
 
+const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
+
+interface OpenAiResponsesBody {
+  output?: Array<{
+    type?: string;
+    content?: Array<{ type?: string; text?: string }>;
+  }>;
+  output_text?: string;
+  usage?: unknown;
+}
+
+function extractResponsesOutputText(body: OpenAiResponsesBody | null): string | null {
+  if (!body) return null;
+
+  if (typeof body.output_text === 'string' && body.output_text.trim().length > 0) {
+    return body.output_text;
+  }
+
+  for (const item of body.output ?? []) {
+    if (item.type !== 'message' || !Array.isArray(item.content)) continue;
+    for (const part of item.content) {
+      if ((part.type === 'output_text' || part.type === 'text') && part.text?.trim()) {
+        return part.text;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractBalancedJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') depth++;
+    if (char === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+
+  return null;
+}
+
+function parseJsonObjectFromModelText(content: string): { decisions?: LlmGrantDecision[] } | null {
+  const trimmed = content.trim();
+
+  const candidates = [
+    trimmed,
+    trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim(),
+    extractBalancedJsonObject(trimmed),
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as { decisions?: LlmGrantDecision[] };
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return null;
+}
+
 async function tryOpenAiWebSearch(
   input: EligibilityInput,
   fallbackCandidates: DiscoveryCandidateEvaluation[]
@@ -639,9 +733,9 @@ async function tryOpenAiWebSearch(
     })),
   });
 
-  debug('AI', `Calling OpenAI — model: ${DISCOVERY_MODEL_NAME}`);
+  debug('AI', `Calling OpenAI Responses API — model: ${DISCOVERY_MODEL_NAME}`);
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch(OPENAI_RESPONSES_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -649,14 +743,10 @@ async function tryOpenAiWebSearch(
     },
     body: JSON.stringify({
       model: DISCOVERY_MODEL_NAME,
-      temperature: 0,
-      tools: [{ type: 'web_search_preview' }],
-      tool_choice: 'auto',
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: DISCOVERY_SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
+      instructions: DISCOVERY_SYSTEM_PROMPT,
+      input: userMessage,
+      tools: [{ type: 'web_search', search_context_size: 'medium' }],
+      tool_choice: 'required',
     }),
   });
 
@@ -668,18 +758,16 @@ async function tryOpenAiWebSearch(
     return null;
   }
 
-  const body = (await response.json().catch(() => null)) as {
-    choices?: Array<{ message?: { content?: string | null } }>;
-    usage?: unknown;
-  } | null;
+  const body = (await response.json().catch(() => null)) as OpenAiResponsesBody | null;
+
+  const content = extractResponsesOutputText(body);
 
   debug('AI', 'OpenAI response summary', {
-    choiceCount: body?.choices?.length ?? 0,
+    outputItemCount: body?.output?.length ?? 0,
     usage: body?.usage ?? null,
-    contentPreview: body?.choices?.[0]?.message?.content?.slice(0, 400) ?? null,
+    contentPreview: content?.slice(0, 400) ?? null,
   });
 
-  const content = body?.choices?.[0]?.message?.content;
   if (!content) {
     debug('AI', 'No content in response');
     return null;
@@ -687,10 +775,15 @@ async function tryOpenAiWebSearch(
 
   let parsed: { decisions?: LlmGrantDecision[] } | null = null;
   try {
-    parsed = JSON.parse(content) as { decisions?: LlmGrantDecision[] };
+    parsed = parseJsonObjectFromModelText(content);
     debug('AI', `JSON parsed — decisions count: ${parsed?.decisions?.length ?? 'missing'}`);
   } catch (err) {
     debug('AI', 'JSON parse error', { error: String(err), raw: content.slice(0, 500) });
+    return null;
+  }
+
+  if (!parsed) {
+    debug('AI', 'JSON parse error', { contentLength: content.length, raw: content.slice(0, 500) });
     return null;
   }
 
