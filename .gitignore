@@ -47,6 +47,7 @@ prisma/migrations/**/migration_lock.toml
 # Notes
 docs/
 backups/
+phase-plans/
 
 # Project documents
 InPlace AI_ Implementation Plan.pdf
