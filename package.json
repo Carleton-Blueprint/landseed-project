@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:backfill-audit-chain": "tsx scripts/backfill-audit-chain.ts",
     "db:backfill-grant-lifecycle-history": "tsx scripts/backfill-grant-lifecycle-history.ts",
+    "assess:eligibility": "tsx scripts/assess-eligibility.ts",
     "db:studio": "prisma studio",
     "db:seed-versions": "tsx prisma/seed-versions.ts",
     "test": "jest",
