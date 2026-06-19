@@ -26,7 +26,12 @@ export async function GET(
     const { projectId } = await params;
 
     // ── DEV MODE BYPASS: return mock eligibility data when DB is not available ──
-    if (process.env.NODE_ENV === "development") {
+    // Set GRANT_DISCOVERY_DEV_MOCK_GET=false to read real assessments from the DB.
+    const useDevMockGet =
+      process.env.NODE_ENV === 'development' &&
+      (process.env.GRANT_DISCOVERY_DEV_MOCK_GET ?? 'true').toLowerCase() !== 'false';
+
+    if (useDevMockGet) {
       const response = {
         assessmentId: "dev-assessment-1",
         projectId,
