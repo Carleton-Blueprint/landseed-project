@@ -6,7 +6,6 @@
 "use client";
 
 import React from "react";
-import { ClipboardIcon } from "@/frontend/components/icons";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -208,7 +207,6 @@ export function IntakeForm() {
     intakeData,
     photos,
     isHydrated,
-    restoredAt,
     isSaving,
     saveError,
     setIntakeSnapshot,
@@ -232,7 +230,6 @@ export function IntakeForm() {
   const isCaregiver = watch("isCaregiver");
 
   const [photoKey, setPhotoKey] = React.useState(0);
-  const [draftBanner, setDraftBanner] = React.useState<string | null>(null);
   const [photoError, setPhotoError] = React.useState<string | null>(null);
   const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
   const previousUploadCountRef = React.useRef(0);
@@ -241,12 +238,6 @@ export function IntakeForm() {
     if (!isHydrated || !intakeData) return;
     reset({ ...defaultValues, ...intakeData } as IntakeFormValues);
   }, [intakeData, isHydrated, reset]);
-
-  React.useEffect(() => {
-    if (restoredAt) {
-      setDraftBanner(`Draft restored (last saved ${restoredAt.toLocaleString()})`);
-    }
-  }, [restoredAt]);
 
   React.useEffect(() => {
     if (!isHydrated) return;
@@ -349,20 +340,6 @@ export function IntakeForm() {
       className="space-y-6 max-w-2xl"
     >
       <h1 className="text-xl font-semibold">Intake Form</h1>
-
-      {/* Draft restore banner */}
-      {draftBanner && (
-        <div className="flex items-start justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          <span className="flex items-center gap-1.5"><ClipboardIcon size={16} className="text-blue-500 shrink-0" /> {draftBanner}</span>
-          <button
-            type="button"
-            onClick={() => setDraftBanner(null)}
-            className="shrink-0 font-medium hover:underline"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
       <section className="space-y-3">
         <h2 className="text-base font-semibold mb-3">Contact</h2>

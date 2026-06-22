@@ -157,4 +157,24 @@ describe("useIntakeDraftAutosave", () => {
       ).length
     ).toBe(0);
   });
+
+  it("flushBeaconSave sends keepalive PATCH for unsaved changes", async () => {
+    const { result } = renderHook(() => useIntakeDraftAutosave());
+
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+
+    act(() => {
+      result.current.setGuidedSnapshot({ mobilityAssistance: "yes" });
+    });
+
+    act(() => {
+      result.current.flushBeaconSave();
+    });
+
+    const beaconCall = mockFetch.mock.calls.find(
+      (call) => call[0] === "/api/intake-draft" && call[1]?.method === "PATCH"
+    );
+    expect(beaconCall).toBeDefined();
+    expect(beaconCall?.[1]).toMatchObject({ keepalive: true });
+  });
 });

@@ -82,6 +82,7 @@ export interface IntakeDraftAutosave {
   setIntakeSnapshot: (data: IntakeData) => void;
   ensureProjectId: () => Promise<string | null>;
   saveNow: () => Promise<void>;
+  flushBeaconSave: () => void;
   addPhoto: (photo: DraftPhoto) => void;
 }
 
@@ -272,22 +273,53 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     [ensureDraft, scheduleIntakeSave]
   );
 
+  const buildPendingPatchBody = useCallback(() => {
+    const body: { guidedData?: GuidedData; intakeData?: IntakeData } = {};
+    if (
+      hasGuidedContent(guidedSnapshotRef.current) &&
+      stableSerialize(guidedSnapshotRef.current) !== savedGuidedRef.current
+    ) {
+      body.guidedData = guidedSnapshotRef.current!;
+    }
+    if (
+      hasIntakeContent(intakeSnapshotRef.current) &&
+      stableSerialize(intakeSnapshotRef.current) !== savedIntakeRef.current
+    ) {
+      body.intakeData = intakeSnapshotRef.current!;
+    }
+    return body;
+  }, []);
+
   const saveNow = useCallback(async () => {
     if (guidedTimerRef.current) clearTimeout(guidedTimerRef.current);
     if (intakeTimerRef.current) clearTimeout(intakeTimerRef.current);
 
-    const body: { guidedData?: GuidedData; intakeData?: IntakeData } = {};
-    if (hasGuidedContent(guidedSnapshotRef.current)) {
-      body.guidedData = guidedSnapshotRef.current!;
-    }
-    if (hasIntakeContent(intakeSnapshotRef.current)) {
-      body.intakeData = intakeSnapshotRef.current!;
+    const body = buildPendingPatchBody();
+    if (!body.guidedData && !body.intakeData) {
+      if (hasGuidedContent(guidedSnapshotRef.current)) {
+        body.guidedData = guidedSnapshotRef.current!;
+      }
+      if (hasIntakeContent(intakeSnapshotRef.current)) {
+        body.intakeData = intakeSnapshotRef.current!;
+      }
     }
 
     if (!body.guidedData && !body.intakeData) return;
 
     await patchDraft(body);
-  }, [patchDraft]);
+  }, [buildPendingPatchBody, patchDraft]);
+
+  const flushBeaconSave = useCallback(() => {
+    const body = buildPendingPatchBody();
+    if (!body.guidedData && !body.intakeData) return;
+
+    void fetch("/api/intake-draft", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
+  }, [buildPendingPatchBody]);
 
   const ensureProjectId = useCallback(async () => {
     if (projectId) return projectId;
@@ -369,6 +401,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     setIntakeSnapshot,
     ensureProjectId,
     saveNow,
+    flushBeaconSave,
     addPhoto,
   };
 }
