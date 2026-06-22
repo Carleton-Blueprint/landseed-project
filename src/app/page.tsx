@@ -1,9 +1,8 @@
 /**
  * Home page: renders the main landing content and the digital intake form.
- * Server component; IntakeForm is client-side for form state.
+ * Server component; IntakePageContent is client-side for draft autosave.
  */
-import { IntakeForm } from "@/frontend/components/IntakeForm";
-import { GuidedIntakeForm } from "@/frontend/components/GuidedIntakeForm";
+import { IntakePageContent } from "@/frontend/components/IntakePageContent";
 
 export default function HomePage() {
   return (
@@ -12,10 +11,7 @@ export default function HomePage() {
         <h1 className="mb-6 text-2xl font-semibold tracking-tight">
           Request Assessment
         </h1>
-        <div className="mb-12">
-          <GuidedIntakeForm />
-        </div>
-        <IntakeForm />
+        <IntakePageContent />
       </div>
     </main>
   );

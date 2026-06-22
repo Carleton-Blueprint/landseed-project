@@ -12,9 +12,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
-import { signIn } from "next-auth/react";
 import { PhotoUploadInterface } from "./PhotoUploadInterface";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useIntakeDraft } from "@/frontend/contexts/IntakeDraftContext";
+import type { IntakeData } from "@/backend/schemas/intakeDraft";
 
 const provinces = [
   "AB",
@@ -179,14 +179,49 @@ const defaultValues: IntakeFormValues = {
   modificationItems: [],
 };
 
+function toIntakeData(values: IntakeFormValues): IntakeData {
+  return {
+    name: values.name,
+    email: values.email,
+    phone: values.phone,
+    addressLine1: values.addressLine1,
+    addressLine2: values.addressLine2 ?? "",
+    city: values.city,
+    province: values.province,
+    postalCode: values.postalCode,
+    ownershipStatus: values.ownershipStatus,
+    ownershipOtherDetails: values.ownershipOtherDetails ?? "",
+    landlordName: values.landlordName ?? "",
+    landlordPhone: values.landlordPhone ?? "",
+    isCaregiver: values.isCaregiver,
+    seniorName: values.seniorName ?? "",
+    relationshipToSenior: values.relationshipToSenior ?? "",
+    caregiverConsentConfirmed: values.caregiverConsentConfirmed,
+    clientConsentConfirmed: values.clientConsentConfirmed,
+    modificationItems: values.modificationItems,
+  };
+}
+
 export function IntakeForm() {
   const router = useRouter();
+  const {
+    intakeData,
+    photos,
+    isHydrated,
+    restoredAt,
+    isSaving,
+    saveError,
+    setIntakeSnapshot,
+    saveNow,
+    ensureProjectId,
+    addPhoto,
+  } = useIntakeDraft();
   const {
     register,
     handleSubmit,
     watch,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<IntakeFormValues>({
     resolver: zodResolver(intakeSchema),
     defaultValues,
@@ -196,216 +231,114 @@ export function IntakeForm() {
   const ownershipStatus = watch("ownershipStatus");
   const isCaregiver = watch("isCaregiver");
 
-  // Photo upload state
-  const [uploadedPhotos, setUploadedPhotos] = React.useState<File[]>([]);
   const [photoKey, setPhotoKey] = React.useState(0);
   const [draftBanner, setDraftBanner] = React.useState<string | null>(null);
   const [photoError, setPhotoError] = React.useState<string | null>(null);
+  const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
+  const previousUploadCountRef = React.useRef(0);
 
-  // ── Load draft on mount ────────────────────────────────────
-  const { data: draftResponse } = useQuery({
-    queryKey: ["intake-draft"],
-    queryFn: async () => {
-      const res = await fetch("/api/draft");
-      if (!res.ok) return null;
-      return res.json() as Promise<{
-        draft: Record<string, unknown> | null;
-        savedAt?: string;
-      }>;
-    },
-    staleTime: Infinity,
-    retry: false,
-  });
-
-  // Rehydrate form when draft is loaded
   React.useEffect(() => {
-    if (draftResponse?.draft) {
-      reset({ ...defaultValues, ...(draftResponse.draft as Partial<IntakeFormValues>) });
-      const savedAt = draftResponse.savedAt
-        ? new Date(draftResponse.savedAt).toLocaleString()
-        : null;
-      setDraftBanner(savedAt ? `Draft restored (last saved ${savedAt})` : "Draft restored");
+    if (!isHydrated || !intakeData) return;
+    reset({ ...defaultValues, ...intakeData } as IntakeFormValues);
+  }, [intakeData, isHydrated, reset]);
+
+  React.useEffect(() => {
+    if (restoredAt) {
+      setDraftBanner(`Draft restored (last saved ${restoredAt.toLocaleString()})`);
     }
-  }, [draftResponse, reset]);
+  }, [restoredAt]);
 
-  // ── Save draft mutation ────────────────────────────────────
-  const [lastSaved, setLastSaved] = React.useState<string | null>(null);
-  const [saveError, setSaveError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!isHydrated) return;
 
-  const saveDraftMutation = useMutation({
-    mutationFn: async (values: Partial<IntakeFormValues>) => {
-      const res = await fetch("/api/draft", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+    const subscription = watch((values) => {
+      setIntakeSnapshot(toIntakeData(values as IntakeFormValues));
+    });
+    return () => subscription.unsubscribe();
+  }, [watch, setIntakeSnapshot, isHydrated]);
+
+  const handleSaveDraft = async () => {
+    await saveNow();
+  };
+
+  const handlePhotoUpload = async (files: File[]) => {
+    const newFiles = files.slice(previousUploadCountRef.current);
+    previousUploadCountRef.current = files.length;
+
+    if (newFiles.length === 0) return;
+
+    const projectId = await ensureProjectId();
+    if (!projectId) return;
+
+    for (const file of newFiles) {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("projectId", projectId);
+
+      const uploadResponse = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
       });
-      if (!res.ok) throw new Error("Failed to save draft");
-      return res.json() as Promise<{ savedAt: string }>;
-    },
-    onSuccess: (data) => {
-      setLastSaved(new Date(data.savedAt).toLocaleString());
-      setSaveError(null);
-    },
-    onError: () => {
-      setSaveError("Could not save draft. Please try again.");
-    },
-  });
 
-  const handleSaveDraft = () => {
-    const currentValues = watch();
-    saveDraftMutation.mutate(currentValues);
+      if (uploadResponse.ok) {
+        const uploadData = await uploadResponse.json();
+        if (uploadData.photo?.id && uploadData.photo?.url) {
+          addPhoto({ id: uploadData.photo.id, url: uploadData.photo.url });
+        }
+        setPhotoError(null);
+      } else {
+        setPhotoError("Failed to upload photo. Please try again.");
+      }
+    }
   };
 
   const handleCancel = () => {
     reset(defaultValues);
-    setUploadedPhotos([]);
     setPhotoKey((prev) => prev + 1);
-    setLastSaved(null);
-    setSaveError(null);
+    previousUploadCountRef.current = 0;
     setDraftBanner(null);
     setPhotoError(null);
   };
 
   async function onSubmit(values: IntakeFormValues) {
-    if (uploadedPhotos.length < 1) {
+    if (photos.length < 1) {
       setPhotoError("Please upload at least 1 photo before submitting.");
       return;
     }
 
     setPhotoError(null);
+    setIsSubmittingForm(true);
 
     try {
-      const response = await fetch("/api/intake", {
+      await saveNow();
+
+      const promoteResponse = await fetch("/api/intake-draft/promote", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(values),
       });
 
-      if (!response.ok) {
-        let errorMessage = `Request failed (${response.status})`;
+      if (!promoteResponse.ok) {
+        let promoteError = `Failed to submit (${promoteResponse.status})`;
         try {
-          const body = await response.json();
-          if (body?.error && typeof body.error === "string") {
-            errorMessage = body.error;
-          } else if (body && Object.keys(body).length > 0) {
-            errorMessage = JSON.stringify(body);
+          const body = await promoteResponse.json();
+          if (typeof body?.message === "string") {
+            promoteError = body.message;
           }
         } catch {
           /* response body wasn't JSON */
         }
-        console.error("Intake error:", errorMessage);
+        setPhotoError(promoteError);
         return;
       }
 
-      const data = await response.json();
-      console.log("User created:", data);
-
-      const result = await signIn("credentials", {
-        email: values.email,
-        name: values.name,
-        phone: values.phone,
-        redirect: false,
-      });
-
-      if (result?.ok) {
-        console.log("Signed in successfully");
-        try {
-          const projectResponse = await fetch("/api/project", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              address: `${values.addressLine1}, ${values.city}, ${values.province} ${values.postalCode}`,
-              draftData: {
-                name: values.name,
-                email: values.email,
-                phone: values.phone,
-                addressLine1: values.addressLine1,
-                addressLine2: values.addressLine2 ?? null,
-                city: values.city,
-                postalCode: values.postalCode,
-                province: values.province,
-                ownershipStatus: values.ownershipStatus,
-                ownershipOtherDetails: values.ownershipOtherDetails ?? null,
-                landlordName: values.landlordName ?? null,
-                landlordPhone: values.landlordPhone ?? null,
-                isCaregiver: values.isCaregiver,
-                seniorName: values.seniorName ?? null,
-                relationshipToSenior: values.relationshipToSenior ?? null,
-                caregiverConsentConfirmed: values.caregiverConsentConfirmed,
-                clientConsentConfirmed: values.clientConsentConfirmed,
-                modificationItems: values.modificationItems,
-              },
-            }),
-          });
-
-          if (!projectResponse.ok) {
-            let projectError = `Failed to create project (${projectResponse.status})`;
-            try {
-              const body = await projectResponse.json();
-              if (typeof body?.error === "string") {
-                projectError = body.error;
-              }
-            } catch {
-              /* response body wasn't JSON */
-            }
-            console.error("Failed to create project:", projectError);
-            setSaveError(projectError);
-            return;
-          }
-
-          const { project } = await projectResponse.json();
-          console.log("Project created:", project.id);
-
-          if (uploadedPhotos.length > 0) {
-            for (const file of uploadedPhotos) {
-              const formData = new FormData();
-              formData.append("file", file);
-              formData.append("projectId", project.id);
-
-              const uploadResponse = await fetch("/api/upload", {
-                method: "POST",
-                body: formData,
-              });
-
-              if (uploadResponse.ok) {
-                const uploadData = await uploadResponse.json();
-                console.log("Photo uploaded:", uploadData.photo?.id);
-              } else {
-                console.error("Failed to upload photo:", file.name);
-              }
-            }
-            console.log("All photos uploaded!");
-          }
-
-          const finalizeResponse = await fetch("/api/intake/finalize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ projectId: project.id }),
-          });
-
-          if (!finalizeResponse.ok) {
-            let finalizeError = `Failed to finalize intake (${finalizeResponse.status})`;
-            try {
-              const finalizeBody = await finalizeResponse.json();
-              if (typeof finalizeBody?.message === "string") {
-                finalizeError = finalizeBody.message;
-              }
-            } catch {
-              // Ignore non-JSON responses
-            }
-            console.error("Intake finalization error:", finalizeError);
-            return;
-          }
-
-          router.push(`/submitted?projectId=${encodeURIComponent(project.id)}`);
-        } catch (error) {
-          console.error("Error creating project or uploading photos:", error);
-        }
+      const result = await promoteResponse.json();
+      if (result.projectId) {
+        router.push(`/submitted?projectId=${encodeURIComponent(result.projectId)}`);
       }
     } catch (error) {
-      console.error("Network error:", error);
+      console.error("Submit error:", error);
+      setPhotoError("Failed to submit. Please try again.");
+    } finally {
+      setIsSubmittingForm(false);
     }
   }
 
@@ -836,13 +769,24 @@ export function IntakeForm() {
           JPG, JPEG, PNG, and HEIC. Maximum file size: 10MB per photo.
         </p>
 
+        {photos.length > 0 && (
+          <ul className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {photos.map((photo) => (
+              <li key={photo.id} className="overflow-hidden rounded border">
+                <img
+                  src={photo.url}
+                  alt="Saved project photo"
+                  className="h-24 w-full object-cover"
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+
         <PhotoUploadInterface
           key={photoKey}
           onUpload={(files) => {
-            setUploadedPhotos(files);
-            if (files.length > 0) {
-              setPhotoError(null);
-            }
+            void handlePhotoUpload(files);
           }}
           maxFiles={10}
           maxSizeMB={10}
@@ -896,13 +840,6 @@ export function IntakeForm() {
         </div>
       </section>
 
-      {/* Draft save status */}
-      {lastSaved && (
-        <p className="text-sm text-green-700" role="status">
-          ✓ Draft saved at {lastSaved}
-        </p>
-      )}
-
       {saveError && (
         <p className="text-sm text-destructive" role="alert">
           {saveError}
@@ -910,21 +847,21 @@ export function IntakeForm() {
       )}
 
       <div className="flex gap-4 mt-2">
-        <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmitting}>
+        <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmittingForm}>
           Cancel
         </Button>
 
         <Button
           type="button"
           variant="outline"
-          onClick={handleSaveDraft}
-          disabled={isSubmitting || saveDraftMutation.isPending}
+          onClick={() => void handleSaveDraft()}
+          disabled={isSubmittingForm || isSaving}
         >
-          {saveDraftMutation.isPending ? "Saving…" : "Save as Draft"}
+          {isSaving ? "Saving…" : "Save as Draft"}
         </Button>
 
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Submitting…" : "Submit"}
+        <Button type="submit" disabled={isSubmittingForm || isSaving}>
+          {isSubmittingForm ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </form>
