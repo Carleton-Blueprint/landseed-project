@@ -1,30 +1,21 @@
-import { GET, POST, PATCH } from "../route";
-import { prisma } from "lib/prisma";
+import { GET, POST, PATCH, DELETE } from "../route";
 import { auth } from "@/auth";
 import {
-  getIntakeDraft,
   getOrCreateIntakeDraft,
+  loadIntakeDraftWithPhotos,
   mergeIntakeDraft,
+  deleteIntakeDraft,
 } from "@/backend/services/intakeDraft";
-
-jest.mock("lib/prisma", () => ({
-  prisma: {
-    intakeDraft: {
-      findUnique: jest.fn(),
-      upsert: jest.fn(),
-      update: jest.fn(),
-    },
-  },
-}));
 
 jest.mock("@/auth", () => ({
   auth: jest.fn(),
 }));
 
 jest.mock("@/backend/services/intakeDraft", () => ({
-  getIntakeDraft: jest.fn(),
   getOrCreateIntakeDraft: jest.fn(),
+  loadIntakeDraftWithPhotos: jest.fn(),
   mergeIntakeDraft: jest.fn(),
+  deleteIntakeDraft: jest.fn(),
 }));
 
 const mockDraft = {
@@ -32,7 +23,7 @@ const mockDraft = {
   userId: "user-1",
   guidedData: { mobilityAssistance: "yes" },
   intakeData: { name: "Jane" },
-  projectId: null,
+  projectId: "project-1",
   createdAt: new Date("2026-06-20T10:00:00.000Z"),
   updatedAt: new Date("2026-06-20T12:00:00.000Z"),
 };
@@ -54,7 +45,7 @@ describe("/api/intake-draft", () => {
 
     it("returns draft null for a new user", async () => {
       (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
-      (getIntakeDraft as jest.Mock).mockResolvedValue(null);
+      (loadIntakeDraftWithPhotos as jest.Mock).mockResolvedValue(null);
 
       const res = await GET();
 
@@ -62,9 +53,12 @@ describe("/api/intake-draft", () => {
       expect(await res.json()).toEqual({ draft: null });
     });
 
-    it("returns the saved draft when one exists", async () => {
+    it("returns the saved draft with projectId and photos", async () => {
       (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
-      (getIntakeDraft as jest.Mock).mockResolvedValue(mockDraft);
+      (loadIntakeDraftWithPhotos as jest.Mock).mockResolvedValue({
+        draft: mockDraft,
+        photos: [{ id: "photo-1", url: "https://example.com/photo.jpg" }],
+      });
 
       const res = await GET();
 
@@ -74,6 +68,8 @@ describe("/api/intake-draft", () => {
         draftId: "draft-1",
         guidedData: { mobilityAssistance: "yes" },
         intakeData: { name: "Jane" },
+        projectId: "project-1",
+        photos: [{ id: "photo-1", url: "https://example.com/photo.jpg" }],
         savedAt: mockDraft.updatedAt.toISOString(),
       });
     });
@@ -95,6 +91,7 @@ describe("/api/intake-draft", () => {
         ...mockDraft,
         guidedData: null,
         intakeData: null,
+        projectId: null,
       });
 
       const res = await POST();
@@ -158,6 +155,14 @@ describe("/api/intake-draft", () => {
         guidedData: { mobilityAssistance: "no" },
         intakeData: { name: "Jane" },
       });
+      (loadIntakeDraftWithPhotos as jest.Mock).mockResolvedValue({
+        draft: {
+          ...mockDraft,
+          guidedData: { mobilityAssistance: "no" },
+          intakeData: { name: "Jane" },
+        },
+        photos: [],
+      });
 
       const res = await PATCH(
         new Request("http://localhost/api/intake-draft", {
@@ -179,6 +184,10 @@ describe("/api/intake-draft", () => {
     it("merges intakeData without wiping guidedData", async () => {
       (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
       (mergeIntakeDraft as jest.Mock).mockResolvedValue(mockDraft);
+      (loadIntakeDraftWithPhotos as jest.Mock).mockResolvedValue({
+        draft: mockDraft,
+        photos: [],
+      });
 
       const res = await PATCH(
         new Request("http://localhost/api/intake-draft", {
@@ -195,6 +204,27 @@ describe("/api/intake-draft", () => {
       const data = await res.json();
       expect(data.guidedData).toEqual({ mobilityAssistance: "yes" });
       expect(data.intakeData).toEqual({ name: "Jane" });
+    });
+  });
+
+  describe("DELETE", () => {
+    it("returns 401 when unsigned", async () => {
+      (auth as jest.Mock).mockResolvedValue(null);
+
+      const res = await DELETE();
+
+      expect(res.status).toBe(401);
+    });
+
+    it("deletes the draft and shell project", async () => {
+      (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+      (deleteIntakeDraft as jest.Mock).mockResolvedValue({ deleted: true });
+
+      const res = await DELETE();
+
+      expect(res.status).toBe(200);
+      expect(deleteIntakeDraft).toHaveBeenCalledWith("user-1");
+      expect(await res.json()).toEqual({ deleted: true });
     });
   });
 });
