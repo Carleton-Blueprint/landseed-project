@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToS3 } from "lib/s3";
+import { signPhotoUrlForDisplay } from "lib/photoUrls";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
@@ -109,9 +110,14 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ Photo ${photo.id} uploaded. Virus scan job queued.`);
 
+    const displayUrl = await signPhotoUrlForDisplay(photo.url);
+
     return NextResponse.json({
       success: true,
-      photo,
+      photo: {
+        ...photo,
+        url: displayUrl,
+      },
       message: "File uploaded successfully! Virus scan in progress...",
       warning: "This file cannot be used in grant applications until the virus scan is complete. This typically takes 10-30 seconds.",
       scanStatus: "pending",

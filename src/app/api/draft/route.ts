@@ -1,16 +1,12 @@
 /**
  * GET  /api/draft  – Load the authenticated user's most recent draft project's saved form data.
- * PATCH /api/draft  – Upsert draft form data onto the user's draft project.
- *
- * Strategy: one "draft" project per user (status="draft"). We upsert it so the user
- * can save at any time without creating duplicates. The saved JSON is validated with Zod
- * before writing so bad data is never stored.
+ * PATCH /api/draft  – Deprecated (410). Use PATCH /api/intake-draft instead.
  */
 
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
-import { GrantApplicationStatus, Prisma, ProjectAccessRole } from "@prisma/client";
+import { ProjectAccessRole } from "@prisma/client";
 import { z } from "zod";
 
 const EDITABLE_ROLES: ProjectAccessRole[] = [
@@ -70,97 +66,14 @@ export async function GET() {
   return NextResponse.json({ draft: draft.draftData, draftId: draft.id, savedAt: draft.updatedAt });
 }
 
-/** PATCH /api/draft – create or update the user's draft project with partial form data. */
-export async function PATCH(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const currentDraftAccess = await prisma.projectAccess.findFirst({
-    where: {
-      userId: session.user.id,
-      project: {
-        status: "draft",
-      },
+/** PATCH /api/draft – deprecated; use PATCH /api/intake-draft instead. */
+export async function PATCH() {
+  return NextResponse.json(
+    {
+      error: "Deprecated",
+      message: "Draft writes have moved to /api/intake-draft. Use PATCH /api/intake-draft instead.",
+      use: "/api/intake-draft",
     },
-    select: { role: true },
-    orderBy: {
-      project: { updatedAt: "desc" },
-    },
-  });
-
-  if (currentDraftAccess && !EDITABLE_ROLES.includes(currentDraftAccess.role)) {
-    return NextResponse.json({ error: "Viewers cannot edit draft" }, { status: 403 });
-  }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const parsed = draftSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid draft data", details: parsed.error.flatten() }, { status: 422 });
-  }
-
-  const draftData = parsed.data;
-
-  // Derive an address string from what's been filled in so far.
-  const addressParts = [draftData.addressLine1, draftData.city, draftData.province, draftData.postalCode]
-    .filter(Boolean);
-  const address = addressParts.length > 0 ? addressParts.join(", ") : "Draft – address not yet set";
-
-  // Upsert: update the most recent "draft" project, or create a new one.
-  const existing = await prisma.project.findFirst({
-    where: {
-      status: "draft",
-      projectAccess: {
-        some: {
-          userId: session.user.id,
-          role: { in: EDITABLE_ROLES },
-        },
-      },
-    },
-    orderBy: { updatedAt: "desc" },
-  });
-
-  let project;
-  if (existing) {
-    project = await prisma.project.update({
-      where: { id: existing.id },
-      data: { draftData, address },
-    });
-  } else {
-    project = await prisma.project.create({
-      data: {
-        userId: session.user.id,
-        status: "draft",
-        grantApplicationStatus: GrantApplicationStatus.DRAFT,
-        address,
-        draftData: draftData as Prisma.InputJsonValue,
-        projectAccess: {
-          create: {
-            userId: session.user.id,
-            role: ProjectAccessRole.OWNER,
-            grantedByUserId: session.user.id,
-          },
-        },
-        grantApplicationStatusHistory: {
-          create: {
-            fromStatus: null,
-            toStatus: GrantApplicationStatus.DRAFT,
-            changedByUserId: session.user.id,
-            metadata: {
-              source: "draft_create",
-            } as Prisma.InputJsonValue,
-          },
-        },
-      },
-    });
-  }
-
-  return NextResponse.json({ success: true, draftId: project.id, savedAt: project.updatedAt });
+    { status: 410 }
+  );
 }
