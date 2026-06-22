@@ -7,6 +7,7 @@ import { prisma } from "lib/prisma";
 import type { GuidedData, IntakeData, PromoteIntakeData } from "@/backend/schemas/intakeDraft";
 import { promoteIntakeDataSchema } from "@/backend/schemas/intakeDraft";
 import type { FinalizeIntakeResult } from "@/backend/services/finalizeIntake";
+import { signPhotosForDisplay } from "lib/photoUrls";
 
 export interface MergeIntakeDraftInput {
   guidedData?: GuidedData;
@@ -117,11 +118,12 @@ export async function loadIntakeDraftWithPhotos(userId: string) {
 
   let photos: IntakeDraftPhoto[] = [];
   if (draft.projectId) {
-    photos = await prisma.photo.findMany({
+    const rawPhotos = await prisma.photo.findMany({
       where: { projectId: draft.projectId },
       select: { id: true, url: true },
       orderBy: { createdAt: "asc" },
     });
+    photos = await signPhotosForDisplay(rawPhotos);
   }
 
   return { draft, photos };

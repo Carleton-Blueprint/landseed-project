@@ -128,4 +128,44 @@ describe("IntakeForm", () => {
 
     jest.useRealTimers();
   });
+
+  it("removes a saved photo when Remove is clicked", async () => {
+    const user = userEvent.setup();
+
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/intake-draft" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            draftId: "draft-1",
+            guidedData: null,
+            intakeData: null,
+            projectId: "project-1",
+            photos: [{ id: "photo-1", url: "https://example.com/photo.jpg" }],
+            savedAt: "2026-06-20T12:00:00.000Z",
+          }),
+        });
+      }
+      if (url === "/api/photos/photo-1" && init?.method === "DELETE") {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, photoId: "photo-1" }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    renderIntakeForm();
+
+    expect(await screen.findByRole("button", { name: /remove photo/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /remove photo/i }));
+
+    await waitFor(() => {
+      expect(
+        mockFetch.mock.calls.some(
+          (call) => call[0] === "/api/photos/photo-1" && call[1]?.method === "DELETE"
+        )
+      ).toBe(true);
+    });
+
+    expect(screen.queryByRole("button", { name: /remove photo/i })).not.toBeInTheDocument();
+  });
 });

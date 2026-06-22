@@ -213,6 +213,7 @@ export function IntakeForm() {
     saveNow,
     ensureProjectId,
     addPhoto,
+    removePhoto,
   } = useIntakeDraft();
   const {
     register,
@@ -232,6 +233,7 @@ export function IntakeForm() {
   const [photoKey, setPhotoKey] = React.useState(0);
   const [photoError, setPhotoError] = React.useState<string | null>(null);
   const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
+  const [removingPhotoId, setRemovingPhotoId] = React.useState<string | null>(null);
   const previousUploadCountRef = React.useRef(0);
 
   React.useEffect(() => {
@@ -283,11 +285,25 @@ export function IntakeForm() {
     }
   };
 
+  const handleRemovePhoto = async (photoId: string) => {
+    setRemovingPhotoId(photoId);
+    setPhotoError(null);
+
+    try {
+      await removePhoto(photoId);
+      previousUploadCountRef.current = 0;
+      setPhotoKey((prev) => prev + 1);
+    } catch {
+      setPhotoError("Failed to remove photo. Please try again.");
+    } finally {
+      setRemovingPhotoId(null);
+    }
+  };
+
   const handleCancel = () => {
     reset(defaultValues);
     setPhotoKey((prev) => prev + 1);
     previousUploadCountRef.current = 0;
-    setDraftBanner(null);
     setPhotoError(null);
   };
 
@@ -750,24 +766,39 @@ export function IntakeForm() {
           <ul className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {photos.map((photo) => (
               <li key={photo.id} className="overflow-hidden rounded border">
-                <img
-                  src={photo.url}
-                  alt="Saved project photo"
-                  className="h-24 w-full object-cover"
-                />
+                <div className="relative">
+                  <img
+                    src={photo.url}
+                    alt="Saved project photo"
+                    className="h-24 w-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleRemovePhoto(photo.id)}
+                    disabled={removingPhotoId === photo.id}
+                    className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-black/85 disabled:opacity-60"
+                    aria-label="Remove photo"
+                  >
+                    {removingPhotoId === photo.id ? "Removing…" : "Remove"}
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
         )}
 
-        <PhotoUploadInterface
-          key={photoKey}
-          onUpload={(files) => {
-            void handlePhotoUpload(files);
-          }}
-          maxFiles={10}
-          maxSizeMB={10}
-        />
+        {photos.length < 10 ? (
+          <PhotoUploadInterface
+            key={photoKey}
+            onUpload={(files) => {
+              void handlePhotoUpload(files);
+            }}
+            maxFiles={10 - photos.length}
+            maxSizeMB={10}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">Maximum of 10 photos reached.</p>
+        )}
 
         {photoError && (
           <p className="text-sm text-destructive" role="alert">

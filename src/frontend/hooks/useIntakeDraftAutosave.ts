@@ -84,6 +84,7 @@ export interface IntakeDraftAutosave {
   saveNow: () => Promise<void>;
   flushBeaconSave: () => void;
   addPhoto: (photo: DraftPhoto) => void;
+  removePhoto: (photoId: string) => Promise<void>;
 }
 
 export function useIntakeDraftAutosave(): IntakeDraftAutosave {
@@ -344,6 +345,15 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     });
   }, []);
 
+  const removePhoto = useCallback(async (photoId: string) => {
+    const res = await fetch(`/api/photos/${photoId}`, { method: "DELETE" });
+    if (!res.ok) {
+      throw new Error("Failed to remove photo");
+    }
+
+    setPhotos((prev) => prev.filter((photo) => photo.id !== photoId));
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -403,5 +413,6 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     saveNow,
     flushBeaconSave,
     addPhoto,
+    removePhoto,
   };
 }
