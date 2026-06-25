@@ -1,47 +1,88 @@
-import { NextResponse } from 'next/server';
-import { prisma } from 'lib/prisma'; // prisma client
+import { NextResponse } from "next/server";
+import { prisma } from "lib/prisma";
+import { hashPassword, validatePasswordStrength } from "@/backend/auth/password";
 
-// Handle POST requests
+function publicUser(user: { id: string; name: string | null; email: string | null; phone: string | null }) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+  };
+}
+
 export async function POST(request: Request) {
-  // Logic for handling POST requests
   try {
-    // Parse the incoming data
     const data = await request.json();
-    const { name, email, phone } = data;
+    const { name, email, phone, password } = data;
     const normalizedName = typeof name === "string" ? name.trim() : "";
     const normalizedEmail =
       typeof email === "string" ? email.trim().toLowerCase() : "";
     const normalizedPhone = typeof phone === "string" ? phone.trim() : "";
+    const plainPassword = typeof password === "string" ? password : "";
 
-    let user;
-
-    if (normalizedEmail) {
-      // If this email already exists, reuse that user instead of creating a duplicate.
-      const existingUser = await prisma.user.findUnique({
-        where: { email: normalizedEmail },
-      });
-
-      user =
-        existingUser ??
-        (await prisma.user.create({
-          data: {
-            name: normalizedName || null,
-            email: normalizedEmail,
-            phone: normalizedPhone || null,
-          },
-        }));
+    if (!normalizedEmail) {
+      return NextResponse.json(
+        { success: false, error: "Email is required." },
+        { status: 400 }
+      );
     }
 
-    // Return success response
-    return NextResponse.json({ 
-      success: true, 
-      user: user 
+    const strengthError = validatePasswordStrength(plainPassword);
+    if (strengthError) {
+      return NextResponse.json({ success: false, error: strengthError }, { status: 400 });
+    }
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
     });
 
+    if (existingUser?.passwordHash) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "An account with this email already exists. Please sign in instead.",
+        },
+        { status: 409 }
+      );
+    }
+
+    const passwordHash = await hashPassword(plainPassword);
+
+    const user =
+      existingUser ??
+      (await prisma.user.create({
+        data: {
+          name: normalizedName || null,
+          email: normalizedEmail,
+          phone: normalizedPhone || null,
+          passwordHash,
+        },
+      }));
+
+    if (existingUser) {
+      const updated = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          name: normalizedName || existingUser.name,
+          phone: normalizedPhone || existingUser.phone,
+          passwordHash,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        user: publicUser(updated),
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      user: publicUser(user),
+    });
   } catch (error: unknown) {
     console.error("Database error:", error);
 
-    // Prisma unique constraint (e.g. duplicate email)
     const prismaError = error as { code?: string; meta?: { target?: string[] } };
     if (prismaError?.code === "P2002") {
       const target = prismaError.meta?.target?.[0] ?? "field";

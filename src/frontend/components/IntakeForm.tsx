@@ -10,10 +10,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Button } from "@/frontend/components/ui/button";
 import { PhotoUploadInterface } from "./PhotoUploadInterface";
 import { useIntakeDraft } from "@/frontend/contexts/IntakeDraftContext";
 import type { IntakeData } from "@/backend/schemas/intakeDraft";
+import {
+  hasAuthenticatedSession,
+  registerIntakeAccount,
+} from "@/frontend/lib/intakeAccount";
 
 const provinces = [
   "AB",
@@ -40,8 +45,7 @@ const modificationOptions = [
   "Handrails",
 ] as const;
 
-const intakeSchema = z
-  .object({
+const intakeFieldsSchema = z.object({
     name: z.string().min(1, "Name is required").max(120, "Name is too long"),
     email: z.string().min(1, "Email is required").email("Enter a valid email"),
     phone: z
@@ -49,6 +53,8 @@ const intakeSchema = z
       .min(1, "Phone is required")
       .regex(/^[\d\s\-+()]*$/, "Phone can only contain digits and + - ( )")
       .max(24, "Phone number is too long"),
+    password: z.string(),
+    confirmPassword: z.string(),
 
     // Service address
     addressLine1: z.string().min(1, "Street address is required").max(200),
@@ -90,8 +96,34 @@ const intakeSchema = z
     modificationItems: z
       .array(z.string())
       .min(1, "Select at least one modification item"),
-  })
-  .superRefine((data, ctx) => {
+});
+
+function buildIntakeSchema(requireAccountFields: boolean) {
+  return intakeFieldsSchema.superRefine((data, ctx) => {
+    if (requireAccountFields) {
+      if (!data.password || data.password.length < 8) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["password"],
+          message: "Password must be at least 8 characters",
+        });
+      }
+
+      if (!data.confirmPassword) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["confirmPassword"],
+          message: "Please confirm your password",
+        });
+      } else if (data.password !== data.confirmPassword) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["confirmPassword"],
+          message: "Passwords do not match",
+        });
+      }
+    }
+
     if (data.ownershipStatus === "tenant") {
       if (!data.landlordName?.trim()) {
         ctx.addIssue({
@@ -154,13 +186,16 @@ const intakeSchema = z
       });
     }
   });
+}
 
-export type IntakeFormValues = z.infer<typeof intakeSchema>;
+export type IntakeFormValues = z.infer<typeof intakeFieldsSchema>;
 
 const defaultValues: IntakeFormValues = {
   name: "",
   email: "",
   phone: "",
+  password: "",
+  confirmPassword: "",
   addressLine1: "",
   addressLine2: "",
   city: "",
@@ -203,6 +238,12 @@ function toIntakeData(values: IntakeFormValues): IntakeData {
 
 export function IntakeForm() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const isAuthenticated = hasAuthenticatedSession(session);
+  const intakeSchema = React.useMemo(
+    () => buildIntakeSchema(!isAuthenticated),
+    [isAuthenticated]
+  );
   const {
     intakeData,
     photos,
@@ -220,6 +261,7 @@ export function IntakeForm() {
     handleSubmit,
     watch,
     reset,
+    getValues,
     formState: { errors },
   } = useForm<IntakeFormValues>({
     resolver: zodResolver(intakeSchema),
@@ -232,9 +274,33 @@ export function IntakeForm() {
 
   const [photoKey, setPhotoKey] = React.useState(0);
   const [photoError, setPhotoError] = React.useState<string | null>(null);
+  const [accountError, setAccountError] = React.useState<string | null>(null);
+  const [isSettingUpAccount, setIsSettingUpAccount] = React.useState(false);
   const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
   const [removingPhotoId, setRemovingPhotoId] = React.useState<string | null>(null);
   const previousUploadCountRef = React.useRef(0);
+
+  const ensureIntakeAccountBeforeAction = React.useCallback(async () => {
+    if (isAuthenticated) {
+      return true;
+    }
+
+    const values = getValues();
+    const accountSetupError = await registerIntakeAccount({
+      name: values.name,
+      email: values.email,
+      phone: values.phone,
+      password: values.password,
+    });
+
+    if (accountSetupError) {
+      setAccountError(accountSetupError);
+      return false;
+    }
+
+    setAccountError(null);
+    return true;
+  }, [getValues, isAuthenticated]);
 
   React.useEffect(() => {
     if (!isHydrated || !intakeData) return;
@@ -251,7 +317,14 @@ export function IntakeForm() {
   }, [watch, setIntakeSnapshot, isHydrated]);
 
   const handleSaveDraft = async () => {
-    await saveNow();
+    setIsSettingUpAccount(true);
+    try {
+      const ready = await ensureIntakeAccountBeforeAction();
+      if (!ready) return;
+      await saveNow();
+    } finally {
+      setIsSettingUpAccount(false);
+    }
   };
 
   const handlePhotoUpload = async (files: File[]) => {
@@ -260,8 +333,13 @@ export function IntakeForm() {
 
     if (newFiles.length === 0) return;
 
-    const projectId = await ensureProjectId();
-    if (!projectId) return;
+    setIsSettingUpAccount(true);
+    try {
+      const ready = await ensureIntakeAccountBeforeAction();
+      if (!ready) return;
+
+      const projectId = await ensureProjectId();
+      if (!projectId) return;
 
     for (const file of newFiles) {
       const formData = new FormData();
@@ -282,6 +360,9 @@ export function IntakeForm() {
       } else {
         setPhotoError("Failed to upload photo. Please try again.");
       }
+    }
+    } finally {
+      setIsSettingUpAccount(false);
     }
   };
 
@@ -317,6 +398,9 @@ export function IntakeForm() {
     setIsSubmittingForm(true);
 
     try {
+      const ready = await ensureIntakeAccountBeforeAction();
+      if (!ready) return;
+
       await saveNow();
 
       const promoteResponse = await fetch("/api/intake-draft/promote", {
@@ -419,6 +503,62 @@ export function IntakeForm() {
             </p>
           )}
         </div>
+
+        {!isAuthenticated && (
+          <>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="intake-password" className="mb-1 block text-sm font-medium">
+                Password
+              </label>
+              <input
+                id="intake-password"
+                type="password"
+                autoComplete="new-password"
+                {...register("password")}
+                className="rounded border border-input bg-background px-3 py-2 text-sm"
+                aria-invalid={!!errors.password}
+                aria-describedby={errors.password ? "intake-password-error" : undefined}
+              />
+              {errors.password && (
+                <p id="intake-password-error" className="mt-1 text-sm text-destructive" role="alert">
+                  {errors.password.message}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="intake-confirm-password" className="mb-1 block text-sm font-medium">
+                Confirm password
+              </label>
+              <input
+                id="intake-confirm-password"
+                type="password"
+                autoComplete="new-password"
+                {...register("confirmPassword")}
+                className="rounded border border-input bg-background px-3 py-2 text-sm"
+                aria-invalid={!!errors.confirmPassword}
+                aria-describedby={
+                  errors.confirmPassword ? "intake-confirm-password-error" : undefined
+                }
+              />
+              {errors.confirmPassword && (
+                <p
+                  id="intake-confirm-password-error"
+                  className="mt-1 text-sm text-destructive"
+                  role="alert"
+                >
+                  {errors.confirmPassword.message}
+                </p>
+              )}
+            </div>
+          </>
+        )}
+
+        {accountError && (
+          <p className="text-sm text-destructive" role="alert">
+            {accountError}
+          </p>
+        )}
 
         <div className="flex items-center gap-2 mt-4">
           <input
