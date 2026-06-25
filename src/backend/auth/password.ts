@@ -3,6 +3,9 @@ import bcrypt from "bcryptjs";
 const BCRYPT_COST = 12;
 const MIN_PASSWORD_LENGTH = 8;
 
+/** Precomputed bcrypt hash for timing-safe login failures when no user exists. */
+export const DUMMY_PASSWORD_HASH = bcrypt.hashSync("__dummy_timing_safe__", BCRYPT_COST);
+
 export function validatePasswordStrength(password: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH) {
     return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;

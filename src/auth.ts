@@ -8,6 +8,7 @@ import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "lib/prisma";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
+import { DUMMY_PASSWORD_HASH, verifyPassword } from "@/backend/auth/password";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -43,49 +44,37 @@ const nextAuthResult = NextAuth({
     Credentials({
       name: "Credentials",
       credentials: {
-        name: { label: "Name", type: "text" },
         email: { label: "Email", type: "email" },
-        phone: { label: "Phone", type: "text" },
+        password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
         try {
-          const name = typeof credentials?.name === "string" ? credentials.name.trim() : "";
           const email =
             typeof credentials?.email === "string"
               ? credentials.email.trim().toLowerCase()
               : "";
-          if (!name || !email) return null;
+          const password =
+            typeof credentials?.password === "string" ? credentials.password : "";
+
+          if (!email || !password) return null;
 
           const user = await prisma.user.findUnique({
             where: { email },
           });
 
-          // Intake creates the user first; sign-in must reuse that DB id so
-          // project FK constraints succeed (dev and prod).
-          if (user) {
-            return {
-              id: user.id,
-              name: user.name ?? name,
-              email: user.email,
-              image: user.image || null,
-            };
+          const hashToCompare = user?.passwordHash ?? DUMMY_PASSWORD_HASH;
+          const passwordValid = await verifyPassword(password, hashToCompare);
+
+          if (!user?.passwordHash || !passwordValid) {
+            return null;
           }
 
-          if (process.env.NODE_ENV === "development") {
-            const phone =
-              typeof credentials?.phone === "string" ? credentials.phone.trim() : null;
-            const created = await prisma.user.create({
-              data: { name, email, phone: phone || null },
-            });
-            return {
-              id: created.id,
-              name: created.name,
-              email: created.email,
-              image: null,
-            };
-          }
-
-          return null;
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image || null,
+          };
         } catch (error) {
           console.error("Error in authorize:", error);
           return null;
