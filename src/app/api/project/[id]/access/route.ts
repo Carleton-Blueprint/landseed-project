@@ -3,6 +3,8 @@ import { ProjectAccessRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
+import { authGateResponse } from "@/backend/auth/authGateResponse";
+import { requireVerifiedEmail } from "@/backend/auth/requireVerifiedEmail";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 
@@ -160,6 +162,16 @@ export async function POST(
       ...requestContext,
     });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    await requireVerifiedEmail(session);
+  } catch (error) {
+    const gateResponse = authGateResponse(error);
+    if (gateResponse) {
+      return gateResponse;
+    }
+    throw error;
   }
 
   const canManageAccess = await hasProjectAccess(
