@@ -1,9 +1,12 @@
 "use client";
 
 import React, { useState, Suspense } from "react";
+import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
+import { AuthPageShell } from "@/frontend/components/auth/AuthPageShell";
+import { SignInVerificationAlert } from "@/frontend/components/auth/SignInVerificationAlert";
 
 function PasswordSignInForm() {
   const router = useRouter();
@@ -57,7 +60,17 @@ function PasswordSignInForm() {
       </div>
 
       <div>
-        <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+            Password
+          </label>
+          <Link
+            href="/auth/forgot-password"
+            className="text-sm font-medium text-emerald-700 hover:underline"
+          >
+            Forgot password?
+          </Link>
+        </div>
         <input
           id="password"
           type="password"
@@ -187,51 +200,24 @@ function SignInForm({ legacyMode }: { legacyMode: boolean }) {
 
 export function SignInPageContent({ legacyMode }: { legacyMode: boolean }) {
   return (
-    <div className="relative min-h-screen bg-white flex items-center justify-center overflow-hidden font-sans z-0">
-      <style>{`
-        @keyframes drift-1 {
-          from { background-position: 0 0; }
-          to { background-position: 200px -200px; }
+    <AuthPageShell
+      title="Client Portal"
+      description={
+        legacyMode
+          ? "Enter your details to access your projects"
+          : "Sign in with your email and password to access your projects"
+      }
+    >
+      <Suspense
+        fallback={
+          <div className="h-[300px] flex items-center justify-center">
+            <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          </div>
         }
-        @keyframes drift-2 {
-          from { background-position: 0 0; }
-          to { background-position: -300px 300px; }
-        }
-        .bg-houses-1 {
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2310b981' stroke-width='0.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E");
-          background-size: 200px 200px;
-          animation: drift-1 50s linear infinite;
-        }
-        .bg-houses-2 {
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='%2310b981' opacity='0.15' stroke='none'%3E%3Cpath d='m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3C/svg%3E");
-          background-size: 300px 300px;
-          animation: drift-2 70s linear infinite;
-        }
-      `}</style>
-
-      <div className="fixed inset-0 -z-10 bg-houses-1 opacity-20 pointer-events-none" />
-      <div className="fixed inset-0 -z-10 bg-houses-2 opacity-50 pointer-events-none" />
-
-      <div className="relative z-10 w-full max-w-md mx-4 p-8 bg-white/90 backdrop-blur-md border border-gray-200/60 rounded-3xl shadow-xl">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Client Portal</h1>
-          <p className="text-sm text-gray-500 mt-2">
-            {legacyMode
-              ? "Enter your details to access your projects"
-              : "Sign in with your email and password to access your projects"}
-          </p>
-        </div>
-
-        <Suspense
-          fallback={
-            <div className="h-[300px] flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          }
-        >
-          <SignInForm legacyMode={legacyMode} />
-        </Suspense>
-      </div>
-    </div>
+      >
+        <SignInVerificationAlert />
+        <SignInForm legacyMode={legacyMode} />
+      </Suspense>
+    </AuthPageShell>
   );
 }

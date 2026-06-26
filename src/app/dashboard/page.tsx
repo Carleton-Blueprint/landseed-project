@@ -27,6 +27,7 @@ import {
   CameraIcon,
 } from "@/frontend/components/icons";
 import { AlertCircle } from "lucide-react";
+import { EmailVerificationBanner } from "@/frontend/components/auth/EmailVerificationBanner";
 
 /* ------------------------------------------------------------------ */
 /* Status helpers                                                      */
@@ -214,6 +215,20 @@ export default async function DashboardPage() {
     redirectToSignIn("/dashboard");
   }
 
+  let accountEmail: string | null = null;
+  let needsEmailVerification = false;
+
+  try {
+    const account = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { email: true, emailVerified: true },
+    });
+    accountEmail = account?.email ?? null;
+    needsEmailVerification = Boolean(accountEmail && !account?.emailVerified);
+  } catch {
+    // No DB in dev — skip verification banner
+  }
+
   let projects: Awaited<
     ReturnType<
       typeof prisma.project.findMany<{
@@ -335,6 +350,9 @@ export default async function DashboardPage() {
       </div>
 
       <div className="mx-auto max-w-5xl px-6 py-6 md:px-8">
+        {needsEmailVerification && accountEmail && (
+          <EmailVerificationBanner email={accountEmail} />
+        )}
         {(() => {
           const urgentItems = notifications.filter((n) => n.urgent && !n.read);
           if (urgentItems.length === 0) return null;
