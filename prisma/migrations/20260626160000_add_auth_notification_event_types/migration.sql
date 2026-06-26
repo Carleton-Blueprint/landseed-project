@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "NotificationEventType" ADD VALUE 'EMAIL_VERIFICATION';
+ALTER TYPE "NotificationEventType" ADD VALUE 'PASSWORD_RESET';

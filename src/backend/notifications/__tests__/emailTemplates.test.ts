@@ -61,4 +61,33 @@ describe("renderEmailTemplate", () => {
     expect(template.text).toContain("Open your estimate");
   });
 
+  it("renders email verification template for caregiver submissions", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.EMAIL_VERIFICATION,
+      recipientName: "Alex",
+      seniorName: "Pat Senior",
+      isCaregiverSubmission: true,
+      authActionLink: "https://example.test/api/auth/verify-email?token=abc",
+    });
+
+    expect(template.templateName).toBe("email-verification-v1");
+    expect(template.subject).toBe("Confirm your Landseed email");
+    expect(template.html).toContain("Pat Senior");
+    expect(template.html).toContain("Confirm your email");
+    expect(template.text).toContain("https://example.test/api/auth/verify-email?token=abc");
+  });
+
+  it("renders password reset template with reset link", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.PASSWORD_RESET,
+      recipientName: "Alex",
+      authActionLink: "https://example.test/auth/reset-password?token=abc",
+    });
+
+    expect(template.templateName).toBe("password-reset-v1");
+    expect(template.subject).toBe("Reset your Landseed password");
+    expect(template.html).toContain("Reset your password");
+    expect(template.text).toContain("https://example.test/auth/reset-password?token=abc");
+  });
+
 });

@@ -25,6 +25,9 @@ export function getCategoryFromEventType(eventType: NotificationEventType): Comm
       return CommunicationCategory.DOCUMENT;
     case NotificationEventType.MANUAL_FALLBACK_EXPORT_READY:
       return CommunicationCategory.DOCUMENT;
+    case NotificationEventType.EMAIL_VERIFICATION:
+    case NotificationEventType.PASSWORD_RESET:
+      return CommunicationCategory.SYSTEM_ALERT;
     default:
       return CommunicationCategory.OTHER;
   }

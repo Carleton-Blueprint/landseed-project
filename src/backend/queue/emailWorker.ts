@@ -27,6 +27,9 @@ const worker = createEmailWorker(async (job) => {
     noticeId: job.data.noticeId,
     accountDeletionRequestId: job.data.accountDeletionRequestId,
     scheduledFor: job.data.scheduledFor,
+    authActionLink: job.data.authActionLink,
+    seniorName: job.data.seniorName,
+    isCaregiverSubmission: job.data.isCaregiverSubmission,
   });
 });
 

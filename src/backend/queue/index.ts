@@ -39,6 +39,9 @@ export const emailQueue = new Queue<{
   noticeId?: string | null;
   accountDeletionRequestId?: string | null;
   scheduledFor?: string | null;
+  authActionLink?: string | null;
+  seniorName?: string | null;
+  isCaregiverSubmission?: boolean;
 }>("email", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
@@ -109,6 +112,9 @@ export function createEmailWorker(
       scheduledFor?: string | null;
       manualFallbackExportLink?: string | null;
       manualFallbackExportRetentionDays?: number;
+      authActionLink?: string | null;
+      seniorName?: string | null;
+      isCaregiverSubmission?: boolean;
     };
   }) => Promise<void>
 ) {
