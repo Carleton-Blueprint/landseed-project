@@ -57,7 +57,9 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
    A client posts multipart/form-data to **`POST /api/upload`** (`src/app/api/upload/route.ts`). The route validates file size and type. When you’re ready, you’ll stream the file to **S3** (using `lib/s3.ts`) and push a job to **`src/backend/queue`** (BullMQ + Redis) for virus scanning. Workers created with `createVirusScanWorker` would run in a separate process or serverless function.
 
 5. **Auth**  
-   **NextAuth** is mounted at `/api/auth/*` (`src/app/api/auth/[...nextauth]/route.ts`). It uses the **Prisma adapter** and a **Credentials** provider (name/email/phone). Session is JWT-based; `session.user.id` is available in callbacks and in the client via `useSession()`. The extended types live in `src/types/next-auth.d.ts`.
+   **NextAuth** is mounted at `/api/auth/*` with a **Credentials** provider. When `DEV_AUTH_BYPASS=true` (local dev default), sign-in uses the legacy name/email flow with no password. When `DEV_AUTH_BYPASS=false`, sign-in requires email + password validated against `passwordHash` in PostgreSQL. Session is JWT-based; `session.user.id` is available via `useSession()`.
+
+   **Testing password auth locally:** set `DEV_AUTH_BYPASS=false` and `NEXT_PUBLIC_DEV_AUTH_BYPASS=false`, restart the dev server, seed a user with `npx tsx scripts/seed-test-user.ts`, then sign in at `/auth/signin`.
 
 6. **Backend services (placeholders)**  
    - **`src/backend/services/image.ts`** – Intended for **Sharp**: resize/compress uploads before S3.  

@@ -48,5 +48,9 @@ export async function registerIntakeAccount(input: IntakeAccountInput): Promise<
 }
 
 export function hasAuthenticatedSession(session: { user?: { id?: string | null } | null } | null) {
-  return Boolean(session?.user?.id && session.user.id !== "dev-user-id");
+  return Boolean(session?.user?.id);
+}
+
+export function isLegacyAuthBypassClient(): boolean {
+  return process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
 }
