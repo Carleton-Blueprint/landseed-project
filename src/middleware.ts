@@ -7,10 +7,6 @@ import { getRequestAuditContext } from "@/backend/audit/requestContext";
 const ADMIN_PATHS = ["/admin", "/api/admin"];
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
-  // ── DEV BYPASS: skip auth in local development ──────────────────────
-  if (process.env.NODE_ENV === "development") return NextResponse.next();
-  // ────────────────────────────────────────────────────────────────────
-
   const { pathname } = request.nextUrl;
 
   // Only care about configured admin paths

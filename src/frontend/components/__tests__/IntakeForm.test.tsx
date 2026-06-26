@@ -12,6 +12,16 @@ jest.mock("next/navigation", () => ({
   }),
 }));
 
+jest.mock("next-auth/react", () => ({
+  useSession: () => ({ data: null, status: "unauthenticated" }),
+  signIn: jest.fn(),
+}));
+
+jest.mock("@/frontend/lib/intakeAccount", () => ({
+  hasAuthenticatedSession: () => false,
+  registerIntakeAccount: jest.fn(async () => null),
+}));
+
 const mockFetch = jest.fn();
 
 beforeEach(() => {
@@ -34,12 +44,14 @@ function renderIntakeForm() {
 }
 
 describe("IntakeForm", () => {
-  it("renders form with name, email, phone fields and submit button", async () => {
+  it("renders form with name, email, phone, password fields and submit button", async () => {
     renderIntakeForm();
 
-    expect(screen.getByLabelText(/name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/phone/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^name$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^email$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^phone$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/confirm password/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument();
 
     await waitFor(() =>
@@ -116,7 +128,9 @@ describe("IntakeForm", () => {
     renderIntakeForm();
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
 
-    await user.type(screen.getByLabelText(/name/i), "Jane Doe");
+    await user.type(screen.getByLabelText(/^name$/i), "Jane Doe");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.type(screen.getByLabelText(/confirm password/i), "password123");
     await user.click(screen.getByRole("button", { name: /save as draft/i }));
 
     await waitFor(() => {

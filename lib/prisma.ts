@@ -1,6 +1,6 @@
 /**
  * Single Prisma client instance shared across the app. Reused in dev to avoid too many connections;
- * in production one instance per process. Use for all DB access (API routes, server components, NextAuth adapter).
+ * in production one instance per process. Use for all DB access (API routes, server components).
  */
 import { PrismaClient } from "@prisma/client";
 
