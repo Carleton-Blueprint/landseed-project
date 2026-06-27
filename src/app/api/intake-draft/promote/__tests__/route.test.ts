@@ -10,9 +10,22 @@ jest.mock("@/backend/services/intakeDraft", () => ({
   promoteIntakeDraft: jest.fn(),
 }));
 
+jest.mock("@/backend/auth/requireVerifiedEmail", () => {
+  const actual = jest.requireActual<typeof import("@/backend/auth/requireVerifiedEmail")>(
+    "@/backend/auth/requireVerifiedEmail"
+  );
+  return {
+    ...actual,
+    requireVerifiedEmail: jest.fn(),
+  };
+});
+
+import { requireVerifiedEmail, EmailVerificationRequiredError } from "@/backend/auth/requireVerifiedEmail";
+
 describe("POST /api/intake-draft/promote", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (requireVerifiedEmail as jest.Mock).mockResolvedValue(undefined);
   });
 
   it("returns 401 when unsigned", async () => {
@@ -21,6 +34,18 @@ describe("POST /api/intake-draft/promote", () => {
     const res = await POST(new Request("http://localhost/api/intake-draft/promote"));
 
     expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when email is not verified", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (requireVerifiedEmail as jest.Mock).mockRejectedValue(new EmailVerificationRequiredError());
+
+    const res = await POST(new Request("http://localhost/api/intake-draft/promote"));
+
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.code).toBe("EMAIL_VERIFICATION_REQUIRED");
+    expect(promoteIntakeDraft).not.toHaveBeenCalled();
   });
 
   it("returns 422 when intake data is incomplete", async () => {

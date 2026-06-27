@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "lib/prisma";
 import { hashPassword, validatePasswordStrength } from "@/backend/auth/password";
+import { enqueueEmailVerificationIfNeeded } from "@/backend/auth/authEmailNotification";
 
 function publicUser(user: { id: string; name: string | null; email: string | null; phone: string | null }) {
   return {
@@ -11,15 +12,47 @@ function publicUser(user: { id: string; name: string | null; email: string | nul
   };
 }
 
+async function queueVerificationEmail(
+  user: {
+    id: string;
+    email: string | null;
+    name: string | null;
+    emailVerified: Date | null;
+  },
+  options?: {
+    seniorName?: string | null;
+    isCaregiverSubmission?: boolean;
+  }
+) {
+  if (!user.email) {
+    return;
+  }
+
+  try {
+    await enqueueEmailVerificationIfNeeded({
+      userId: user.id,
+      recipientEmail: user.email,
+      recipientName: user.name,
+      emailVerified: user.emailVerified,
+      seniorName: options?.seniorName,
+      isCaregiverSubmission: options?.isCaregiverSubmission,
+    });
+  } catch (error) {
+    console.error("Failed to enqueue email verification:", error);
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const data = await request.json();
-    const { name, email, phone, password } = data;
+    const { name, email, phone, password, seniorName, isCaregiver } = data;
     const normalizedName = typeof name === "string" ? name.trim() : "";
     const normalizedEmail =
       typeof email === "string" ? email.trim().toLowerCase() : "";
     const normalizedPhone = typeof phone === "string" ? phone.trim() : "";
     const plainPassword = typeof password === "string" ? password : "";
+    const normalizedSeniorName = typeof seniorName === "string" ? seniorName.trim() : "";
+    const isCaregiverSubmission = Boolean(isCaregiver);
 
     if (!normalizedEmail) {
       return NextResponse.json(
@@ -48,6 +81,10 @@ export async function POST(request: Request) {
     }
 
     const passwordHash = await hashPassword(plainPassword);
+    const verificationOptions = {
+      seniorName: isCaregiverSubmission ? normalizedSeniorName || null : null,
+      isCaregiverSubmission,
+    };
 
     const user =
       existingUser ??
@@ -70,11 +107,15 @@ export async function POST(request: Request) {
         },
       });
 
+      await queueVerificationEmail(updated, verificationOptions);
+
       return NextResponse.json({
         success: true,
         user: publicUser(updated),
       });
     }
+
+    await queueVerificationEmail(user, verificationOptions);
 
     return NextResponse.json({
       success: true,

@@ -5,6 +5,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { promoteIntakeDraft } from "@/backend/services/intakeDraft";
+import { authGateResponse } from "@/backend/auth/authGateResponse";
+import { requireVerifiedEmail } from "@/backend/auth/requireVerifiedEmail";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -13,6 +15,24 @@ export async function POST(request: Request) {
       { ok: false, code: "UNAUTHORIZED", message: "Unauthorized" },
       { status: 401 }
     );
+  }
+
+  try {
+    await requireVerifiedEmail(session);
+  } catch (error) {
+    const gateResponse = authGateResponse(error);
+    if (gateResponse) {
+      const body = await gateResponse.json();
+      return NextResponse.json(
+        {
+          ok: false,
+          code: body.code ?? "EMAIL_VERIFICATION_REQUIRED",
+          message: body.error ?? "Please verify your email before continuing.",
+        },
+        { status: gateResponse.status }
+      );
+    }
+    throw error;
   }
 
   const ipAddress =

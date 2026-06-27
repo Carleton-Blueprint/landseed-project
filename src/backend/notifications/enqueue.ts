@@ -10,6 +10,10 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
     payload.eventType === NotificationEventType.ESTIMATE_EXPIRED ||
     payload.eventType === NotificationEventType.ESTIMATE_REACTIVATED;
 
+  const isAuthEvent =
+    payload.eventType === NotificationEventType.EMAIL_VERIFICATION ||
+    payload.eventType === NotificationEventType.PASSWORD_RESET;
+
   await emailQueue.add(
     `notify-${payload.idempotencyKey}`,
     {
@@ -29,11 +33,14 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
       noticeId: payload.noticeId,
       accountDeletionRequestId: payload.accountDeletionRequestId,
       scheduledFor: payload.scheduledFor,
+      authActionLink: payload.authActionLink,
+      seniorName: payload.seniorName,
+      isCaregiverSubmission: payload.isCaregiverSubmission,
     },
     {
       removeOnComplete: 100,
       removeOnFail: 500,
-      priority: isEstimateLifecycleEvent ? 1 : 2,
+      priority: isEstimateLifecycleEvent || isAuthEvent ? 1 : 2,
     }
   );
 }

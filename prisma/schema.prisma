@@ -31,6 +31,7 @@ model User {
   accountDeletionRequests       AccountDeletionRequest[]        @relation("AccountDeletionTarget")
   accountDeletionRequestIssuers AccountDeletionRequest[]        @relation("AccountDeletionRequestedBy")
   intakeDraft                   IntakeDraft?
+  authEmailTokens               AuthEmailToken[]
 }
 
 model Project {
@@ -579,6 +580,25 @@ enum EligibilityDecision {
   MANUAL_REVIEW
 }
 
+enum AuthEmailTokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model AuthEmailToken {
+  id        String                @id @default(cuid())
+  userId    String
+  purpose   AuthEmailTokenPurpose
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime              @default(now())
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([tokenHash])
+}
+
 enum NotificationEventType {
   SUBMISSION_RECEIPT
   ESTIMATE_READY
@@ -587,6 +607,8 @@ enum NotificationEventType {
   MANUAL_FALLBACK_EXPORT_READY
   QUESTION_SUBMITTED_FOR_ADVISORY_TEAM
   FILE_MALWARE_DETECTED
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
 }
 
 enum AccountDeletionRequestStatus {

@@ -20,6 +20,7 @@ import {
   isLegacyAuthBypassClient,
   registerIntakeAccount,
 } from "@/frontend/lib/intakeAccount";
+import { getApiErrorMessage } from "@/frontend/lib/apiErrors";
 
 const provinces = [
   "AB",
@@ -365,7 +366,13 @@ export function IntakeForm() {
         }
         setPhotoError(null);
       } else {
-        setPhotoError("Failed to upload photo. Please try again.");
+        const body = (await uploadResponse.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+        } | null;
+        setPhotoError(
+          getApiErrorMessage(body, "Failed to upload photo. Please try again.")
+        );
       }
     }
     } finally {
@@ -417,10 +424,11 @@ export function IntakeForm() {
       if (!promoteResponse.ok) {
         let promoteError = `Failed to submit (${promoteResponse.status})`;
         try {
-          const body = await promoteResponse.json();
-          if (typeof body?.message === "string") {
-            promoteError = body.message;
-          }
+          const body = (await promoteResponse.json()) as {
+            message?: string;
+            error?: string;
+          };
+          promoteError = getApiErrorMessage(body, promoteError);
         } catch {
           /* response body wasn't JSON */
         }

@@ -11,6 +11,9 @@ type TemplateInput = {
   questionSubject?: string;
   fileName?: string;
   documentType?: string;
+  authActionLink?: string | null;
+  seniorName?: string | null;
+  isCaregiverSubmission?: boolean;
 };
 
 export type RenderedEmailTemplate = {
@@ -22,6 +25,14 @@ export type RenderedEmailTemplate = {
 
 function safeName(name?: string | null): string {
   return name?.trim() || "there";
+}
+
+function authActionButton(link: string, label: string): string {
+  return `<p><a href="${link}" style="display:inline-block;padding:14px 24px;font-size:18px;font-weight:600;text-decoration:none;border-radius:6px;background:#1f4d3a;color:#ffffff;">${label}</a></p>`;
+}
+
+function authSupportFooter(): string {
+  return `<p style="font-size:16px;color:#444;">If you need help, reply to this email or contact the Landseed advisory team.</p><p>Landseed Team</p>`;
 }
 
 export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate {
@@ -138,6 +149,44 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
         <p>Landseed Team</p>
       `,
       text: `Hi ${recipientName},\n\nSecurity Alert: We detected malware in a file you attempted to upload${addressLine}.\n\nFile: ${fileName}${documentTypeInfo}\n\nFor your security, this file has been automatically deleted and cannot be used for your application.\n\nWhat to do:\n- Scan the file on your computer with updated antivirus software\n- If the file is clean, re-upload it\n- Contact IT support if you believe this is a false positive\n\nIf you have questions, please contact our support team.\n\nLandseed Team`,
+    };
+  }
+
+  if (input.eventType === NotificationEventType.EMAIL_VERIFICATION) {
+    const recipientName = safeName(input.recipientName);
+    const actionLink = input.authActionLink?.trim();
+    const seniorName = input.seniorName?.trim();
+    const isCaregiver = Boolean(input.isCaregiverSubmission && seniorName);
+
+    const introHtml = isCaregiver
+      ? `<p>Hi ${recipientName},</p><p>Please confirm this email address for <strong>${seniorName}</strong>'s Landseed home modification account.</p>`
+      : `<p>Hi ${recipientName},</p><p>Please confirm your email address to secure your Landseed account.</p>`;
+    const introText = isCaregiver
+      ? `Hi ${recipientName},\n\nPlease confirm this email address for ${seniorName}'s Landseed home modification account.`
+      : `Hi ${recipientName},\n\nPlease confirm your email address to secure your Landseed account.`;
+
+    const linkHtml = actionLink ? authActionButton(actionLink, "Confirm your email") : "";
+    const linkText = actionLink ? `\nConfirm your email: ${actionLink}\n` : "";
+
+    return {
+      templateName: "email-verification-v1",
+      subject: "Confirm your Landseed email",
+      html: `${introHtml}<p>This link expires in 24 hours.</p>${linkHtml}${authSupportFooter()}`,
+      text: `${introText}\n\nThis link expires in 24 hours.${linkText}\nIf you need help, reply to this email or contact the Landseed advisory team.\n\nLandseed Team`,
+    };
+  }
+
+  if (input.eventType === NotificationEventType.PASSWORD_RESET) {
+    const recipientName = safeName(input.recipientName);
+    const actionLink = input.authActionLink?.trim();
+    const linkHtml = actionLink ? authActionButton(actionLink, "Reset your password") : "";
+    const linkText = actionLink ? `\nReset your password: ${actionLink}\n` : "";
+
+    return {
+      templateName: "password-reset-v1",
+      subject: "Reset your Landseed password",
+      html: `<p>Hi ${recipientName},</p><p>We received a request to reset your Landseed password.</p><p>This link expires in 1 hour. If you did not request this, you can ignore this email.</p>${linkHtml}${authSupportFooter()}`,
+      text: `Hi ${recipientName},\n\nWe received a request to reset your Landseed password.\n\nThis link expires in 1 hour. If you did not request this, you can ignore this email.${linkText}\nIf you need help, reply to this email or contact the Landseed advisory team.\n\nLandseed Team`,
     };
   }
 

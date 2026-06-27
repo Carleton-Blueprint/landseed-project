@@ -8,6 +8,8 @@ import { uploadToS3 } from "lib/s3";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
+import { authGateResponse } from "@/backend/auth/authGateResponse";
+import { requireVerifiedEmail } from "@/backend/auth/requireVerifiedEmail";
 import { ProjectAccessRole } from "@prisma/client";
 import { virusScanQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
@@ -45,6 +47,16 @@ export async function POST(request: NextRequest) {
         { error: "Unauthorized - must be signed in" },
         { status: 401 }
       );
+    }
+
+    try {
+      await requireVerifiedEmail(session);
+    } catch (error) {
+      const gateResponse = authGateResponse(error);
+      if (gateResponse) {
+        return gateResponse;
+      }
+      throw error;
     }
 
     const formData = await request.formData();
