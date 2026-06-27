@@ -10,9 +10,15 @@ jest.mock("@/backend/services/intakeDraft", () => ({
   promoteIntakeDraft: jest.fn(),
 }));
 
-jest.mock("@/backend/auth/requireVerifiedEmail", () => ({
-  requireVerifiedEmail: jest.fn(),
-}));
+jest.mock("@/backend/auth/requireVerifiedEmail", () => {
+  const actual = jest.requireActual<typeof import("@/backend/auth/requireVerifiedEmail")>(
+    "@/backend/auth/requireVerifiedEmail"
+  );
+  return {
+    ...actual,
+    requireVerifiedEmail: jest.fn(),
+  };
+});
 
 import { requireVerifiedEmail, EmailVerificationRequiredError } from "@/backend/auth/requireVerifiedEmail";
 
