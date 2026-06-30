@@ -32,6 +32,7 @@ model User {
   accountDeletionRequestIssuers AccountDeletionRequest[]        @relation("AccountDeletionRequestedBy")
   intakeDraft                   IntakeDraft?
   authEmailTokens               AuthEmailToken[]
+  projectStaffNotes             ProjectStaffNote[]
 }
 
 model Project {
@@ -59,6 +60,7 @@ model Project {
   communicationHistory          CommunicationHistory[]
   consultationRequest           ConsultationRequest?
   intakeDraft                   IntakeDraft?
+  staffNotes                    ProjectStaffNote[]
 }
 
 model IntakeDraft {
@@ -82,6 +84,21 @@ model ConsultationRequest {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectStaffNote {
+  id           String   @id @default(cuid())
+  projectId    String
+  authorUserId String
+  content      String   @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author       User     @relation(fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([projectId])
+  @@index([authorUserId])
+  @@index([createdAt])
 }
 
 
