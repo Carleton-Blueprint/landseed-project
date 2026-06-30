@@ -4,7 +4,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ManualFallbackExportStatus } from "@prisma/client";
+import { ManualFallbackExportStatus, Prisma } from "@prisma/client";
 import { manualFallbackExportQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { prisma } from "lib/prisma";
@@ -101,6 +101,62 @@ type ExportByteTracker = {
   totalBytes: number;
   maxBytes?: number;
 };
+
+/** Owner-facing export query — must never include internal staffNotes. */
+export const MANUAL_FALLBACK_PROJECT_SELECT = {
+  id: true,
+  address: true,
+  status: true,
+  grantApplicationStatus: true,
+  grantDocumentKey: true,
+  draftData: true,
+  user: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+    },
+  },
+  quotes: {
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+    select: {
+      id: true,
+      status: true,
+      subtotal: true,
+      total: true,
+      estimateMin: true,
+      estimateMax: true,
+      refinedEstimate: true,
+      generatedAt: true,
+      lastClientActivityAt: true,
+      declinedReason: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+  photos: {
+    orderBy: [{ createdAt: "asc" }],
+    select: {
+      id: true,
+      url: true,
+      virus_scan_status: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+  grantApplicationStatusHistory: {
+    orderBy: [{ changedAt: "asc" }],
+    select: {
+      id: true,
+      fromStatus: true,
+      toStatus: true,
+      changedAt: true,
+      changedByUserId: true,
+      reason: true,
+      metadata: true,
+    },
+  },
+} satisfies Prisma.ProjectSelect;
 
 function parsePositiveIntegerEnv(value: string | undefined): number | undefined {
   if (!value) {
@@ -320,6 +376,7 @@ async function buildArchiveForProject(
     tracker
   );
 
+  // Internal ProjectStaffNote rows are intentionally omitted from owner exports.
   await appendJsonEntry(
     archive,
     "project.json",
@@ -403,60 +460,7 @@ export async function processManualFallbackExport(
 ): Promise<ManualFallbackExportArtifact> {
   const project = await prisma.project.findUnique({
     where: { id: request.projectId },
-    select: {
-      id: true,
-      address: true,
-      status: true,
-      grantApplicationStatus: true,
-      grantDocumentKey: true,
-      draftData: true,
-      user: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
-      },
-      quotes: {
-        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-        select: {
-          id: true,
-          status: true,
-          subtotal: true,
-          total: true,
-          estimateMin: true,
-          estimateMax: true,
-          refinedEstimate: true,
-          generatedAt: true,
-          lastClientActivityAt: true,
-          declinedReason: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      },
-      photos: {
-        orderBy: [{ createdAt: "asc" }],
-        select: {
-          id: true,
-          url: true,
-          virus_scan_status: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      },
-      grantApplicationStatusHistory: {
-        orderBy: [{ changedAt: "asc" }],
-        select: {
-          id: true,
-          fromStatus: true,
-          toStatus: true,
-          changedAt: true,
-          changedByUserId: true,
-          reason: true,
-          metadata: true,
-        },
-      },
-    },
+    select: MANUAL_FALLBACK_PROJECT_SELECT,
   });
 
   if (!project) {
