@@ -54,12 +54,12 @@ describe("POST /api/auth/reset-password", () => {
     const request = new NextRequest("http://localhost:3000/api/auth/reset-password", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: "valid-token", password: "password123" }),
+      body: JSON.stringify({ token: "valid-token", password: "Password1!" }),
     });
 
     const response = await POST(request);
     expect(response.status).toBe(200);
-    expect(hashPassword).toHaveBeenCalledWith("password123");
+    expect(hashPassword).toHaveBeenCalledWith("Password1!");
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: "user-1" },
       data: { passwordHash: "new-hash" },
