@@ -68,6 +68,34 @@ export interface SerializedProject {
     lastError: string | null;
     sentAt: string | null;
   } | null;
+  submissionData?: {
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    addressLine1?: string | null;
+    addressLine2?: string | null;
+    city?: string | null;
+    province?: string | null;
+    postalCode?: string | null;
+    ownershipStatus?: string | null;
+    ownershipOtherDetails?: string | null;
+    landlordName?: string | null;
+    landlordPhone?: string | null;
+    isCaregiver?: boolean;
+    seniorName?: string | null;
+    relationshipToSenior?: string | null;
+    caregiverConsentConfirmed?: boolean;
+    modificationItems?: string[];
+    additionalDetails?: string | null;
+    urgency?: string | null;
+    submittedAt?: string | null;
+  };
+  photos?: Array<{
+    id: string;
+    url: string;
+    virus_scan_status: string;
+    createdAt: string;
+  }>;
 }
 
 /* ================================================================== */
@@ -240,6 +268,114 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
 
   return (
     <div className="border-t bg-gray-50/70 px-6 py-5 space-y-5">
+      {/* ── Client Intake Submission Details ── */}
+      <div className="rounded-lg border bg-white p-5 shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b pb-3">
+          <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+            <ClipboardIcon size={16} className="text-blue-600" />
+            Client Intake Submission Details
+          </h4>
+          <span className="text-xs text-gray-500">
+            Submitted: {project.submissionData?.submittedAt ? fmtDate(project.submissionData.submittedAt) : fmtDate(project.createdAt)}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs">
+          {/* Client & Property Details */}
+          <div className="space-y-2">
+            <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Client & Property Info</h5>
+            <div className="space-y-1.5 text-gray-600">
+              <p><strong className="text-gray-900">Name:</strong> {project.submissionData?.name || project.client.name || "Not provided"}</p>
+              <p><strong className="text-gray-900">Email:</strong> {project.submissionData?.email || project.client.email || "Not provided"}</p>
+              <p><strong className="text-gray-900">Phone:</strong> {project.submissionData?.phone || "Not provided"}</p>
+              <p><strong className="text-gray-900">Address:</strong> {project.submissionData?.addressLine1 || project.address}{project.submissionData?.addressLine2 ? `, ${project.submissionData.addressLine2}` : ""}</p>
+              {(project.submissionData?.city || project.submissionData?.province || project.submissionData?.postalCode) && (
+                <p className="text-gray-500">{[project.submissionData?.city, project.submissionData?.province, project.submissionData?.postalCode].filter(Boolean).join(", ")}</p>
+              )}
+              <p><strong className="text-gray-900">Ownership:</strong> <span className="capitalize">{project.submissionData?.ownershipStatus || "Not provided"}</span></p>
+              {project.submissionData?.ownershipStatus === "tenant" && (
+                <div className="mt-1.5 rounded bg-amber-50 p-2 border border-amber-200 text-amber-800 space-y-0.5">
+                  <p className="font-semibold text-[11px]">Landlord Contact:</p>
+                  <p>Name: {project.submissionData.landlordName || "Not provided"}</p>
+                  <p>Phone: {project.submissionData.landlordPhone || "Not provided"}</p>
+                </div>
+              )}
+              {project.submissionData?.ownershipStatus === "other" && project.submissionData.ownershipOtherDetails && (
+                <p className="italic text-gray-500">Note: {project.submissionData.ownershipOtherDetails}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Requested Modifications & Scope */}
+          <div className="space-y-2">
+            <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Requested Scope</h5>
+            <div className="space-y-2.5 text-gray-600">
+              <div>
+                <strong className="text-gray-900 block mb-1">Modification Items:</strong>
+                {project.submissionData?.modificationItems && project.submissionData.modificationItems.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {project.submissionData.modificationItems.map((item, idx) => (
+                      <span key={idx} className="inline-flex items-center rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-gray-400 italic">No specific items listed ({project.modificationType})</span>
+                )}
+              </div>
+              <p><strong className="text-gray-900">Urgency:</strong> <span className="capitalize">{project.submissionData?.urgency || "Not specified"}</span></p>
+              {project.submissionData?.additionalDetails && (
+                <div className="rounded bg-gray-50 p-2 border text-gray-700">
+                  <strong className="text-gray-900 block text-[11px] mb-0.5">Additional Notes:</strong>
+                  <p className="italic">{project.submissionData.additionalDetails}</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Caregiver & Submitted Photos */}
+          <div className="space-y-3">
+            {project.submissionData?.isCaregiver ? (
+              <div className="space-y-2">
+                <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Caregiver Information</h5>
+                <div className="rounded bg-blue-50/50 p-2.5 border border-blue-100 text-gray-700 space-y-1">
+                  <p><strong className="text-gray-900">Senior Name:</strong> {project.submissionData.seniorName || "Not provided"}</p>
+                  <p><strong className="text-gray-900">Relationship:</strong> {project.submissionData.relationshipToSenior || "Not provided"}</p>
+                  <p className="flex items-center gap-1 text-emerald-700 font-medium mt-1">
+                    <CheckCircleIcon size={14} className="text-emerald-600" />
+                    {project.submissionData.caregiverConsentConfirmed ? "Caregiver consent confirmed" : "Consent pending"}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Caregiver Information</h5>
+                <p className="text-gray-500 italic">Submitted directly by client (not a caregiver).</p>
+              </div>
+            )}
+
+            <div className="space-y-2 pt-1">
+              <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Submitted Photos ({project.photos?.length ?? project.photoCount})</h5>
+              {project.photos && project.photos.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {project.photos.map((photo) => (
+                    <a key={photo.id} href={photo.url} target="_blank" rel="noopener noreferrer" className="group relative block aspect-square rounded overflow-hidden border bg-gray-100">
+                      <img src={photo.url} alt="Submitted photo" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                      <span className={`absolute bottom-1 right-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase text-white shadow-sm ${photo.virus_scan_status === "clean" ? "bg-emerald-600" : photo.virus_scan_status === "infected" ? "bg-red-600" : "bg-amber-500"}`}>
+                        {photo.virus_scan_status}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-400 italic">No photos uploaded.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
         {/* ── AI Estimation ── */}
         <div className="rounded-lg border bg-white p-4 shadow-sm space-y-3">

@@ -52,6 +52,7 @@ jest.mock("lib/prisma", () => ({
   },
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { finalizeIntake } = require("../finalizeIntake") as typeof import("../finalizeIntake");
 
 describe("finalizeIntake", () => {

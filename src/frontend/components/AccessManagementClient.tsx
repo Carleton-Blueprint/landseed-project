@@ -584,7 +584,7 @@ export function AccessManagementClient({ projects, currentUserId }: Props) {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-50 text-teal-600 text-xs font-bold">3</div>
             <h3 className="text-sm font-bold text-gray-900">Co-manage Care</h3>
             <p className="text-xs text-gray-500 leading-relaxed">
-              Collaboratively upload home photos, review AI grant discovery matches, and coordinate occupational therapy reports.
+              Collaboratively upload home photos, review InPlace AI grant discovery matches, and coordinate occupational therapy reports.
             </p>
           </div>
         </div>
@@ -611,7 +611,7 @@ export function AccessManagementClient({ projects, currentUserId }: Props) {
               <ul className="text-[11px] text-gray-500 space-y-1 pl-4 list-disc">
                 <li>Upload assessment photos</li>
                 <li>Fill out project forms</li>
-                <li>View AI grant suggestions</li>
+                <li>View InPlace AI grant suggestions</li>
                 <li>Cannot manage team members</li>
               </ul>
             </div>

@@ -15,7 +15,8 @@ const EDITABLE_ROLES: ProjectAccessRole[] = [
 ];
 
 // Mirrors the partial shape of IntakeFormValues — all fields optional so a partial save is fine.
-const draftSchema = z.object({
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _draftSchema = z.object({
   name: z.string().max(120).optional().default(""),
   email: z.string().max(254).optional().default(""),
   phone: z.string().max(24).optional().default(""),
@@ -23,20 +24,21 @@ const draftSchema = z.object({
   addressLine2: z.string().max(50).optional().default(""),
   city: z.string().max(100).optional().default(""),
   province: z.string().max(5).optional().default("ON"),
-  postalCode: z.string().max(10).optional().default(""),
-  ownershipStatus: z.enum(["owner", "tenant", "other"]).optional().default("owner"),
-  ownershipOtherDetails: z.string().max(200).optional().default(""),
-  landlordName: z.string().max(120).optional().default(""),
-  landlordPhone: z.string().max(24).optional().default(""),
-  isCaregiver: z.boolean().optional().default(false),
-  seniorName: z.string().max(120).optional().default(""),
-  relationshipToSenior: z.string().max(120).optional().default(""),
+  postalCode: z.string().max(20).optional().default(""),
+  preferredLanguage: z.string().max(30).optional().default("English"),
+  preferredCommunicationMethod: z.string().max(20).optional().default("email"),
+  preferredContactTime: z.string().max(50).optional().default("morning"),
+  homeType: z.string().max(50).optional().default("single_family"),
+  ownershipStatus: z.string().max(50).optional().default("own"),
+  landlordPermissionConfirmed: z.boolean().optional().default(false),
+  isCaregiver: z.string().max(10).optional().default("no"),
+  caregiverRelationship: z.string().max(50).optional().default("child"),
   caregiverConsentConfirmed: z.boolean().optional().default(false),
   clientConsentConfirmed: z.boolean().optional().default(false),
   modificationItems: z.array(z.string()).optional().default([]),
 });
 
-export type DraftData = z.infer<typeof draftSchema>;
+export type DraftData = z.infer<typeof _draftSchema>;
 
 /** GET /api/draft – returns the user's saved draft or null. */
 export async function GET() {

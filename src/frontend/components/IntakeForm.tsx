@@ -9,10 +9,10 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/frontend/components/ui/button";
 import { PhotoUploadInterface } from "./PhotoUploadInterface";
+import { FloorPlanUploadInterface } from "./FloorPlanUploadInterface";
 import { useIntakeDraft } from "@/frontend/contexts/IntakeDraftContext";
 import type { IntakeData } from "@/backend/schemas/intakeDraft";
 import {
@@ -239,7 +239,6 @@ function toIntakeData(values: IntakeFormValues): IntakeData {
 }
 
 export function IntakeForm() {
-  const router = useRouter();
   const { data: session } = useSession();
   const isAuthenticated = hasAuthenticatedSession(session);
   const legacyAuthBypass = isLegacyAuthBypassClient();
@@ -248,6 +247,7 @@ export function IntakeForm() {
     [isAuthenticated, legacyAuthBypass]
   );
   const {
+    projectId,
     intakeData,
     photos,
     isHydrated,
@@ -278,7 +278,7 @@ export function IntakeForm() {
   const [photoKey, setPhotoKey] = React.useState(0);
   const [photoError, setPhotoError] = React.useState<string | null>(null);
   const [accountError, setAccountError] = React.useState<string | null>(null);
-  const [isSettingUpAccount, setIsSettingUpAccount] = React.useState(false);
+  const [, setIsSettingUpAccount] = React.useState(false);
   const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
   const [removingPhotoId, setRemovingPhotoId] = React.useState<string | null>(null);
   const previousUploadCountRef = React.useRef(0);
@@ -402,7 +402,8 @@ export function IntakeForm() {
     setPhotoError(null);
   };
 
-  async function onSubmit(values: IntakeFormValues) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async function onSubmit(_values: IntakeFormValues) {
     if (photos.length < 1) {
       setPhotoError("Please upload at least 1 photo before submitting.");
       return;
@@ -436,10 +437,12 @@ export function IntakeForm() {
         return;
       }
 
-      const result = await promoteResponse.json();
-      if (result.projectId) {
-        router.push(`/submitted?projectId=${encodeURIComponent(result.projectId)}`);
-      }
+      const result = await promoteResponse.json().catch(() => ({}));
+      const targetUrl = result?.projectId
+        ? `/dashboard?tab=submitted&submitted=true&projectId=${encodeURIComponent(result.projectId)}`
+        : "/dashboard?tab=submitted&submitted=true";
+      window.location.href = targetUrl;
+      return;
     } catch (error) {
       console.error("Submit error:", error);
       setPhotoError("Failed to submit. Please try again.");
@@ -922,6 +925,7 @@ export function IntakeForm() {
             {photos.map((photo) => (
               <li key={photo.id} className="overflow-hidden rounded border">
                 <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photo.url}
                     alt="Saved project photo"
@@ -960,6 +964,23 @@ export function IntakeForm() {
             {photoError}
           </p>
         )}
+      </section>
+
+      {/* Floor Plans and Layout Sketches Section (Optional) */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold">Floor Plans & Layout Sketches</h2>
+          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+            Optional
+          </span>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Optionally upload architectural drawings, floor plans, room measurements, or hand-drawn layout sketches to help our team understand the dimensions and layout of your space.
+        </p>
+        <FloorPlanUploadInterface
+          projectId={projectId}
+          ensureProjectId={ensureProjectId}
+        />
       </section>
 
       <section className="space-y-3">

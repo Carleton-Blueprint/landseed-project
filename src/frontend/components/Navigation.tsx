@@ -12,18 +12,16 @@ export function Navigation() {
   const isAuthenticated = !!session?.user;
   const isAdmin = session?.user?.role === "ADMIN";
 
+  // Clean, uncluttered navigation menu: removed "Submitted", "Caregiver", and "Share Access" from top bar
   const navLinks = isAuthenticated
     ? [
-        { href: "/dashboard", label: "Project Tracker" },
         { href: "/", label: "Request Assessment" },
-        { href: "/submitted", label: "Submitted" },
-        { href: "/profile/access", label: "Share Access" },
+        { href: "/dashboard", label: "Project Tracker" },
         ...(isAdmin ? [{ href: "/admin", label: "Advisor Panel" }] : []),
       ]
     : [
-        { href: "/auth/signin", label: "Client Portal" },
         { href: "/", label: "Request Assessment" },
-        { href: "/submitted", label: "Submitted" },
+        { href: "/auth/signin", label: "Sign In" },
       ];
 
   return (
@@ -65,20 +63,36 @@ export function Navigation() {
             );
           })}
 
-          {/* Elegant Profile Link */}
-          <div className="h-6 w-[1px] bg-gray-200 mx-1 hidden sm:block" />
-          
-          <Link
-            href="/profile"
-            className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white shadow-md transition-all duration-200 active:scale-90 ${
-              pathname === "/profile"
-                ? "bg-emerald-600 ring-2 ring-emerald-400"
-                : "bg-slate-700 hover:bg-emerald-600 hover:scale-105"
-            }`}
-            title="My Profile"
-          >
-            DU
-          </Link>
+          {!isAuthenticated && (
+            <Link
+              href="/auth/signup"
+              className={`rounded-lg border px-3.5 py-1.5 text-xs font-bold tracking-wide transition-all duration-200 active:scale-95 shadow-2xs ${
+                pathname === "/auth/signup"
+                  ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
+                  : "border-emerald-600 bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 hover:shadow"
+              }`}
+            >
+              Create Account
+            </Link>
+          )}
+
+          {/* Profile Avatar / Link */}
+          {isAuthenticated && (
+            <>
+              <div className="h-6 w-[1px] bg-gray-200 mx-1 hidden sm:block" />
+              <Link
+                href="/profile"
+                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white shadow-md transition-all duration-200 active:scale-90 ${
+                  pathname === "/profile"
+                    ? "bg-emerald-600 ring-2 ring-emerald-400"
+                    : "bg-slate-700 hover:bg-emerald-600 hover:scale-105"
+                }`}
+                title="My Profile"
+              >
+                DU
+              </Link>
+            </>
+          )}
         </nav>
         
       </div>

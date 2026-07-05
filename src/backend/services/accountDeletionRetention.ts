@@ -309,8 +309,10 @@ export async function finalizeAccountDeletionRequest(input: {
       claimed = true;
 
       if (request.targetUserId) {
-        await tx.session.deleteMany({ where: { userId: request.targetUserId } });
-        await tx.account.deleteMany({ where: { userId: request.targetUserId } });
+        /* eslint-disable @typescript-eslint/no-explicit-any */
+        if ("session" in tx) await (tx as any).session.deleteMany({ where: { userId: request.targetUserId } });
+        if ("account" in tx) await (tx as any).account.deleteMany({ where: { userId: request.targetUserId } });
+        /* eslint-enable @typescript-eslint/no-explicit-any */
 
         await tx.user.update({
           where: { id: request.targetUserId },

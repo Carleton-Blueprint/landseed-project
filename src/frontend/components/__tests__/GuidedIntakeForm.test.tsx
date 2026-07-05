@@ -1,12 +1,11 @@
-import { render, screen, waitFor, act } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import { IntakeDraftProvider } from "@/frontend/contexts/IntakeDraftContext";
 import { GuidedIntakeForm } from "../GuidedIntakeForm";
 
 const mockFetch = jest.fn();
 
 beforeEach(() => {
-  jest.useFakeTimers({ advanceTimers: true });
+  jest.useFakeTimers();
   mockFetch.mockReset();
   global.fetch = mockFetch as typeof fetch;
 
@@ -14,7 +13,14 @@ beforeEach(() => {
     if (url === "/api/intake-draft" && !init?.method) {
       return Promise.resolve({
         ok: true,
-        json: async () => ({ draft: null }),
+        json: async () => ({
+          draftId: "draft-1",
+          guidedData: { mobilityAssistance: "no" },
+          intakeData: null,
+          projectId: null,
+          photos: [],
+          savedAt: "2026-06-20T12:00:00.000Z",
+        }),
       });
     }
     if (url === "/api/intake-draft" && init?.method === "POST") {
@@ -53,7 +59,6 @@ afterEach(() => {
 
 describe("GuidedIntakeForm", () => {
   it("PATCHes guidedData after a field change", async () => {
-    const user = userEvent.setup();
     render(
       <IntakeDraftProvider>
         <GuidedIntakeForm />
@@ -61,10 +66,10 @@ describe("GuidedIntakeForm", () => {
     );
 
     await waitFor(() =>
-      expect(mockFetch.mock.calls.some((call) => call[0] === "/api/intake-draft")).toBe(true)
+      expect(screen.getAllByRole("radio", { name: "No" })[0]).toBeChecked()
     );
 
-    await user.click(screen.getAllByRole("radio", { name: "Yes" })[0]);
+    fireEvent.click(screen.getAllByRole("radio", { name: "Yes" })[0]);
 
     await act(async () => {
       jest.advanceTimersByTime(2000);
