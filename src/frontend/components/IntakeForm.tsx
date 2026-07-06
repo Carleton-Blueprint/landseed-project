@@ -21,6 +21,7 @@ import {
   registerIntakeAccount,
 } from "@/frontend/lib/intakeAccount";
 import { getApiErrorMessage } from "@/frontend/lib/apiErrors";
+import { validatePasswordStrength } from "@/shared/passwordPolicy";
 
 const provinces = [
   "AB",
@@ -103,11 +104,12 @@ const intakeFieldsSchema = z.object({
 function buildIntakeSchema(requireAccountFields: boolean) {
   return intakeFieldsSchema.superRefine((data, ctx) => {
     if (requireAccountFields) {
-      if (!data.password || data.password.length < 8) {
+      const passwordError = data.password ? validatePasswordStrength(data.password) : "Password is required.";
+      if (passwordError) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["password"],
-          message: "Password must be at least 8 characters",
+          message: passwordError,
         });
       }
 
