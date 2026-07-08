@@ -1,6 +1,7 @@
 import { prisma } from "lib/prisma";
 import { uploadToS3 } from "lib/s3";
 import { generateGrantPdf } from "@/backend/services/pdf";
+import { assembleGrantPdfInput } from "@/backend/services/grantPdfAssembler";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 
 interface GrantDocumentDraftData {
@@ -21,19 +22,6 @@ export interface GenerateAndStoreGrantDocumentResult {
   projectId: string;
   grantDocumentKey: string;
   previousGrantDocumentKey: string | null;
-}
-
-function readOptionalString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-    .filter((entry) => entry.length > 0);
 }
 
 function getNextGrantDocumentVersion(existingKey: string | null): number {
@@ -96,34 +84,23 @@ export async function generateAndStoreGrantDocument(
   });
 
   try {
-    const draftData = (project.draftData ?? {}) as GrantDocumentDraftData;
-
-    const applicantName =
-      readOptionalString(project.user.name) ??
-      readOptionalString(draftData.name) ??
-      "Unknown Applicant";
-
-    const applicantEmail =
-      readOptionalString(project.user.email) ??
-      readOptionalString(draftData.email) ??
-      "unknown@example.com";
-
-    const applicantPhone =
-      readOptionalString(project.user.phone) ??
-      readOptionalString(draftData.phone);
+    const assembled = await assembleGrantPdfInput(project.id);
 
     const version = getNextGrantDocumentVersion(project.grantDocumentKey);
     const grantDocumentKey = `projects/${project.id}/grant/grant-application-v${version}.pdf`;
 
     const pdfBuffer = await generateGrantPdf({
-      projectAddress: project.address,
-      applicantName,
-      applicantEmail,
-      applicantPhone,
-      projectId: project.id,
-      grantProgramName: "Landseed Grant Application",
-      modificationItems: readStringArray(draftData.modificationItems),
-      preparedAtIso: new Date().toISOString(),
+      projectAddress: assembled.projectAddress,
+      applicantName: assembled.applicantName,
+      applicantEmail: assembled.applicantEmail,
+      applicantPhone: assembled.applicantPhone ?? undefined,
+      projectId: assembled.projectId,
+      grantProgramName: assembled.grantProgramName,
+      modificationItems: assembled.modificationItems,
+      estimatedFundingAmount: assembled.estimatedCost ?? '',
+      ownershipStatus: assembled.ownershipStatus,
+      notes: assembled.incompleteFields.length > 0 ? `Incomplete Fields: ${assembled.incompleteFields.join(', ')}` : undefined,
+      preparedAtIso: assembled.preparedAtIso,
     });
 
     await uploadToS3(pdfBuffer, grantDocumentKey, "application/pdf");
@@ -149,6 +126,8 @@ export async function generateAndStoreGrantDocument(
         previousGrantDocumentKey: project.grantDocumentKey,
         grantDocumentKey,
         version,
+        // include incomplete fields if available
+        incompleteFields: assembled.incompleteFields,
       },
       ipAddress: input.ipAddress ?? null,
       userAgent: input.userAgent ?? null,

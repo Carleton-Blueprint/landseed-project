@@ -8,23 +8,13 @@ export interface GrantPdfInput {
   projectId?: string;
   grantProgramName?: string;
   estimatedFundingAmount?: string;
+  ownershipStatus?: string;
+  incompleteFields?: string[];
   preparedAtIso?: string;
   modificationItems?: string[];
   notes?: string;
 }
-
-function assertRequired(input: GrantPdfInput): void {
-  const required: Array<keyof Pick<GrantPdfInput, "projectAddress" | "applicantName" | "applicantEmail">> = [
-    "projectAddress",
-    "applicantName",
-    "applicantEmail",
-  ];
-
-  const missing = required.filter((key) => !input[key]?.trim());
-  if (missing.length > 0) {
-    throw new Error(`Missing required GrantPdfInput field(s): ${missing.join(", ")}`);
-  }
-}
+// Intentionally non-throwing: missing fields are rendered as [Incomplete]
 
 function wrapText(value: string, maxCharsPerLine: number): string[] {
   if (!value.trim()) return [];
@@ -54,7 +44,7 @@ function wrapText(value: string, maxCharsPerLine: number): string[] {
 }
 
 export async function generateGrantPdf(input: GrantPdfInput): Promise<Buffer> {
-  assertRequired(input);
+  // intentionally non-throwing: render incomplete markers instead of throwing
 
   const doc = await PDFDocument.create();
   const page = doc.addPage([612, 792]);
@@ -96,7 +86,8 @@ export async function generateGrantPdf(input: GrantPdfInput): Promise<Buffer> {
     ["Project Address", input.projectAddress.trim()],
     ["Project ID", input.projectId?.trim() || "N/A"],
     ["Grant Program", input.grantProgramName?.trim() || "N/A"],
-    ["Estimated Funding", input.estimatedFundingAmount?.trim() || "N/A"],
+    ["Property Ownership Status", input.ownershipStatus?.trim() || "N/A"],
+    ["Estimated Cost", input.estimatedFundingAmount?.trim() || "N/A"],
   ];
 
   for (const [label, value] of fields) {
@@ -158,6 +149,33 @@ export async function generateGrantPdf(input: GrantPdfInput): Promise<Buffer> {
       }
       y -= 4;
     }
+  }
+
+  // Render incomplete fields if present
+  const incomplete = input.incompleteFields ?? [];
+  if (incomplete.length > 0) {
+    page.drawText("Incomplete Fields:", {
+      x: marginX,
+      y,
+      size: 11,
+      font: titleFont,
+      color: rgb(0.6, 0.1, 0.1),
+    });
+
+    y -= 18;
+    const incLines = wrapText(incomplete.join(', '), 90);
+    for (const line of incLines) {
+      page.drawText(line, {
+        x: marginX + 10,
+        y,
+        size: 10,
+        font: bodyFont,
+        color: rgb(0.5, 0.1, 0.1),
+      });
+      y -= lineGap;
+    }
+
+    y -= 8;
   }
 
   const notes = input.notes?.trim();
