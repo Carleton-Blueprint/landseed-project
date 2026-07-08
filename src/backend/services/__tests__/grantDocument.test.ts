@@ -17,6 +17,10 @@ jest.mock("@/backend/services/pdf", () => ({
   generateGrantPdf: jest.fn(),
 }));
 
+jest.mock("@/backend/services/grantPdfAssembler", () => ({
+  assembleGrantPdfInput: jest.fn(),
+}));
+
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
 }));
@@ -39,6 +43,10 @@ const { generateGrantPdf } = require("@/backend/services/pdf") as {
   generateGrantPdf: jest.Mock;
 };
 
+const { assembleGrantPdfInput } = require("@/backend/services/grantPdfAssembler") as {
+  assembleGrantPdfInput: jest.Mock;
+};
+
 const { logAuditEventNonBlocking } = require("@/backend/audit/log") as {
   logAuditEventNonBlocking: jest.Mock;
 };
@@ -55,20 +63,15 @@ const { generateAndStoreGrantDocument } = require("../grantDocument") as {
 };
 
 describe("generateAndStoreGrantDocument", () => {
-  const mockedPrisma = prisma;
-
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   it("generates PDF, uploads to S3, and updates grantDocumentKey", async () => {
-    mockedPrisma.project.findUnique.mockResolvedValue({
+    prisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
       address: "123 Main St",
       grantDocumentKey: "projects/proj-1/grant/grant-application-v2.pdf",
-      draftData: {
-        modificationItems: ["Door widening", "Lift install"],
-      },
       user: {
         name: "Sam Applicant",
         email: "sam@example.com",
@@ -76,20 +79,37 @@ describe("generateAndStoreGrantDocument", () => {
       },
     });
 
+    assembleGrantPdfInput.mockResolvedValue({
+      applicantName: "Sam Applicant",
+      applicantEmail: "sam@example.com",
+      applicantPhone: "555-9999",
+      projectAddress: "123 Main St",
+      projectId: "proj-1",
+      grantProgramName: "Landseed Grant",
+      modificationItems: ["Door widening", "Lift install"],
+      estimatedCost: "$1,000 – $2,000",
+      ownershipStatus: "Owner",
+      incompleteFields: [],
+      preparedAtIso: new Date().toISOString(),
+    });
+
     generateGrantPdf.mockResolvedValue(Buffer.from("pdf"));
     uploadToS3.mockResolvedValue("https://example.com/file.pdf");
-    mockedPrisma.project.update.mockResolvedValue({ id: "proj-1" });
+    prisma.project.update.mockResolvedValue({ id: "proj-1" });
 
     const result = await generateAndStoreGrantDocument({
       projectId: "proj-1",
       actorUserId: "user-1",
     });
 
+    expect(assembleGrantPdfInput).toHaveBeenCalledWith("proj-1");
+
     expect(generateGrantPdf).toHaveBeenCalledWith(
       expect.objectContaining({
         projectAddress: "123 Main St",
         applicantName: "Sam Applicant",
         applicantEmail: "sam@example.com",
+        incompleteFields: [],
       })
     );
 
@@ -99,7 +119,7 @@ describe("generateAndStoreGrantDocument", () => {
       "application/pdf"
     );
 
-    expect(mockedPrisma.project.update).toHaveBeenCalledWith({
+    expect(prisma.project.update).toHaveBeenCalledWith({
       where: { id: "proj-1" },
       data: {
         grantDocumentKey: "projects/proj-1/grant/grant-application-v3.pdf",
@@ -115,8 +135,47 @@ describe("generateAndStoreGrantDocument", () => {
     expect(logAuditEventNonBlocking).toHaveBeenCalled();
   });
 
+  it("passes incompleteFields through to the PDF generator so missing data is never fatal", async () => {
+    prisma.project.findUnique.mockResolvedValue({
+      id: "proj-2",
+      address: null,
+      grantDocumentKey: null,
+      user: { name: null, email: null, phone: null },
+    });
+
+    assembleGrantPdfInput.mockResolvedValue({
+      applicantName: "[Incomplete]",
+      applicantEmail: "[Incomplete]",
+      applicantPhone: null,
+      projectAddress: "[Incomplete]",
+      projectId: "proj-2",
+      grantProgramName: "Landseed Grant Application",
+      modificationItems: [],
+      estimatedCost: null,
+      ownershipStatus: "[Incomplete]",
+      incompleteFields: ["client name", "client email", "project address", "property ownership status", "estimated cost"],
+      preparedAtIso: new Date().toISOString(),
+    });
+
+    generateGrantPdf.mockResolvedValue(Buffer.from("pdf"));
+    uploadToS3.mockResolvedValue("https://example.com/file.pdf");
+    prisma.project.update.mockResolvedValue({ id: "proj-2" });
+
+    const result = await generateAndStoreGrantDocument({
+      projectId: "proj-2",
+      actorUserId: "system",
+    });
+
+    expect(generateGrantPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        incompleteFields: ["client name", "client email", "project address", "property ownership status", "estimated cost"],
+      })
+    );
+    expect(result.grantDocumentKey).toContain("projects/proj-2/grant/grant-application-v1.pdf");
+  });
+
   it("throws when project does not exist", async () => {
-    mockedPrisma.project.findUnique.mockResolvedValue(null);
+    prisma.project.findUnique.mockResolvedValue(null);
 
     await expect(
       generateAndStoreGrantDocument({
@@ -126,6 +185,6 @@ describe("generateAndStoreGrantDocument", () => {
     ).rejects.toThrow("Project not found");
 
     expect(uploadToS3).not.toHaveBeenCalled();
-    expect(mockedPrisma.project.update).not.toHaveBeenCalled();
+    expect(prisma.project.update).not.toHaveBeenCalled();
   });
 });

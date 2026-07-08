@@ -5,7 +5,6 @@ import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import { auth } from "@/auth";
 import { redirectToSignIn } from "lib/auth-redirect";
-import { redirect } from "next/navigation";
 import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
@@ -165,7 +164,7 @@ export default async function ProjectDetailPage({
 
   const modificationItems = modificationItemsFromDraft(project.draftData);
 
-  const estimateSummary = getEstimateSummary(project);
+  const estimateSummary = getEstimateSummary({ status: project.status, quotes: project.quotes });
 
   let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
   try {
@@ -353,9 +352,9 @@ export default async function ProjectDetailPage({
             </div>
           ) : (
             <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4">
-              <div className="h-5 w-5 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
+              <div className="h-5 w-5 rounded-full border-2 border-gray-300" />
               <p className="text-sm text-gray-500">
-                Your grant assessment PDF is being generated. It will be available here shortly.
+                Grant PDF is not yet available. It will appear here if your project is determined eligible.
               </p>
             </div>
           )}

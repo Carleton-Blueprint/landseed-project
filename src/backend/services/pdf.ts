@@ -80,10 +80,10 @@ export async function generateGrantPdf(input: GrantPdfInput): Promise<Buffer> {
 
   const fields: Array<[label: string, value: string]> = [
     ["Prepared Date", preparedDate],
-    ["Applicant Name", input.applicantName.trim()],
-    ["Applicant Email", input.applicantEmail.trim()],
+    ["Applicant Name", input.applicantName?.trim() || "[Incomplete]"],
+    ["Applicant Email", input.applicantEmail?.trim() || "[Incomplete]"],
     ["Applicant Phone", input.applicantPhone?.trim() || "N/A"],
-    ["Project Address", input.projectAddress.trim()],
+    ["Project Address", input.projectAddress?.trim() || "[Incomplete]"],
     ["Project ID", input.projectId?.trim() || "N/A"],
     ["Grant Program", input.grantProgramName?.trim() || "N/A"],
     ["Property Ownership Status", input.ownershipStatus?.trim() || "N/A"],

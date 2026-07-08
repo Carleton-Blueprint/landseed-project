@@ -607,10 +607,17 @@ export default async function DashboardPage() {
                             </Button>
                           </Link>
                         ) : (
-                          <Button variant="outline" disabled className="w-full gap-1.5 sm:w-auto">
-                            <div className="h-3.5 w-3.5 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
-                            Generating PDF…
-                          </Button>
+                          // Only show a spinner when the project has been assessed and is ELIGIBLE
+                          eligibility?.overallDecision === "ELIGIBLE" ? (
+                            <Button variant="outline" disabled className="w-full gap-1.5 sm:w-auto">
+                              <div className="h-3.5 w-3.5 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
+                              Generating PDF…
+                            </Button>
+                          ) : (
+                            <Button variant="outline" disabled className="w-full gap-1.5 sm:w-auto">
+                              Grant PDF not available
+                            </Button>
+                          )
                         )}
                       </div>
                     </div>

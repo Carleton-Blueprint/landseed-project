@@ -1,15 +1,8 @@
 import { prisma } from "lib/prisma";
 import { uploadToS3 } from "lib/s3";
 import { generateGrantPdf } from "@/backend/services/pdf";
-import { assembleGrantPdfInput } from "@/backend/services/grantPdfAssembler";
+import { assembleGrantPdfInput } from "./grantPdfAssembler";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-
-interface GrantDocumentDraftData {
-  name?: unknown;
-  email?: unknown;
-  phone?: unknown;
-  modificationItems?: unknown;
-}
 
 export interface GenerateAndStoreGrantDocumentInput {
   projectId: string;
@@ -51,7 +44,6 @@ export async function generateAndStoreGrantDocument(
       id: true,
       address: true,
       grantDocumentKey: true,
-      draftData: true,
       user: {
         select: {
           name: true,
@@ -99,7 +91,7 @@ export async function generateAndStoreGrantDocument(
       modificationItems: assembled.modificationItems,
       estimatedFundingAmount: assembled.estimatedCost ?? '',
       ownershipStatus: assembled.ownershipStatus,
-      notes: assembled.incompleteFields.length > 0 ? `Incomplete Fields: ${assembled.incompleteFields.join(', ')}` : undefined,
+      incompleteFields: assembled.incompleteFields,
       preparedAtIso: assembled.preparedAtIso,
     });
 
