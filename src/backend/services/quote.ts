@@ -14,6 +14,12 @@ import {
   generateMockRefinedEstimate,
   type RefinedEstimate,
 } from '@/backend/services/refinedEstimate';
+import {
+  DEFAULT_PRICING_TIER,
+  isTieredEstimate,
+  type AnyRefinedEstimate,
+} from '@/backend/services/pricingTiers';
+import type { ModificationCode } from '@/backend/eligibility/types';
 
 const prisma = new PrismaClient();
 
@@ -24,6 +30,7 @@ interface QuoteCalculationInput {
     quantity: number;
     unitPrice: number;
   }>;
+  modificationCodes?: ModificationCode[];
 }
 
 interface QuoteResult {
@@ -35,7 +42,13 @@ interface QuoteResult {
   estimateMin: number;
   estimateMax: number;
   pricingSource: "serp_api" | "serp_api_partial";
-  refinedEstimate: RefinedEstimate;
+  refinedEstimate: AnyRefinedEstimate;
+}
+
+function getPrimaryEstimate(refinedEstimate: AnyRefinedEstimate): RefinedEstimate {
+  return isTieredEstimate(refinedEstimate)
+    ? refinedEstimate.tiers[refinedEstimate.selectedTier ?? DEFAULT_PRICING_TIER]
+    : refinedEstimate;
 }
 
 interface PricingDecisionAuditTrailEntry {
@@ -87,15 +100,16 @@ export async function generateQuote(
   const pricingMatrixVersion = await getActivePricingMatrixVersion();
   const latestEligibility = await getLatestEligibilityAssessment(input.projectId);
 
-  const refinedEstimate = await generateMockRefinedEstimate(input.items);
+  const refinedEstimate = await generateMockRefinedEstimate(input.items, input.modificationCodes ?? []);
+  const primaryEstimate = getPrimaryEstimate(refinedEstimate);
 
   const quote = await prisma.quote.create({
     data: {
       projectId: input.projectId,
-      subtotal: new Prisma.Decimal(refinedEstimate.subtotal),
-      total: new Prisma.Decimal(refinedEstimate.total),
-      estimateMin: new Prisma.Decimal(refinedEstimate.estimateMin),
-      estimateMax: new Prisma.Decimal(refinedEstimate.estimateMax),
+      subtotal: new Prisma.Decimal(primaryEstimate.subtotal),
+      total: new Prisma.Decimal(primaryEstimate.total),
+      estimateMin: new Prisma.Decimal(primaryEstimate.estimateMin),
+      estimateMax: new Prisma.Decimal(primaryEstimate.estimateMax),
       refinedEstimate: refinedEstimate as unknown as Prisma.InputJsonValue,
       lastClientActivityAt: new Date(),
       pricingMatrixVersionId: pricingMatrixVersion.id,
@@ -129,8 +143,8 @@ export async function generateQuote(
     actorUserId: projectWithUser.user.id,
     pricingMatrixVersionId: pricingMatrixVersion.id,
     pricingMatrixVersionNumber: pricingMatrixVersion.versionNumber,
-    subtotal: refinedEstimate.subtotal,
-    total: refinedEstimate.total,
+    subtotal: primaryEstimate.subtotal,
+    total: primaryEstimate.total,
     eligibilityAssessmentId: latestEligibility?.assessmentId,
     discoveryVersion: {
       engineVersion: latestEligibility?.discoveryEngineVersion,
@@ -164,7 +178,7 @@ export async function generateQuote(
     eligibilityAssessmentId: latestEligibility?.assessmentId,
     estimateMin: Number(quote.estimateMin!.toString()),
     estimateMax: Number(quote.estimateMax!.toString()),
-    pricingSource: getPricingSourceFromRefinedEstimate(refinedEstimate),
+    pricingSource: getPricingSourceFromRefinedEstimate(primaryEstimate),
     refinedEstimate,
   };
 }

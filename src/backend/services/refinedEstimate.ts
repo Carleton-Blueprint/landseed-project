@@ -1,4 +1,14 @@
 import { getMaterialPrice } from "@/backend/services/pricing";
+import type { ModificationCode } from "@/backend/eligibility/types";
+import {
+  DEFAULT_PRICING_TIER,
+  getApplicableTiers,
+  PRICING_TIER_CONFIG,
+  type AnyRefinedEstimate,
+  type PricingTierAdjustment,
+  type PricingTierKey,
+  type TieredRefinedEstimate,
+} from "@/backend/services/pricingTiers";
 
 export interface RefinedEstimateLineItem {
   description: string;
@@ -42,54 +52,73 @@ function formatQuery(description: string): string {
   return description.trim();
 }
 
-export async function generateMockRefinedEstimate(
-  items: Array<{ description: string; quantity: number; unitPrice: number }>
-): Promise<RefinedEstimate> {
-  const lineItems: RefinedEstimateLineItem[] = [];
+type PriceResultLike = Awaited<ReturnType<typeof getMaterialPrice>> | null;
+type QuoteItem = { description: string; quantity: number; unitPrice: number };
+
+async function fetchPriceResults(items: QuoteItem[]): Promise<PriceResultLike[]> {
+  const results: PriceResultLike[] = [];
+
+  for (const item of items) {
+    try {
+      results.push(await getMaterialPrice(formatQuery(item.description)));
+    } catch {
+      results.push(null);
+    }
+  }
+
+  return results;
+}
+
+function buildLineItemForTier(
+  item: QuoteItem,
+  priceResult: PriceResultLike,
+  tierAdjustment: PricingTierAdjustment
+): RefinedEstimateLineItem {
+  const baseUnitCost = roundToCents(priceResult?.price ?? item.unitPrice ?? 150);
+  const materialUnitCost = roundToCents(baseUnitCost * tierAdjustment.materialMultiplier);
+  const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, baseUnitCost);
+  const laborRate = roundToCents(baseLaborRate * tierAdjustment.laborMultiplier);
+  const materialTotal = roundToCents(materialUnitCost * item.quantity);
+  const laborTotalForLine = roundToCents(laborHours * laborRate);
+  const lineBase = materialTotal + laborTotalForLine;
+  const markupPercentage = tierAdjustment.markupPercentage;
+  const markupTotalForLine = roundToCents(lineBase * markupPercentage);
+  const lineTotal = roundToCents(lineBase + markupTotalForLine);
+
+  return {
+    description: item.description,
+    quantity: item.quantity,
+    pricingQuery: formatQuery(item.description),
+    pricingSource: priceResult?.store ?? priceResult?.name ?? null,
+    pricingLink: priceResult?.link ?? null,
+    materialUnitCost,
+    materialTotal,
+    laborHours,
+    laborRate,
+    laborTotal: laborTotalForLine,
+    markupPercentage,
+    markupTotal: markupTotalForLine,
+    lineTotal,
+  };
+}
+
+function buildEstimateForTier(
+  items: QuoteItem[],
+  priceResults: PriceResultLike[],
+  tierAdjustment: PricingTierAdjustment
+): RefinedEstimate {
+  const lineItems = items.map((item, index) =>
+    buildLineItemForTier(item, priceResults[index] ?? null, tierAdjustment)
+  );
+
   let subtotal = 0;
   let laborTotal = 0;
   let markupTotal = 0;
 
-  for (const item of items) {
-    const pricingQuery = formatQuery(item.description);
-    let priceResult;
-
-    try {
-      priceResult = await getMaterialPrice(pricingQuery);
-    } catch {
-      priceResult = null;
-    }
-
-    const materialUnitCost = roundToCents(
-      priceResult?.price ?? item.unitPrice ?? 150
-    );
-    const { laborHours, laborRate } = buildLaborForItem(item.quantity, materialUnitCost);
-    const materialTotal = roundToCents(materialUnitCost * item.quantity);
-    const laborTotalForLine = roundToCents(laborHours * laborRate);
-    const lineBase = materialTotal + laborTotalForLine;
-    const markupPercentage = 0.15;
-    const markupTotalForLine = roundToCents(lineBase * markupPercentage);
-    const lineTotal = roundToCents(lineBase + markupTotalForLine);
-
-    lineItems.push({
-      description: item.description,
-      quantity: item.quantity,
-      pricingQuery,
-      pricingSource: priceResult?.store ?? priceResult?.name ?? null,
-      pricingLink: priceResult?.link ?? null,
-      materialUnitCost,
-      materialTotal,
-      laborHours,
-      laborRate,
-      laborTotal: laborTotalForLine,
-      markupPercentage,
-      markupTotal: markupTotalForLine,
-      lineTotal,
-    });
-
-    subtotal += materialTotal + laborTotalForLine;
-    laborTotal += laborTotalForLine;
-    markupTotal += markupTotalForLine;
+  for (const lineItem of lineItems) {
+    subtotal += lineItem.materialTotal + lineItem.laborTotal;
+    laborTotal += lineItem.laborTotal;
+    markupTotal += lineItem.markupTotal;
   }
 
   subtotal = roundToCents(subtotal);
@@ -108,4 +137,24 @@ export async function generateMockRefinedEstimate(
     estimateMin,
     estimateMax,
   };
+}
+
+export async function generateMockRefinedEstimate(
+  items: QuoteItem[],
+  modificationCodes: ModificationCode[] = []
+): Promise<AnyRefinedEstimate> {
+  const priceResults = await fetchPriceResults(items);
+  const applicableTiers = getApplicableTiers(modificationCodes);
+
+  if (applicableTiers.length === 0) {
+    return buildEstimateForTier(items, priceResults, PRICING_TIER_CONFIG[DEFAULT_PRICING_TIER]);
+  }
+
+  const tiers = {} as Record<PricingTierKey, RefinedEstimate>;
+  for (const tier of applicableTiers) {
+    tiers[tier] = buildEstimateForTier(items, priceResults, PRICING_TIER_CONFIG[tier]);
+  }
+
+  const tieredEstimate: TieredRefinedEstimate = { tiers };
+  return tieredEstimate;
 }
