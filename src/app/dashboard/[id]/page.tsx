@@ -192,11 +192,11 @@ export default async function ProjectDetailPage({
             modificationCodes: modificationItems,
           }));
 
-        const signedImageUrl = imageUrl?.startsWith("https://s3.")
+        const signedImageUrl = imageUrl?.includes(".amazonaws.com")
           ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
           : imageUrl;
 
-        const signedGeneratedImageUrl = generatedImageUrl?.startsWith("https://s3.")
+        const signedGeneratedImageUrl = generatedImageUrl?.includes(".amazonaws.com")
           ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
           : generatedImageUrl;
 
