@@ -6,6 +6,17 @@ import { auth } from "@/auth";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
+import {
+  isTieredEstimate,
+  PRICING_TIER_KEYS,
+  type AnyRefinedEstimate,
+  type PricingTierKey,
+  type TieredRefinedEstimate,
+} from "@/backend/services/pricingTiers";
+
+function isPricingTierKey(value: unknown): value is PricingTierKey {
+  return typeof value === "string" && (PRICING_TIER_KEYS as readonly string[]).includes(value);
+}
 
 export async function POST(
   req: NextRequest,
@@ -32,7 +43,7 @@ export async function POST(
     }
 
     const body = await req.json();
-    const { status, reason, survey } = body;
+    const { status, reason, survey, selectedTier } = body;
 
     if (process.env.NODE_ENV === "development") {
       if (status !== "ACCEPTED" && status !== "DECLINED") {
@@ -145,6 +156,33 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden: You don't have access to this quote" }, { status: 403 });
     }
 
+    const refinedEstimate = quote.refinedEstimate as unknown as AnyRefinedEstimate | null;
+    const quoteIsTiered = !!refinedEstimate && isTieredEstimate(refinedEstimate);
+
+    if (status === "ACCEPTED" && quoteIsTiered && !isPricingTierKey(selectedTier)) {
+      await logAuditEventNonBlocking({
+        category: "MANUAL_CHANGE",
+        action: "ESTIMATE_STATUS_CHANGE",
+        outcome: "FAILURE",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: session.user.id,
+        projectId: quote.projectId,
+        quoteId: quote.id,
+        resourceType: "quote",
+        resourceId: quote.id,
+        description: "Rejected acceptance of tiered estimate due to missing/invalid selectedTier",
+        metadata: { providedSelectedTier: selectedTier },
+        ...requestContext,
+      });
+      return NextResponse.json(
+        { error: "A valid selectedTier is required to accept a tiered estimate" },
+        { status: 400 }
+      );
+    }
+
+    const acceptedTier: PricingTierKey | null =
+      status === "ACCEPTED" && quoteIsTiered ? (selectedTier as PricingTierKey) : null;
+
     // Process the update
     const updatedProjectStatus = status === "ACCEPTED" ? "estimate_accepted" : "estimate_declined";
 
@@ -197,6 +235,23 @@ export async function POST(
         });
       }
 
+      let acceptedTierEstimate: TieredRefinedEstimate["tiers"][PricingTierKey] | undefined;
+
+      if (status === "ACCEPTED" && quoteIsTiered && acceptedTier) {
+        const tieredEstimate = refinedEstimate as TieredRefinedEstimate;
+        acceptedTierEstimate = tieredEstimate.tiers[acceptedTier];
+
+        await tx.quote.update({
+          where: { id: quote.id },
+          data: {
+            refinedEstimate: {
+              ...tieredEstimate,
+              selectedTier: acceptedTier,
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+
       let builderTrendTransfer: {
         id: string;
         status: string;
@@ -212,6 +267,18 @@ export async function POST(
           estimate: {
             status,
             approvedAt: new Date().toISOString(),
+            ...(acceptedTier && acceptedTierEstimate
+              ? {
+                  selectedTier: acceptedTier,
+                  lineItems: acceptedTierEstimate.lineItems,
+                  subtotal: acceptedTierEstimate.subtotal,
+                  laborTotal: acceptedTierEstimate.laborTotal,
+                  markupTotal: acceptedTierEstimate.markupTotal,
+                  total: acceptedTierEstimate.total,
+                  estimateMin: acceptedTierEstimate.estimateMin,
+                  estimateMax: acceptedTierEstimate.estimateMax,
+                }
+              : {}),
           },
         });
 
@@ -272,6 +339,7 @@ export async function POST(
 
       return {
         ...updatedRows[0],
+        selectedTier: acceptedTier,
         builderTrendTransfer,
       };
     });
