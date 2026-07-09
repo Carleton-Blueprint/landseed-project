@@ -100,7 +100,7 @@ function buildQuoteRecord(refinedEstimate: unknown) {
 function makeTxMock(queryRawResults: unknown[][]) {
   let call = 0;
   return {
-    $queryRaw: jest.fn(() => Promise.resolve(queryRawResults[call++] ?? [])),
+    $queryRaw: jest.fn((..._args: unknown[]) => Promise.resolve(queryRawResults[call++] ?? [])),
     project: { update: jest.fn().mockResolvedValue({}) },
     declineSurveyResponse: { upsert: jest.fn().mockResolvedValue({}) },
     quote: { update: jest.fn().mockResolvedValue({}) },

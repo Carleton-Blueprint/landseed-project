@@ -21,8 +21,6 @@ model User {
   grantApplicationStatusHistory GrantApplicationStatusHistory[]
   manualFallbackExports         ManualFallbackExport[]
   notifications                 NotificationDelivery[]
-  pricingMatrixAuditLogs        PricingMatrixAuditLog[]
-  pricingMatrixVersions         PricingMatrixVersion[]
   projects                      Project[]
   grantedProjectAccess          ProjectAccess[]                 @relation("ProjectAccessGrantedBy")
   projectAccess                 ProjectAccess[]                 @relation("ProjectAccessUser")
@@ -229,7 +227,6 @@ model Quote {
   subtotal                Decimal                @db.Decimal(10, 2)
   total                   Decimal                @db.Decimal(10, 2)
   generatedAt             DateTime               @default(now())
-  pricingMatrixVersionId  String
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
   declinedReason          String?
@@ -243,12 +240,10 @@ model Quote {
   builderTrendTransfers   BuilderTrendTransfer?
   declineSurvey           DeclineSurveyResponse?
   eligibilityAssessment   EligibilityAssessment? @relation(fields: [eligibilityAssessmentId], references: [id])
-  pricingMatrixVersion    PricingMatrixVersion   @relation(fields: [pricingMatrixVersionId], references: [id])
   project                 Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   questions               QuoteQuestion[]
 
   @@index([projectId])
-  @@index([pricingMatrixVersionId])
   @@index([eligibilityAssessmentId])
 }
 
@@ -348,21 +343,6 @@ model AuditEvent {
   @@index([resourceType, resourceId])
 }
 
-model PricingMatrixVersion {
-  id              String                  @id @default(cuid())
-  versionNumber   Int                     @unique
-  data            Json
-  createdAt       DateTime                @default(now())
-  createdByUserId String
-  isActive        Boolean                 @default(false)
-  auditLogs       PricingMatrixAuditLog[]
-  createdBy       User                    @relation(fields: [createdByUserId], references: [id])
-  quotes          Quote[]
-
-  @@index([versionNumber])
-  @@index([isActive])
-}
-
 model EligibilityAssessment {
   id                        String              @id @default(cuid())
   projectId                 String
@@ -387,21 +367,6 @@ model EligibilityAssessment {
   @@index([projectId])
   @@index([projectId, isLatest])
   @@index([createdAt])
-}
-
-model PricingMatrixAuditLog {
-  id              String               @id @default(cuid())
-  versionId       String
-  changedByUserId String
-  changedAt       DateTime             @default(now())
-  changeSummary   String?
-  beforeState     Json?
-  afterState      Json?
-  changedBy       User                 @relation(fields: [changedByUserId], references: [id])
-  version         PricingMatrixVersion @relation(fields: [versionId], references: [id])
-
-  @@index([versionId])
-  @@index([changedAt])
 }
 
 model NotificationDelivery {
