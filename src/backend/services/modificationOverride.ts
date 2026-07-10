@@ -12,6 +12,7 @@ import {
   normalizeModificationItems,
 } from "@/backend/eligibility/modificationNormalization";
 import type { ModificationCode } from "@/backend/eligibility/types";
+import { triggerEvaluationAfterDraftUpdate } from "@/backend/eligibility/triggers";
 
 export const MODIFICATION_OVERRIDE_AUDIT_ACTION = "PROJECT_MODIFICATION_OVERRIDE_PRE_ESTIMATE";
 export const POST_ESTIMATE_OVERRIDE_REDIRECT = "post_estimate_override";
@@ -44,6 +45,23 @@ export interface ModificationOverrideResult {
   projectId: string;
   modificationItems: string[];
   modificationCodes: ModificationCode[];
+}
+
+function estimateAlreadyGeneratedError(): ModificationOverrideError {
+  return new ModificationOverrideError(
+    "An estimate has already been generated for this project. Use the post-estimate modification override instead.",
+    409,
+    "ESTIMATE_ALREADY_GENERATED",
+    POST_ESTIMATE_OVERRIDE_REDIRECT
+  );
+}
+
+function projectNotSubmittedError(): ModificationOverrideError {
+  return new ModificationOverrideError(
+    "Modification overrides are only available for submitted projects awaiting their preliminary estimate",
+    409,
+    "PROJECT_NOT_SUBMITTED"
+  );
 }
 
 function readModificationItems(draftData: unknown): string[] {
@@ -123,20 +141,11 @@ export async function overridePreEstimateModifications(
   }
 
   if (project.quotes.length > 0) {
-    throw new ModificationOverrideError(
-      "An estimate has already been generated for this project. Use the post-estimate modification override instead.",
-      409,
-      "ESTIMATE_ALREADY_GENERATED",
-      POST_ESTIMATE_OVERRIDE_REDIRECT
-    );
+    throw estimateAlreadyGeneratedError();
   }
 
   if (project.status !== "submitted") {
-    throw new ModificationOverrideError(
-      "Modification overrides are only available for submitted projects awaiting their preliminary estimate",
-      409,
-      "PROJECT_NOT_SUBMITTED"
-    );
+    throw projectNotSubmittedError();
   }
 
   const newModificationItems = validateModificationItems(input.modificationItems);
@@ -152,10 +161,29 @@ export async function overridePreEstimateModifications(
     modificationItems: newModificationItems,
   };
 
-  await prisma.project.update({
-    where: { id: project.id },
+  // Guard the write itself against the delayed estimate-generation job racing
+  // us between the read above and this update: only commit if the project is
+  // still submitted and still has no quote at write time. If we lose the
+  // race, re-check to report the right error (FR-4.3 redirect vs not-submitted).
+  const writeResult = await prisma.project.updateMany({
+    where: {
+      id: project.id,
+      status: "submitted",
+      quotes: { none: {} },
+    },
     data: { draftData: updatedDraftData },
   });
+
+  if (writeResult.count === 0) {
+    const latest = await prisma.project.findUnique({
+      where: { id: project.id },
+      select: { quotes: { select: { id: true }, take: 1 } },
+    });
+
+    throw latest && latest.quotes.length > 0 ? estimateAlreadyGeneratedError() : projectNotSubmittedError();
+  }
+
+  const updatedProject = await prisma.project.findUnique({ where: { id: project.id } });
 
   await logAuditEventNonBlocking({
     category: "MANUAL_CHANGE",
@@ -181,6 +209,10 @@ export async function overridePreEstimateModifications(
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
   });
+
+  if (updatedProject) {
+    await triggerEvaluationAfterDraftUpdate(updatedProject, project.draftData, updatedDraftData);
+  }
 
   return {
     projectId: project.id,

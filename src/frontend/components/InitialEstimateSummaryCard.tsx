@@ -54,7 +54,7 @@ function getEstimateState({
     label: "Initial estimate range",
     value: "Generating estimate…",
     helper:
-      "We’re generating your initial price range from real-time retail data. This usually takes only a few moments.",
+      "We’re generating your initial price range from real-time retail data. This usually takes a few minutes.",
     tone: "generating" as const,
   };
 }

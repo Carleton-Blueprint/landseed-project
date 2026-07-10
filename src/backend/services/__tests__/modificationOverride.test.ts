@@ -1,5 +1,6 @@
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { triggerEvaluationAfterDraftUpdate } from "@/backend/eligibility/triggers";
 import {
   ModificationOverrideError,
   MODIFICATION_OVERRIDE_AUDIT_ACTION,
@@ -11,20 +12,27 @@ jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
 }));
 
+jest.mock("@/backend/eligibility/triggers", () => ({
+  triggerEvaluationAfterDraftUpdate: jest.fn(),
+}));
+
 jest.mock("lib/prisma", () => ({
   prisma: {
     project: {
       findUnique: jest.fn(),
-      update: jest.fn(),
+      updateMany: jest.fn(),
     },
   },
 }));
 
 describe("overridePreEstimateModifications", () => {
   const mockedPrisma = prisma as unknown as {
-    project: { findUnique: jest.Mock; update: jest.Mock };
+    project: { findUnique: jest.Mock; updateMany: jest.Mock };
   };
   const mockedAudit = logAuditEventNonBlocking as jest.MockedFunction<typeof logAuditEventNonBlocking>;
+  const mockedTrigger = triggerEvaluationAfterDraftUpdate as jest.MockedFunction<
+    typeof triggerEvaluationAfterDraftUpdate
+  >;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -41,7 +49,7 @@ describe("overridePreEstimateModifications", () => {
       })
     ).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND", statusCode: 404 });
 
-    expect(mockedPrisma.project.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.project.updateMany).not.toHaveBeenCalled();
   });
 
   it("throws ESTIMATE_ALREADY_GENERATED with a redirect when a quote already exists", async () => {
@@ -64,7 +72,7 @@ describe("overridePreEstimateModifications", () => {
       redirectTo: POST_ESTIMATE_OVERRIDE_REDIRECT,
     });
 
-    expect(mockedPrisma.project.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.project.updateMany).not.toHaveBeenCalled();
   });
 
   it("throws PROJECT_NOT_SUBMITTED when the project is still a draft", async () => {
@@ -83,7 +91,7 @@ describe("overridePreEstimateModifications", () => {
       })
     ).rejects.toMatchObject({ code: "PROJECT_NOT_SUBMITTED", statusCode: 409 });
 
-    expect(mockedPrisma.project.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.project.updateMany).not.toHaveBeenCalled();
   });
 
   it("rejects an empty modificationItems array", async () => {
@@ -119,17 +127,23 @@ describe("overridePreEstimateModifications", () => {
       })
     ).rejects.toMatchObject({ code: "INVALID_MODIFICATION_ITEMS", statusCode: 400 });
 
-    expect(mockedPrisma.project.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.project.updateMany).not.toHaveBeenCalled();
   });
 
-  it("updates modificationItems, preserves other draftData, and writes an audit trail", async () => {
-    mockedPrisma.project.findUnique.mockResolvedValue({
-      id: "proj-5",
-      status: "submitted",
-      draftData: { modificationItems: ["Grab bars"], address: "123 Main St" },
-      quotes: [],
-    });
-    mockedPrisma.project.update.mockResolvedValue({});
+  it("updates modificationItems, preserves other draftData, writes an audit trail, and triggers re-evaluation", async () => {
+    mockedPrisma.project.findUnique
+      .mockResolvedValueOnce({
+        id: "proj-5",
+        status: "submitted",
+        draftData: { modificationItems: ["Grab bars"], address: "123 Main St" },
+        quotes: [],
+      })
+      .mockResolvedValueOnce({
+        id: "proj-5",
+        status: "submitted",
+        draftData: { modificationItems: ["Walk-in shower", "Handrails"], address: "123 Main St" },
+      });
+    mockedPrisma.project.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await overridePreEstimateModifications({
       projectId: "proj-5",
@@ -146,8 +160,8 @@ describe("overridePreEstimateModifications", () => {
       modificationCodes: ["WALK_IN_SHOWER", "HANDRAILS"],
     });
 
-    expect(mockedPrisma.project.update).toHaveBeenCalledWith({
-      where: { id: "proj-5" },
+    expect(mockedPrisma.project.updateMany).toHaveBeenCalledWith({
+      where: { id: "proj-5", status: "submitted", quotes: { none: {} } },
       data: {
         draftData: {
           address: "123 Main St",
@@ -177,6 +191,12 @@ describe("overridePreEstimateModifications", () => {
         userAgent: "jest",
       })
     );
+
+    expect(mockedTrigger).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "proj-5" }),
+      { modificationItems: ["Grab bars"], address: "123 Main St" },
+      { address: "123 Main St", modificationItems: ["Walk-in shower", "Handrails"] }
+    );
   });
 
   it("is an instance of ModificationOverrideError for known failures", async () => {
@@ -192,5 +212,61 @@ describe("overridePreEstimateModifications", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(ModificationOverrideError);
     }
+  });
+
+  describe("race with the delayed estimate-generation worker", () => {
+    it("re-checks and throws ESTIMATE_ALREADY_GENERATED when the worker's quote lands between read and write", async () => {
+      mockedPrisma.project.findUnique
+        .mockResolvedValueOnce({
+          id: "proj-6",
+          status: "submitted",
+          draftData: { modificationItems: ["Grab bars"] },
+          quotes: [],
+        })
+        .mockResolvedValueOnce({
+          quotes: [{ id: "quote-raced-in" }],
+        });
+      mockedPrisma.project.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        overridePreEstimateModifications({
+          projectId: "proj-6",
+          actorUserId: "admin-1",
+          modificationItems: ["Walk-in shower"],
+        })
+      ).rejects.toMatchObject({
+        code: "ESTIMATE_ALREADY_GENERATED",
+        statusCode: 409,
+        redirectTo: POST_ESTIMATE_OVERRIDE_REDIRECT,
+      });
+
+      expect(mockedAudit).not.toHaveBeenCalled();
+      expect(mockedTrigger).not.toHaveBeenCalled();
+    });
+
+    it("re-checks and throws PROJECT_NOT_SUBMITTED when the project left submitted state without a quote", async () => {
+      mockedPrisma.project.findUnique
+        .mockResolvedValueOnce({
+          id: "proj-7",
+          status: "submitted",
+          draftData: { modificationItems: ["Grab bars"] },
+          quotes: [],
+        })
+        .mockResolvedValueOnce({
+          quotes: [],
+        });
+      mockedPrisma.project.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        overridePreEstimateModifications({
+          projectId: "proj-7",
+          actorUserId: "admin-1",
+          modificationItems: ["Walk-in shower"],
+        })
+      ).rejects.toMatchObject({ code: "PROJECT_NOT_SUBMITTED", statusCode: 409 });
+
+      expect(mockedAudit).not.toHaveBeenCalled();
+      expect(mockedTrigger).not.toHaveBeenCalled();
+    });
   });
 });
