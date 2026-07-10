@@ -1,8 +1,10 @@
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import { generateQuote } from "@/backend/services/quote";
-import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
-import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
+import { estimateGenerationQueue } from "@/backend/queue";
+import {
+  buildEstimateGenerationJobId,
+  getEstimateGenerationDelayMs,
+} from "@/backend/services/estimateGeneration";
 
 export interface FinalizeIntakeInput {
   projectId: string;
@@ -81,29 +83,6 @@ function toQuoteRangeResult(quote: QuoteRecordShape): QuoteRangeResult {
       generatedAt: quote.generatedAt.toISOString(),
     },
   };
-}
-
-function buildQuoteItems(draftData: unknown): Array<{ description: string; quantity: number; unitPrice: number }> {
-  const modificationItems =
-    draftData && typeof draftData === "object" && !Array.isArray(draftData)
-      ? (draftData as { modificationItems?: unknown }).modificationItems
-      : undefined;
-
-  if (!Array.isArray(modificationItems) || modificationItems.length === 0) {
-    return [
-      {
-        description: "Home modifications (initial intake estimate)",
-        quantity: 1,
-        unitPrice: 150,
-      },
-    ];
-  }
-
-  return modificationItems.map((item) => ({
-    description: typeof item === "string" ? item : String(item),
-    quantity: 1,
-    unitPrice: 150,
-  }));
 }
 
 export async function finalizeIntake(input: FinalizeIntakeInput): Promise<FinalizeIntakeResult> {
@@ -206,59 +185,24 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
     userAgent: input.userAgent,
   });
 
-  const quoteItems = buildQuoteItems(project.draftData);
-
-  try {
-    const quoteResult = await generateQuote({
+  await estimateGenerationQueue.add(
+    "generate-estimate",
+    {
       projectId: project.id,
-      items: quoteItems,
-    });
-
-    const pricingSource = getPricingSourceFromRefinedEstimate(quoteResult.refinedEstimate);
-    const range: PreliminaryRange = {
-      min: quoteResult.estimateMin,
-      max: quoteResult.estimateMax,
-      source: pricingSource,
-      generatedAt: new Date().toISOString(),
-    };
-
-    try {
-      const readyResult = await markEstimateReadyForReview({
-        projectId: project.id,
-        quoteId: quoteResult.quoteId,
-        triggerSource: ESTIMATE_READY_TRIGGER_SOURCE.LEGACY_QUOTE_GENERATION,
-        actorUserId: input.actorUserId,
-        ipAddress: input.ipAddress,
-        userAgent: input.userAgent,
-      });
-
-      return {
-        ok: true,
-        projectId: project.id,
-        status: readyResult.projectStatus === "estimate_ready" ? "estimate_ready" : "submitted",
-        quoteId: quoteResult.quoteId,
-        range,
-        message: "Intake finalized, preliminary quote generated, and estimate marked ready.",
-      };
-    } catch (readyError) {
-      console.warn("Estimate ready transition failed after quote generation:", readyError);
-      return {
-        ok: true,
-        projectId: project.id,
-        status: "submitted",
-        quoteId: quoteResult.quoteId,
-        range,
-        message: "Intake finalized and preliminary quote generated.",
-      };
+      actorUserId: input.actorUserId,
+    },
+    {
+      jobId: buildEstimateGenerationJobId(project.id),
+      delay: getEstimateGenerationDelayMs(),
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 500 },
     }
-  } catch (quoteError) {
-    console.warn("Quote generation failed after intake finalization:", quoteError);
+  );
 
-    return {
-      ok: true,
-      projectId: project.id,
-      status: "submitted",
-      message: "Intake finalized successfully. Preliminary quote generation is pending.",
-    };
-  }
+  return {
+    ok: true,
+    projectId: project.id,
+    status: "submitted",
+    message: "Intake finalized. Preliminary quote generation is scheduled.",
+  };
 }
