@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 import { builderTrendTransferQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 
 type TransferRow = {
   id: string;
@@ -195,4 +196,64 @@ export async function processBuilderTrendTransfer(
 
     throw error;
   }
+}
+
+/**
+ * Called once a BuilderTrend transfer's job has permanently failed (all retry
+ * attempts exhausted). Atomically claims the transfer via the
+ * fallbackRequestedAt guard so a manual retry racing with this handler, or a
+ * duplicate worker 'failed' event, can't trigger the export more than once.
+ */
+export async function triggerManualFallbackForExhaustedTransfer(transferId: string): Promise<void> {
+  const claimedRows = await prisma.$queryRaw<Array<{ id: string; projectId: string }>>(
+    Prisma.sql`
+      UPDATE "BuilderTrendTransfer"
+      SET "fallbackRequestedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${transferId}
+        AND "status" = 'FAILED'::"BuilderTrendTransferStatus"
+        AND "fallbackRequestedAt" IS NULL
+      RETURNING "id", "projectId"
+    `
+  );
+
+  if (claimedRows.length === 0) {
+    return;
+  }
+
+  const transfer = claimedRows[0];
+
+  const project = await prisma.project.findUnique({
+    where: { id: transfer.projectId },
+    select: {
+      id: true,
+      userId: true,
+      user: { select: { email: true, name: true } },
+    },
+  });
+
+  if (!project) {
+    return;
+  }
+
+  const exportRequest = await requestManualFallbackExport({
+    projectId: project.id,
+    requestedByUserId: project.userId,
+    requestedByEmail: project.user.email,
+    requestedByName: project.user.name,
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "BUILDERTREND_TRANSFER_FALLBACK_TRIGGERED",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    projectId: project.id,
+    resourceType: "buildertrend_transfer",
+    resourceId: transfer.id,
+    description: "BuilderTrend transfer exhausted all retry attempts; manual fallback export triggered automatically",
+    metadata: {
+      exportRequestId: exportRequest.exportRequestId,
+      triggeredBy: "system:buildertrend-retry-exhausted",
+    },
+  });
 }
