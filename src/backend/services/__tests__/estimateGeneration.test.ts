@@ -153,7 +153,6 @@ describe("processScheduledEstimateGeneration", () => {
       quoteId: "quote-new",
       subtotal: 2100,
       total: 2450,
-      pricingMatrixVersion: 3,
       eligibilityAssessmentId: undefined,
       estimateMin: 2327.5,
       estimateMax: 2572.5,
