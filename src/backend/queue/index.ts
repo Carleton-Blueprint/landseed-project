@@ -79,6 +79,14 @@ export const manualFallbackExportQueue = new Queue<{
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
 });
 
+export const estimateGenerationQueue = new Queue<{
+  projectId: string;
+  actorUserId?: string;
+}>("estimate-generation", {
+  connection,
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+});
+
 export function createVirusScanWorker(
   processor: (job: { data: { key: string; photoId: string; bucket?: string } }) => Promise<void>
 ) {
@@ -160,4 +168,15 @@ export function createManualFallbackExportWorker(
   }) => Promise<void>
 ) {
   return new Worker("manual-fallback-export", processor, { connection });
+}
+
+export function createEstimateGenerationWorker(
+  processor: (job: {
+    data: {
+      projectId: string;
+      actorUserId?: string;
+    };
+  }) => Promise<void>
+) {
+  return new Worker("estimate-generation", processor, { connection });
 }

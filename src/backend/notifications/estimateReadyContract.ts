@@ -8,6 +8,7 @@ export const ESTIMATE_READY_REVIEW_STATE = "READY_FOR_REVIEW" as const;
 export const ESTIMATE_READY_TRIGGER_SOURCE = {
   ADVISORY_TEAM_MARK_READY_FOR_REVIEW: "advisory-team-mark-ready-for-review",
   LEGACY_QUOTE_GENERATION: "legacy-quote-generation",
+  DELAYED_ESTIMATE_GENERATION: "delayed-estimate-generation",
 } as const;
 
 export type EstimateReadyTriggerSource =

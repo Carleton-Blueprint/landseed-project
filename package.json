@@ -27,7 +27,8 @@
     "worker:manual-fallback-export": "tsx src/backend/queue/manualFallbackExportWorker.ts",
     "worker:manual-fallback-export-cleanup": "tsx src/backend/queue/manualFallbackExportCleanupWorker.ts",
     "worker:account-deletion": "tsx src/backend/queue/accountDeletionWorker.ts",
-    "worker:account-deletion-finalizer": "tsx src/backend/queue/accountDeletionFinalizerWorker.ts"
+    "worker:account-deletion-finalizer": "tsx src/backend/queue/accountDeletionFinalizerWorker.ts",
+    "worker:estimate-generation": "tsx src/backend/queue/estimateGenerationWorker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1000.0",
