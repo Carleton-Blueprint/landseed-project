@@ -51,7 +51,7 @@ export const builderTrendTransferQueue = new Queue<{
   transferId: string;
 }>("buildertrend-transfer", {
   connection,
-  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
 });
 
 export const manualReviewQueue = new Queue<{
@@ -134,6 +134,8 @@ export function createBuilderTrendTransferWorker(
     data: {
       transferId: string;
     };
+    attemptsMade: number;
+    opts: { attempts?: number };
   }) => Promise<void>
 ) {
   return new Worker("buildertrend-transfer", processor, { connection });

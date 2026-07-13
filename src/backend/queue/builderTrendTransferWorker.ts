@@ -2,7 +2,10 @@ import { createBuilderTrendTransferWorker } from "@/backend/queue";
 import { processBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
 
 const worker = createBuilderTrendTransferWorker(async (job) => {
-  await processBuilderTrendTransfer(job.data.transferId);
+  await processBuilderTrendTransfer(job.data.transferId, {
+    attemptsMade: job.attemptsMade,
+    maxAttempts: job.opts.attempts ?? 3,
+  });
 });
 
 worker.on("completed", (job) => {

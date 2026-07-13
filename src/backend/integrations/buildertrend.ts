@@ -89,7 +89,10 @@ export async function retryBuilderTrendTransfer(input: {
   };
 }
 
-export async function processBuilderTrendTransfer(transferId: string): Promise<void> {
+export async function processBuilderTrendTransfer(
+  transferId: string,
+  attemptContext: { attemptsMade: number; maxAttempts: number }
+): Promise<void> {
   const rows = await prisma.$queryRaw<TransferRow[]>(
     Prisma.sql`
       SELECT
@@ -115,6 +118,8 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
   }
 
   const startedAtMs = Date.now();
+  const attemptNumber = attemptContext.attemptsMade + 1;
+  const isFinalAttempt = attemptNumber >= attemptContext.maxAttempts;
 
   try {
     const result = await sendMockedBuilderTrendTransfer();
@@ -145,19 +150,22 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
       description: "BuilderTrend transfer processed successfully",
       metadata: {
         transferStatus: "SENT",
-        attemptNumber: transfer.attempts + 1,
+        attemptNumber,
         durationMs: Date.now() - startedAtMs,
         externalReference: result.externalReference,
       },
     });
   } catch (error) {
+    const nextStatus = isFinalAttempt ? "FAILED" : "RETRYING";
+    const errorMessage = error instanceof Error ? error.message : "Unknown BuilderTrend transfer error";
+
     await prisma.$executeRaw(
       Prisma.sql`
         UPDATE "BuilderTrendTransfer"
         SET
-          "status" = 'FAILED'::"BuilderTrendTransferStatus",
+          "status" = ${nextStatus}::"BuilderTrendTransferStatus",
           "attempts" = "attempts" + 1,
-          "lastError" = ${error instanceof Error ? error.message : "Unknown BuilderTrend transfer error"},
+          "lastError" = ${errorMessage},
           "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ${transfer.id}
       `
@@ -172,12 +180,16 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
       quoteId: transfer.quoteId,
       resourceType: "buildertrend_transfer",
       resourceId: transfer.id,
-      description: "BuilderTrend transfer processing failed",
+      description: isFinalAttempt
+        ? "BuilderTrend transfer failed on final retry attempt"
+        : "BuilderTrend transfer attempt failed, retry scheduled",
       metadata: {
-        transferStatus: "FAILED",
-        attemptNumber: transfer.attempts + 1,
+        transferStatus: nextStatus,
+        attemptNumber,
+        maxAttempts: attemptContext.maxAttempts,
+        isFinalAttempt,
         durationMs: Date.now() - startedAtMs,
-        errorMessage: error instanceof Error ? error.message : "Unknown BuilderTrend transfer error",
+        errorMessage,
       },
     });
 
