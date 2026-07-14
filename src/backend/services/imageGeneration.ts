@@ -10,6 +10,8 @@ import { randomUUID } from "node:crypto";
 import { toFile } from "openai";
 import { getOpenAIClient } from "lib/openai";
 import { getSignedDownloadUrlFromS3Url, uploadStreamToS3 } from "lib/s3";
+import { prisma } from "lib/prisma";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
 
 const DEFAULT_WIDTH = 900;
 const DEFAULT_HEIGHT = 600;
@@ -177,4 +179,116 @@ export async function generateAccessibilityVisual(
     costUsd: computeGenerationCostUsd(editResponse.usage as GptImageUsage | undefined),
     model: GPT_IMAGE_MODEL,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Job processing (invoked from the ai-jobs queue worker)               */
+/* ------------------------------------------------------------------ */
+
+export function modificationItemsFromDraft(draftData: unknown): string[] {
+  if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) {
+    return [];
+  }
+
+  const raw = (draftData as Record<string, unknown>).modificationItems;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is string => typeof item === "string");
+}
+
+export const ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE = "ACCESSIBILITY_IMAGE_GENERATION" as const;
+
+export interface AccessibilityImageGenerationJobPayload {
+  photoId: string;
+}
+
+/**
+ * Processes one accessibility-visual generation job: marks the photo as
+ * GENERATING, calls the live OpenAI edit endpoint, and records the outcome.
+ * On failure, the photo's existing generatedImageUrl/S3Key are left untouched
+ * so the dashboard keeps showing whatever it was already showing (placeholder
+ * or a prior successful rendition) — only generationStatus/generationError change.
+ */
+export async function processAccessibilityImageGenerationJob(
+  payload: AccessibilityImageGenerationJobPayload
+): Promise<void> {
+  const photo = await prisma.photo.findUnique({
+    where: { id: payload.photoId },
+    include: { project: true },
+  });
+
+  if (!photo) {
+    throw new Error(`Photo not found: ${payload.photoId}`);
+  }
+
+  await prisma.photo.update({
+    where: { id: photo.id },
+    data: { generationStatus: "GENERATING" },
+  });
+
+  const modificationCodes = modificationItemsFromDraft(photo.project.draftData);
+  const startedAt = Date.now();
+
+  try {
+    const result = await generateAccessibilityVisual(
+      { id: photo.id, projectId: photo.projectId, url: photo.url },
+      modificationCodes
+    );
+
+    await prisma.photo.update({
+      where: { id: photo.id },
+      data: {
+        generationStatus: "READY",
+        generatedImageUrl: result.s3Url,
+        generatedImageS3Key: result.s3Key,
+        generationCostUsd: result.costUsd,
+        generationModel: result.model,
+        generatedAt: new Date(),
+        generationError: null,
+      },
+    });
+
+    await logAuditEventNonBlocking({
+      category: "AI_GENERATION",
+      action: "ACCESSIBILITY_IMAGE_GENERATION_READY",
+      outcome: "SUCCESS",
+      sensitivityLevel: "INTERNAL",
+      projectId: photo.projectId,
+      resourceType: "photo",
+      resourceId: photo.id,
+      description: "Accessibility visual rendition generated successfully",
+      metadata: {
+        model: result.model,
+        costUsd: result.costUsd,
+        durationMs: Date.now() - startedAt,
+        s3Key: result.s3Key,
+      },
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown image generation error";
+
+    await prisma.photo.update({
+      where: { id: photo.id },
+      data: {
+        generationStatus: "FAILED",
+        generationError: errorMessage,
+      },
+    });
+
+    await logAuditEventNonBlocking({
+      category: "AI_GENERATION",
+      action: "ACCESSIBILITY_IMAGE_GENERATION_FAILED",
+      outcome: "FAILURE",
+      sensitivityLevel: "INTERNAL",
+      projectId: photo.projectId,
+      resourceType: "photo",
+      resourceId: photo.id,
+      description: "Accessibility visual rendition generation failed; retaining existing placeholder",
+      metadata: {
+        errorMessage,
+        durationMs: Date.now() - startedAt,
+      },
+    });
+
+    throw error;
+  }
 }

@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { createHash, createSign, randomUUID } from 'node:crypto';
 import { prisma } from 'lib/prisma';
 
-export type AuditEventCategory = "MANUAL_CHANGE" | "SENSITIVE_ACCESS";
+export type AuditEventCategory = "MANUAL_CHANGE" | "SENSITIVE_ACCESS" | "AI_GENERATION";
 export type AuditEventOutcome = "SUCCESS" | "DENIED" | "FAILURE";
 export type AuditSensitivityLevel = "INTERNAL" | "CONFIDENTIAL" | "RESTRICTED";
 
