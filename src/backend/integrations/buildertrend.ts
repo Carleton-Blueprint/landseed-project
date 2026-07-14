@@ -85,7 +85,9 @@ export async function retryBuilderTrendTransfer(input: {
   if (existingJob && isTerminalJobState) {
     // A job with this id already exists but is dead (failed/completed); BullMQ won't
     // create a new one for the same jobId, so move the existing one back to waiting.
-    await existingJob.retry();
+    // Reset attemptsMade so a manual retry gets the same full backoff cycle as a
+    // fresh transfer, instead of immediately re-exhausting on a single attempt.
+    await existingJob.retry(existingJobState as "failed" | "completed", { resetAttemptsMade: true });
   } else if (!existingJob) {
     await enqueueBuilderTrendTransfer(transfer.id);
   }

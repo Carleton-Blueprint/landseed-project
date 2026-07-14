@@ -234,6 +234,7 @@ describe("retryBuilderTrendTransfer", () => {
     const result = await retryBuilderTrendTransfer({ transferId: "transfer-1" });
 
     expect(mockedRetry).toHaveBeenCalledTimes(1);
+    expect(mockedRetry).toHaveBeenCalledWith("failed", { resetAttemptsMade: true });
     expect(mockedQueueAdd).not.toHaveBeenCalled();
     expect(result).toEqual({ previousStatus: "FAILED", alreadyQueued: false });
   });
