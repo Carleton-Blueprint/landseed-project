@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { prisma } from "lib/prisma";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { NotificationEventType } from "@prisma/client";

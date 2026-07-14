@@ -17,6 +17,7 @@
  *   Upload API → Redis Queue → This Worker → ClamAV → Database Update
  */
 
+import "dotenv/config";
 import { createVirusScanWorker, aiJobsQueue } from "./index";
 import { prisma } from "lib/prisma";
 import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";

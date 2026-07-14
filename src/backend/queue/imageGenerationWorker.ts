@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createAiJobsWorker } from "@/backend/queue";
 import {
   ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,

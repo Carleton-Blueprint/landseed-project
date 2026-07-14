@@ -17,7 +17,7 @@ export const virusScanQueue = new Queue<{ key: string; photoId: string; bucket?:
 
 export const aiJobsQueue = new Queue<{ jobType: string; payload: unknown }>("ai-jobs", {
   connection,
-  defaultJobOptions: { attempts: 2, backoff: { type: "exponential", delay: 2000 } },
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
 });
 
 export const emailQueue = new Queue<{

@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { prisma } from "lib/prisma";
 import { finalizeAccountDeletionRequest } from "@/backend/services/accountDeletionRetention";
 import { AccountDeletionRequestStatus } from "@prisma/client";
