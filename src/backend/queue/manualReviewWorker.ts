@@ -11,6 +11,7 @@
  * - Dead-letter queue fallback on terminal failure
  */
 
+import 'dotenv/config';
 import { createManualReviewWorker } from '@/backend/queue';
 import { prisma } from 'lib/prisma';
 import { logAuditEventNonBlocking } from '@/backend/audit/log';

@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { expireInactiveQuotes } from "@/backend/services/quoteExpiration";
 
 const SCAN_INTERVAL_MS = Number(process.env.ESTIMATE_EXPIRY_SCAN_INTERVAL_MS ?? 15 * 60 * 1000); // default 15 mins
