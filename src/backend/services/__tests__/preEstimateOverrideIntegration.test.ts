@@ -26,6 +26,7 @@ jest.mock("@/backend/audit/log", () => ({
 
 jest.mock("@/backend/eligibility/triggers", () => ({
   triggerEvaluationAfterDraftUpdate: jest.fn(),
+  queueEligibilityEvaluation: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@/backend/services/quote", () => ({

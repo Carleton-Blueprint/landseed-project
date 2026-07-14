@@ -5,13 +5,14 @@ import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import { auth } from "@/auth";
 import { redirectToSignIn } from "lib/auth-redirect";
-import { redirect } from "next/navigation";
 import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
 import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
 import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
 import { ConsultationScheduler } from "@/frontend/components/ConsultationScheduler";
+import { getLatestGrantDocumentGenerationInfo } from "@/backend/services/grantDocument";
+import { GrantDocumentCard } from "./GrantDocumentCard";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -165,7 +166,14 @@ export default async function ProjectDetailPage({
 
   const modificationItems = modificationItemsFromDraft(project.draftData);
 
-  const estimateSummary = getEstimateSummary(project);
+  const estimateSummary = getEstimateSummary({ status: project.status, quotes: project.quotes });
+
+  let grantDocumentInfo: { generatedAt: Date; incompleteFields: string[] } | null = null;
+  try {
+    grantDocumentInfo = await getLatestGrantDocumentGenerationInfo(project.id);
+  } catch (error) {
+    console.warn("Failed to load grant document generation info:", error);
+  }
 
   let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
   try {
@@ -184,11 +192,11 @@ export default async function ProjectDetailPage({
             modificationCodes: modificationItems,
           }));
 
-        const signedImageUrl = imageUrl?.startsWith("https://s3.")
+        const signedImageUrl = imageUrl?.includes(".amazonaws.com")
           ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
           : imageUrl;
 
-        const signedGeneratedImageUrl = generatedImageUrl?.startsWith("https://s3.")
+        const signedGeneratedImageUrl = generatedImageUrl?.includes(".amazonaws.com")
           ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
           : generatedImageUrl;
 
@@ -328,38 +336,12 @@ export default async function ProjectDetailPage({
         <SupportingDocumentsSection grantApplicationId={project.id} />
 
         {/* ═══════ Grant PDF Download Card ═══════ */}
-        <div className="rounded-xl border bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-3">
-            <svg className="h-5 w-5 text-rose-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-            </svg>
-            Grant Assessment Document
-          </h2>
-          {project.grantDocumentKey ? (
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <p className="text-sm text-gray-600">
-                  Your personalized grant assessment PDF is ready for download.
-                </p>
-              </div>
-              <Link href={`/api/documents/${project.id}/download`}>
-                <Button variant="default" className="gap-2">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                  </svg>
-                  Download PDF
-                </Button>
-              </Link>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4">
-              <div className="h-5 w-5 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
-              <p className="text-sm text-gray-500">
-                Your grant assessment PDF is being generated. It will be available here shortly.
-              </p>
-            </div>
-          )}
-        </div>
+        <GrantDocumentCard
+          projectId={project.id}
+          hasDocument={Boolean(project.grantDocumentKey)}
+          lastGeneratedAt={grantDocumentInfo?.generatedAt.toISOString() ?? null}
+          incompleteFields={grantDocumentInfo?.incompleteFields ?? []}
+        />
       </div>
     </main>
   );

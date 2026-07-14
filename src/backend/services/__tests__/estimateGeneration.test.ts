@@ -1,6 +1,7 @@
 import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
+import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
 
 jest.mock("@/backend/services/quote", () => ({
   generateQuote: jest.fn(),
@@ -8,6 +9,10 @@ jest.mock("@/backend/services/quote", () => ({
 
 jest.mock("@/backend/services/estimateReadyTransition", () => ({
   markEstimateReadyForReview: jest.fn(),
+}));
+
+jest.mock("@/backend/eligibility/triggers", () => ({
+  queueEligibilityEvaluation: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("lib/prisma", () => ({
@@ -94,9 +99,13 @@ describe("processScheduledEstimateGeneration", () => {
   const mockedMarkEstimateReady = markEstimateReadyForReview as jest.MockedFunction<
     typeof markEstimateReadyForReview
   >;
+  const mockedQueueEligibility = queueEligibilityEvaluation as jest.MockedFunction<
+    typeof queueEligibilityEvaluation
+  >;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedQueueEligibility.mockResolvedValue(undefined);
   });
 
   it("skips generation when a quote already exists (idempotency)", async () => {
@@ -196,5 +205,24 @@ describe("processScheduledEstimateGeneration", () => {
         actorUserId: "user-3",
       })
     );
+    expect(mockedQueueEligibility).toHaveBeenCalledWith("proj-3");
+  });
+
+  it("still queues eligibility evaluation and rethrows when quote generation fails", async () => {
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-4",
+      status: "submitted",
+      draftData: { modificationItems: ["Grab bars"] },
+      quotes: [],
+    });
+
+    mockedGenerateQuote.mockRejectedValue(new Error("pricing failed"));
+
+    await expect(
+      processScheduledEstimateGeneration({ projectId: "proj-4", actorUserId: "user-4" })
+    ).rejects.toThrow("pricing failed");
+
+    expect(mockedMarkEstimateReady).not.toHaveBeenCalled();
+    expect(mockedQueueEligibility).toHaveBeenCalledWith("proj-4");
   });
 });

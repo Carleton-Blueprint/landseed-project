@@ -1,40 +1,29 @@
+import { createHash } from "crypto";
 import { prisma } from "lib/prisma";
 import { uploadToS3 } from "lib/s3";
 import { generateGrantPdf } from "@/backend/services/pdf";
+import { assembleGrantPdfInput, AssembledGrantPdfInput } from "./grantPdfAssembler";
+import { fillGrantTemplate } from "./grantTemplateFill";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-
-interface GrantDocumentDraftData {
-  name?: unknown;
-  email?: unknown;
-  phone?: unknown;
-  modificationItems?: unknown;
-}
 
 export interface GenerateAndStoreGrantDocumentInput {
   projectId: string;
   actorUserId: string;
   ipAddress?: string | null;
   userAgent?: string | null;
+  /** Bypass the "skip if nothing relevant changed" check (e.g. an admin-triggered manual regenerate). */
+  force?: boolean;
 }
 
 export interface GenerateAndStoreGrantDocumentResult {
   projectId: string;
   grantDocumentKey: string;
   previousGrantDocumentKey: string | null;
+  /** False when generation was skipped because no relevant field changed since the last version. */
+  regenerated: boolean;
 }
 
-function readOptionalString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-    .filter((entry) => entry.length > 0);
-}
+const GRANT_DOCUMENT_GENERATE_ACTION = "PROJECT_GRANT_DOCUMENT_GENERATE";
 
 function getNextGrantDocumentVersion(existingKey: string | null): number {
   if (!existingKey) {
@@ -54,6 +43,105 @@ function getNextGrantDocumentVersion(existingKey: string | null): number {
   return parsed + 1;
 }
 
+// Fingerprints the fields that actually appear on the document. preparedAtIso
+// is deliberately excluded so re-running eligibility/quote generation with no
+// real change doesn't churn out a new S3 version every time.
+function computeContentHash(assembled: AssembledGrantPdfInput): string {
+  const relevantFields = {
+    applicantName: assembled.applicantName,
+    applicantEmail: assembled.applicantEmail,
+    applicantPhone: assembled.applicantPhone,
+    projectAddress: assembled.projectAddress,
+    projectId: assembled.projectId,
+    grantProgramName: assembled.grantProgramName,
+    modificationItems: assembled.modificationItems,
+    estimatedCost: assembled.estimatedCost,
+    ownershipStatus: assembled.ownershipStatus,
+    incompleteFields: assembled.incompleteFields,
+  };
+  return createHash("sha256").update(JSON.stringify(relevantFields)).digest("hex");
+}
+
+export interface LatestGrantDocumentGenerationInfo {
+  generatedAt: Date;
+  incompleteFields: string[];
+}
+
+// Powers the dashboard's "last generated" / "incomplete fields" display.
+// Looks past skip-events (which only confirm the existing file is still
+// current) to the most recent event where a file was actually written.
+export async function getLatestGrantDocumentGenerationInfo(
+  projectId: string
+): Promise<LatestGrantDocumentGenerationInfo | null> {
+  const events = await prisma.auditEvent.findMany({
+    where: {
+      projectId,
+      action: GRANT_DOCUMENT_GENERATE_ACTION,
+      outcome: "SUCCESS",
+      resourceType: "project_document",
+    },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+    select: { createdAt: true, metadata: true },
+  });
+
+  for (const event of events) {
+    if (event.metadata && typeof event.metadata === "object" && "generator" in event.metadata) {
+      const metadata = event.metadata as { incompleteFields?: unknown };
+      const incompleteFields = Array.isArray(metadata.incompleteFields)
+        ? metadata.incompleteFields.filter((f): f is string => typeof f === "string")
+        : [];
+      return { generatedAt: event.createdAt, incompleteFields };
+    }
+  }
+
+  return null;
+}
+
+async function getLastSuccessfulGenerationMetadata(
+  projectId: string
+): Promise<{ contentHash?: string } | null> {
+  const lastEvent = await prisma.auditEvent.findFirst({
+    where: {
+      projectId,
+      action: GRANT_DOCUMENT_GENERATE_ACTION,
+      outcome: "SUCCESS",
+      resourceType: "project_document",
+    },
+    orderBy: { createdAt: "desc" },
+    select: { metadata: true },
+  });
+
+  if (!lastEvent?.metadata || typeof lastEvent.metadata !== "object") {
+    return null;
+  }
+
+  return lastEvent.metadata as { contentHash?: string };
+}
+
+async function generatePdfBuffer(assembled: AssembledGrantPdfInput): Promise<{ buffer: Buffer; generator: string }> {
+  try {
+    const buffer = await fillGrantTemplate(assembled);
+    return { buffer, generator: "template" };
+  } catch (error) {
+    console.warn("Grant template fill failed, falling back to generic PDF generator:", error);
+    const buffer = await generateGrantPdf({
+      projectAddress: assembled.projectAddress,
+      applicantName: assembled.applicantName,
+      applicantEmail: assembled.applicantEmail,
+      applicantPhone: assembled.applicantPhone ?? undefined,
+      projectId: assembled.projectId,
+      grantProgramName: assembled.grantProgramName,
+      modificationItems: assembled.modificationItems,
+      estimatedFundingAmount: assembled.estimatedCost ?? '',
+      ownershipStatus: assembled.ownershipStatus,
+      incompleteFields: assembled.incompleteFields,
+      preparedAtIso: assembled.preparedAtIso,
+    });
+    return { buffer, generator: "generic-fallback" };
+  }
+}
+
 export async function generateAndStoreGrantDocument(
   input: GenerateAndStoreGrantDocumentInput
 ): Promise<GenerateAndStoreGrantDocumentResult> {
@@ -63,7 +151,6 @@ export async function generateAndStoreGrantDocument(
       id: true,
       address: true,
       grantDocumentKey: true,
-      draftData: true,
       user: {
         select: {
           name: true,
@@ -80,7 +167,7 @@ export async function generateAndStoreGrantDocument(
 
   await logAuditEventNonBlocking({
     category: "MANUAL_CHANGE",
-    action: "PROJECT_GRANT_DOCUMENT_GENERATE",
+    action: GRANT_DOCUMENT_GENERATE_ACTION,
     outcome: "SUCCESS",
     sensitivityLevel: "RESTRICTED",
     actorUserId: input.actorUserId,
@@ -90,41 +177,51 @@ export async function generateAndStoreGrantDocument(
     description: "Grant document generation started",
     metadata: {
       previousGrantDocumentKey: project.grantDocumentKey,
+      force: input.force ?? false,
     },
     ipAddress: input.ipAddress ?? null,
     userAgent: input.userAgent ?? null,
   });
 
   try {
-    const draftData = (project.draftData ?? {}) as GrantDocumentDraftData;
+    const assembled = await assembleGrantPdfInput(project.id);
+    const contentHash = computeContentHash(assembled);
 
-    const applicantName =
-      readOptionalString(project.user.name) ??
-      readOptionalString(draftData.name) ??
-      "Unknown Applicant";
+    if (!input.force && project.grantDocumentKey) {
+      const lastMetadata = await getLastSuccessfulGenerationMetadata(project.id);
+      if (lastMetadata?.contentHash === contentHash) {
+        await logAuditEventNonBlocking({
+          category: "MANUAL_CHANGE",
+          action: GRANT_DOCUMENT_GENERATE_ACTION,
+          outcome: "SUCCESS",
+          sensitivityLevel: "RESTRICTED",
+          actorUserId: input.actorUserId,
+          projectId: project.id,
+          resourceType: "project_document",
+          resourceId: project.id,
+          description: "Grant document generation skipped: no relevant fields changed since last version",
+          metadata: {
+            grantDocumentKey: project.grantDocumentKey,
+            contentHash,
+            skipped: true,
+          },
+          ipAddress: input.ipAddress ?? null,
+          userAgent: input.userAgent ?? null,
+        });
 
-    const applicantEmail =
-      readOptionalString(project.user.email) ??
-      readOptionalString(draftData.email) ??
-      "unknown@example.com";
-
-    const applicantPhone =
-      readOptionalString(project.user.phone) ??
-      readOptionalString(draftData.phone);
+        return {
+          projectId: project.id,
+          grantDocumentKey: project.grantDocumentKey,
+          previousGrantDocumentKey: project.grantDocumentKey,
+          regenerated: false,
+        };
+      }
+    }
 
     const version = getNextGrantDocumentVersion(project.grantDocumentKey);
     const grantDocumentKey = `projects/${project.id}/grant/grant-application-v${version}.pdf`;
 
-    const pdfBuffer = await generateGrantPdf({
-      projectAddress: project.address,
-      applicantName,
-      applicantEmail,
-      applicantPhone,
-      projectId: project.id,
-      grantProgramName: "Landseed Grant Application",
-      modificationItems: readStringArray(draftData.modificationItems),
-      preparedAtIso: new Date().toISOString(),
-    });
+    const { buffer: pdfBuffer, generator } = await generatePdfBuffer(assembled);
 
     await uploadToS3(pdfBuffer, grantDocumentKey, "application/pdf");
 
@@ -137,7 +234,7 @@ export async function generateAndStoreGrantDocument(
 
     await logAuditEventNonBlocking({
       category: "MANUAL_CHANGE",
-      action: "PROJECT_GRANT_DOCUMENT_GENERATE",
+      action: GRANT_DOCUMENT_GENERATE_ACTION,
       outcome: "SUCCESS",
       sensitivityLevel: "RESTRICTED",
       actorUserId: input.actorUserId,
@@ -149,6 +246,10 @@ export async function generateAndStoreGrantDocument(
         previousGrantDocumentKey: project.grantDocumentKey,
         grantDocumentKey,
         version,
+        generator,
+        contentHash,
+        // include incomplete fields if available
+        incompleteFields: assembled.incompleteFields,
       },
       ipAddress: input.ipAddress ?? null,
       userAgent: input.userAgent ?? null,
@@ -158,11 +259,12 @@ export async function generateAndStoreGrantDocument(
       projectId: project.id,
       grantDocumentKey,
       previousGrantDocumentKey: project.grantDocumentKey,
+      regenerated: true,
     };
   } catch (error) {
     await logAuditEventNonBlocking({
       category: "MANUAL_CHANGE",
-      action: "PROJECT_GRANT_DOCUMENT_GENERATE",
+      action: GRANT_DOCUMENT_GENERATE_ACTION,
       outcome: "FAILURE",
       sensitivityLevel: "RESTRICTED",
       actorUserId: input.actorUserId,
