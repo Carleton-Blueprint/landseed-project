@@ -3,6 +3,7 @@
  */
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
+import { builderTrendTransferQueue } from "@/backend/queue";
 
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
@@ -36,7 +37,13 @@ jest.mock("lib/prisma", () => ({
 const {
   processBuilderTrendTransfer,
   triggerManualFallbackForExhaustedTransfer,
+  retryBuilderTrendTransfer,
 } = require("../buildertrend") as typeof import("../buildertrend");
+
+const mockedQueueGetJob = builderTrendTransferQueue.getJob as jest.MockedFunction<
+  typeof builderTrendTransferQueue.getJob
+>;
+const mockedQueueAdd = builderTrendTransferQueue.add as jest.MockedFunction<typeof builderTrendTransferQueue.add>;
 
 const mockedAudit = logAuditEventNonBlocking as jest.MockedFunction<typeof logAuditEventNonBlocking>;
 const mockedRequestManualFallbackExport = requestManualFallbackExport as jest.MockedFunction<
@@ -194,5 +201,69 @@ describe("triggerManualFallbackForExhaustedTransfer", () => {
 
     expect(mockedRequestManualFallbackExport).not.toHaveBeenCalled();
     expect(mockedAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe("retryBuilderTrendTransfer", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("enqueues a fresh job when no job exists yet for this transfer", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([
+      { id: "transfer-1", status: "FAILED", projectId: "project-1", quoteId: "quote-1" },
+    ]);
+    mockedQueueGetJob.mockResolvedValueOnce(undefined);
+
+    const result = await retryBuilderTrendTransfer({ transferId: "transfer-1" });
+
+    expect(mockedQueueAdd).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ previousStatus: "FAILED", alreadyQueued: false });
+  });
+
+  it("retries the existing job in place when it already exists but is dead (failed/completed)", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([
+      { id: "transfer-1", status: "FAILED", projectId: "project-1", quoteId: "quote-1" },
+    ]);
+    const mockedRetry = jest.fn();
+    mockedQueueGetJob.mockResolvedValueOnce({
+      getState: jest.fn().mockResolvedValue("failed"),
+      retry: mockedRetry,
+    } as never);
+
+    const result = await retryBuilderTrendTransfer({ transferId: "transfer-1" });
+
+    expect(mockedRetry).toHaveBeenCalledTimes(1);
+    expect(mockedQueueAdd).not.toHaveBeenCalled();
+    expect(result).toEqual({ previousStatus: "FAILED", alreadyQueued: false });
+  });
+
+  it("does nothing to the queue when the job is still in flight (waiting/active/delayed)", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([
+      { id: "transfer-1", status: "RETRYING", projectId: "project-1", quoteId: "quote-1" },
+    ]);
+    const mockedRetry = jest.fn();
+    mockedQueueGetJob.mockResolvedValueOnce({
+      getState: jest.fn().mockResolvedValue("waiting"),
+      retry: mockedRetry,
+    } as never);
+
+    const result = await retryBuilderTrendTransfer({ transferId: "transfer-1" });
+
+    expect(mockedRetry).not.toHaveBeenCalled();
+    expect(mockedQueueAdd).not.toHaveBeenCalled();
+    expect(result).toEqual({ previousStatus: "RETRYING", alreadyQueued: true });
+  });
+
+  it("throws when the transfer has already been sent", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([
+      { id: "transfer-1", status: "SENT", projectId: "project-1", quoteId: "quote-1" },
+    ]);
+
+    await expect(retryBuilderTrendTransfer({ transferId: "transfer-1" })).rejects.toThrow(
+      "Cannot retry a transfer that has already been sent"
+    );
+
+    expect(mockedQueueGetJob).not.toHaveBeenCalled();
   });
 });

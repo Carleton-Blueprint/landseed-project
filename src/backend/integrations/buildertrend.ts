@@ -67,7 +67,9 @@ export async function retryBuilderTrendTransfer(input: {
   }
 
   const existingJob = await builderTrendTransferQueue.getJob(transfer.id);
-  const alreadyQueued = Boolean(existingJob);
+  const existingJobState = existingJob ? await existingJob.getState() : null;
+  const isTerminalJobState = existingJobState === "failed" || existingJobState === "completed";
+  const alreadyQueued = Boolean(existingJob) && !isTerminalJobState;
 
   await prisma.$executeRaw(
     Prisma.sql`
@@ -80,7 +82,11 @@ export async function retryBuilderTrendTransfer(input: {
     `
   );
 
-  if (!alreadyQueued) {
+  if (existingJob && isTerminalJobState) {
+    // A job with this id already exists but is dead (failed/completed); BullMQ won't
+    // create a new one for the same jobId, so move the existing one back to waiting.
+    await existingJob.retry();
+  } else if (!existingJob) {
     await enqueueBuilderTrendTransfer(transfer.id);
   }
 
