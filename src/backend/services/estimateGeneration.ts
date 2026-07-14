@@ -8,6 +8,7 @@ import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
+import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
 
 export const ESTIMATE_GENERATION_DELAY_MINUTES_ENV = "ESTIMATE_GENERATION_DELAY_MINUTES";
 export const DEFAULT_ESTIMATE_GENERATION_DELAY_MINUTES = 15;
@@ -119,18 +120,29 @@ export async function processScheduledEstimateGeneration(
   const quoteItems = buildQuoteItems(project.draftData);
   const modificationCodes = normalizeModificationItems(getIntakeModificationLabels(project.draftData));
 
-  const quoteResult = await generateQuote({
-    projectId: project.id,
-    items: quoteItems,
-    modificationCodes,
-  });
+  try {
+    const quoteResult = await generateQuote({
+      projectId: project.id,
+      items: quoteItems,
+      modificationCodes,
+    });
 
-  await markEstimateReadyForReview({
-    projectId: project.id,
-    quoteId: quoteResult.quoteId,
-    triggerSource: ESTIMATE_READY_TRIGGER_SOURCE.DELAYED_ESTIMATE_GENERATION,
-    actorUserId: input.actorUserId,
-  });
+    await markEstimateReadyForReview({
+      projectId: project.id,
+      quoteId: quoteResult.quoteId,
+      triggerSource: ESTIMATE_READY_TRIGGER_SOURCE.DELAYED_ESTIMATE_GENERATION,
+      actorUserId: input.actorUserId,
+    });
 
-  return { projectId: project.id, status: "generated", quoteId: quoteResult.quoteId };
+    void queueEligibilityEvaluation(project.id).catch((e) =>
+      console.warn("Failed to queue eligibility evaluation after estimate generation:", e)
+    );
+
+    return { projectId: project.id, status: "generated", quoteId: quoteResult.quoteId };
+  } catch (error) {
+    void queueEligibilityEvaluation(project.id).catch((e) =>
+      console.warn("Failed to queue eligibility evaluation after estimate generation (quote failed):", e)
+    );
+    throw error;
+  }
 }

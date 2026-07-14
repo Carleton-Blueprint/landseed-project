@@ -139,6 +139,19 @@ export async function evaluateProjectEligibility(
           ],
         });
         console.log(`Auto-generated quote after eligibility assessment for project ${project.id}`);
+        // Auto-generate the pre-filled grant PDF when the project is eligible.
+        if (evaluation.overallDecision === 'ELIGIBLE') {
+          import('@/backend/services/grantDocument')
+            .then(({ generateAndStoreGrantDocument }) =>
+              generateAndStoreGrantDocument({
+                projectId: project.id,
+                actorUserId: performedBy?.id ?? project.userId,
+              })
+            )
+            .catch((err) => {
+              console.warn('Auto grant document generation failed for project', project.id, err);
+            });
+        }
       } catch (error) {
         console.warn(`Failed to auto-generate quote after eligibility assessment:`, error);
         // Non-blocking: eligibility assessment success is not affected by quote generation failure

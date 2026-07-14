@@ -1,3 +1,7 @@
+// Grant application status transition endpoint. Grant document (PDF)
+// generation is intentionally NOT triggered here — per FR-3.2, PDF
+// generation is tied only to the project becoming eligibility-ELIGIBLE
+// (see src/backend/eligibility/service.ts), not to grant status changes.
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
@@ -8,7 +12,6 @@ import {
   isValidGrantApplicationStatus,
   transitionGrantApplicationStatus,
 } from "@/backend/services/grantApplicationLifecycle";
-import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
 
 export async function POST(
   request: NextRequest,
@@ -105,42 +108,6 @@ export async function POST(
       metadata: input.metadata as Prisma.InputJsonValue | undefined,
     });
 
-    let grantDocumentResult:
-      | {
-          success: true;
-          grantDocumentKey: string;
-          previousGrantDocumentKey: string | null;
-        }
-      | {
-          success: false;
-          error: string;
-        }
-      | null = null;
-
-    if (transitionResult.toStatus === "APPROVED") {
-      try {
-        const generated = await generateAndStoreGrantDocument({
-          projectId,
-          actorUserId: session.user.id,
-          ...requestContext,
-        });
-
-        grantDocumentResult = {
-          success: true,
-          grantDocumentKey: generated.grantDocumentKey,
-          previousGrantDocumentKey: generated.previousGrantDocumentKey,
-        };
-      } catch (grantDocumentError) {
-        grantDocumentResult = {
-          success: false,
-          error:
-            grantDocumentError instanceof Error
-              ? grantDocumentError.message
-              : "Failed to generate grant document",
-        };
-      }
-    }
-
     await logAuditEventNonBlocking({
       category: "MANUAL_CHANGE",
       action: "GRANT_APPLICATION_STATUS_CHANGE",
@@ -161,7 +128,6 @@ export async function POST(
       metadata: {
         historyId: transitionResult.historyId,
         changedAt: transitionResult.changedAt.toISOString(),
-        grantDocumentGeneration: grantDocumentResult,
       },
       ...requestContext,
     });
@@ -170,7 +136,6 @@ export async function POST(
       {
         success: true,
         transition: transitionResult,
-        grantDocumentGeneration: grantDocumentResult,
       },
       { status: 200 }
     );
