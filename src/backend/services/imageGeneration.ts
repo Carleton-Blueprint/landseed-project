@@ -12,6 +12,7 @@ import { getOpenAIClient } from "lib/openai";
 import { getSignedDownloadUrlFromS3Url, uploadStreamToS3 } from "lib/s3";
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
 
 const DEFAULT_WIDTH = 900;
 const DEFAULT_HEIGHT = 600;
@@ -185,6 +186,12 @@ export async function generateAccessibilityVisual(
 /* Job processing (invoked from the ai-jobs queue worker)               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Extracts a project's modification items from draftData and normalizes them
+ * from the intake form's human-readable labels (e.g. "Grab bars") into the
+ * canonical MODIFICATION_CODES used elsewhere in the system (e.g. "GRAB_BARS"),
+ * so callers can rely on MODIFICATION_LABELS lookups matching.
+ */
 export function modificationItemsFromDraft(draftData: unknown): string[] {
   if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) {
     return [];
@@ -192,7 +199,8 @@ export function modificationItemsFromDraft(draftData: unknown): string[] {
 
   const raw = (draftData as Record<string, unknown>).modificationItems;
   if (!Array.isArray(raw)) return [];
-  return raw.filter((item): item is string => typeof item === "string");
+  const labels = raw.filter((item): item is string => typeof item === "string");
+  return normalizeModificationItems(labels);
 }
 
 export const ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE = "ACCESSIBILITY_IMAGE_GENERATION" as const;

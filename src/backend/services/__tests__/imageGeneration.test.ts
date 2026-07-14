@@ -79,8 +79,20 @@ describe("modificationItemsFromDraft", () => {
 
   it("filters to only string entries", () => {
     expect(
-      modificationItemsFromDraft({ modificationItems: ["GRAB_BARS", 42, null, "STAIR_LIFT"] })
+      modificationItemsFromDraft({ modificationItems: ["Grab bars", 42, null, "Stair lift"] })
     ).toEqual(["GRAB_BARS", "STAIR_LIFT"]);
+  });
+
+  it("normalizes the intake form's human-readable labels into canonical codes", () => {
+    expect(
+      modificationItemsFromDraft({ modificationItems: ["Grab bars", "Walk-in shower"] })
+    ).toEqual(["GRAB_BARS", "WALK_IN_SHOWER"]);
+  });
+
+  it("drops labels that don't match a known modification", () => {
+    expect(modificationItemsFromDraft({ modificationItems: ["Grab bars", "Not a real item"] })).toEqual([
+      "GRAB_BARS",
+    ]);
   });
 });
 
