@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { createEstimateGenerationWorker } from "@/backend/queue";
 import { processScheduledEstimateGeneration } from "@/backend/services/estimateGeneration";
 

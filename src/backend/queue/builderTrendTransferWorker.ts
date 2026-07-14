@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { createBuilderTrendTransferWorker } from "@/backend/queue";
 import { processBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
 
