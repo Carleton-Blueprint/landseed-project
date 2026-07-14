@@ -65,7 +65,6 @@ function quoteResult(quoteId: string) {
     quoteId,
     subtotal: 1000,
     total: 1150,
-    pricingMatrixVersion: 3,
     eligibilityAssessmentId: undefined,
     estimateMin: 1092.5,
     estimateMax: 1207.5,
