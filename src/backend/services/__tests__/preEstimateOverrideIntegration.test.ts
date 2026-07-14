@@ -162,6 +162,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-int-1",
       items: [{ description: "Walk-in shower", quantity: 1, unitPrice: 150 }],
+      modificationCodes: ["WALK_IN_SHOWER"],
     });
   });
 
@@ -200,6 +201,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-int-2",
       items: [{ description: "Grab bars", quantity: 1, unitPrice: 150 }],
+      modificationCodes: ["GRAB_BARS"],
     });
   });
 

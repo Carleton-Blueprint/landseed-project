@@ -10,15 +10,35 @@ import {
   PauseIcon,
   MessageIcon,
 } from "@/frontend/components/icons";
+import type { PricingTierKey } from "@/backend/services/pricingTiers";
+import type { RefinedEstimateLineItem } from "@/backend/services/refinedEstimate";
 
 type QuoteStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED";
 type Step = "decision" | "confirm-accept" | "survey" | "done";
+
+export interface EstimateTierOption {
+  key: PricingTierKey;
+  label: string;
+  subtotal: number;
+  laborTotal: number;
+  markupTotal: number;
+  total: number;
+  estimateMin: number;
+  estimateMax: number;
+  lineItems: RefinedEstimateLineItem[];
+}
 
 interface EstimateClientProps {
   quoteId: string;
   projectId: string;
   initialStatus: QuoteStatus;
   initialReason: string | null;
+  tiers?: EstimateTierOption[];
+  initialSelectedTier?: PricingTierKey | null;
+}
+
+function formatCurrency(value: number): string {
+  return value.toLocaleString("en-US", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
 }
 
 const DECLINE_ICON_MAP: Record<string, (props: { selected: boolean }) => React.ReactNode> = {
@@ -47,12 +67,25 @@ const SUB_REASONS: Record<string, string[]> = {
   not_ready: ["Need to save more", "Waiting on approval", "Personal reasons"],
 };
 
-export function EstimateClientComponent({ quoteId, projectId, initialStatus, initialReason }: EstimateClientProps) {
+export function EstimateClientComponent({
+  quoteId,
+  projectId,
+  initialStatus,
+  initialReason,
+  tiers,
+  initialSelectedTier,
+}: EstimateClientProps) {
   const [status, setStatus] = useState<QuoteStatus>(initialStatus);
   const [step, setStep] = useState<Step>(initialStatus === "PENDING" ? "decision" : "done");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isReactivating, setIsReactivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const hasTiers = !!tiers && tiers.length > 0;
+  const [selectedTierKey, setSelectedTierKey] = useState<PricingTierKey | null>(
+    initialSelectedTier ?? tiers?.find((t) => t.key === "standard")?.key ?? tiers?.[0]?.key ?? null
+  );
+  const selectedTierOption = tiers?.find((t) => t.key === selectedTierKey) ?? null;
 
   // Survey state
   const [primaryReason, setPrimaryReason] = useState<string>("");
@@ -62,13 +95,21 @@ export function EstimateClientComponent({ quoteId, projectId, initialStatus, ini
   const [wouldReconsider, setWouldReconsider] = useState(false);
 
   const handleAccept = async () => {
+    if (hasTiers && !selectedTierKey) {
+      setError("Please select a pricing tier before accepting.");
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
     try {
       const res = await fetch(`/api/quote/${quoteId}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "ACCEPTED", reason: null }),
+        body: JSON.stringify({
+          status: "ACCEPTED",
+          reason: null,
+          ...(hasTiers ? { selectedTier: selectedTierKey } : {}),
+        }),
       });
       if (!res.ok) throw new Error("Failed to accept estimate");
       setStatus("ACCEPTED");
@@ -148,6 +189,14 @@ export function EstimateClientComponent({ quoteId, projectId, initialStatus, ini
             Thank you for accepting! To finalize your budget approval, please schedule the mandatory consultation meeting below.
           </p>
         </div>
+        {hasTiers && selectedTierOption && (
+          <div id="accepted-tier-summary" style={{ background: "#fff", border: "1px solid #d1fae5", borderRadius: 14, padding: 16 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#059669", margin: "0 0 4px" }}>Accepted Tier</p>
+            <p style={{ fontSize: 18, fontWeight: 700, color: "#111827", margin: 0 }}>
+              {selectedTierOption.label} &middot; {formatCurrency(selectedTierOption.total)}
+            </p>
+          </div>
+        )}
         <ConsultationScheduler projectId={projectId} />
       </div>
     );
@@ -207,6 +256,60 @@ export function EstimateClientComponent({ quoteId, projectId, initialStatus, ini
           <p style={{ fontSize: 14, opacity: 0.75, margin: 0, position: "relative", zIndex: 1 }}>Review your estimate and choose how to proceed</p>
         </div>
 
+        {hasTiers && (
+          <div id="tier-picker" style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: 20 }}>
+            <h4 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>Choose Your Pricing Tier</h4>
+            <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 16px" }}>
+              Select the option that best fits your budget and preferences.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              {tiers!.map((tier) => {
+                const isSelected = tier.key === selectedTierKey;
+                return (
+                  <button
+                    key={tier.key}
+                    type="button"
+                    id={`tier-option-${tier.key}`}
+                    onClick={() => setSelectedTierKey(tier.key)}
+                    style={{
+                      textAlign: "left", padding: 16, borderRadius: 14, cursor: "pointer",
+                      border: isSelected ? "2px solid #4f46e5" : "1px solid #e5e7eb",
+                      background: isSelected ? "#eef2ff" : "#fff",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <p style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: isSelected ? "#4338ca" : "#9ca3af", margin: "0 0 6px" }}>
+                      {tier.label}
+                    </p>
+                    <p style={{ fontSize: 20, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
+                      {formatCurrency(tier.total)}
+                    </p>
+                    <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>
+                      {formatCurrency(tier.estimateMin)} - {formatCurrency(tier.estimateMax)}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedTierOption && (
+              <div style={{ marginTop: 16, borderTop: "1px solid #f3f4f6", paddingTop: 16 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#374151", margin: "0 0 10px" }}>
+                  {selectedTierOption.label} tier breakdown
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {selectedTierOption.lineItems.map((item, index) => (
+                    <div key={index} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#4b5563" }}>
+                      <span>{item.description}{item.quantity > 1 ? ` (x${item.quantity})` : ""}</span>
+                      <span style={{ fontWeight: 600, color: "#111827" }}>{formatCurrency(item.lineTotal)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {error && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", padding: "10px 14px", borderRadius: 10, fontSize: 13 }}>{error}</div>}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -245,6 +348,11 @@ export function EstimateClientComponent({ quoteId, projectId, initialStatus, ini
           <h3 style={{ fontSize: 20, fontWeight: 700, color: "#065f46", margin: "0 0 6px" }}>Confirm Acceptance</h3>
           <p style={{ fontSize: 14, color: "#6b7280", margin: 0 }}>Once accepted, our team will begin scheduling your project.</p>
         </div>
+        {hasTiers && selectedTierOption && (
+          <p style={{ fontSize: 13, color: "#065f46", background: "#ecfdf5", borderRadius: 10, padding: "8px 12px", marginBottom: 12, textAlign: "center" }}>
+            You&apos;re accepting the <strong>{selectedTierOption.label}</strong> tier &middot; {formatCurrency(selectedTierOption.total)}
+          </p>
+        )}
         {error && <div style={{ background: "#fef2f2", color: "#dc2626", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12 }}>{error}</div>}
         <div style={{ display: "flex", gap: 12 }}>
           <button onClick={() => { setStep("decision"); setError(null); }} disabled={isSubmitting} style={{

@@ -10,6 +10,14 @@ import { ProjectTimeline } from "@/frontend/components/ProjectTimeline";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getAuditContextFromHeaders } from "@/backend/audit/requestContext";
 import type { RefinedEstimate } from "@/backend/services/refinedEstimate";
+import {
+  isTieredEstimate,
+  PRICING_TIER_KEYS,
+  PRICING_TIER_LABELS,
+  type AnyRefinedEstimate,
+  type TieredRefinedEstimate,
+} from "@/backend/services/pricingTiers";
+import type { EstimateTierOption } from "./EstimateClientComponent";
 
 function modificationItemsFromDraft(draftData: unknown): string[] {
   if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) return [];
@@ -136,7 +144,29 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
   }
 
   const latestQuote = project.quotes[0];
-  const refinedEstimate = (latestQuote?.refinedEstimate ?? null) as RefinedEstimate | null;
+  const refinedEstimateRaw = (latestQuote?.refinedEstimate ?? null) as AnyRefinedEstimate | null;
+  const quoteIsTiered = !!refinedEstimateRaw && isTieredEstimate(refinedEstimateRaw);
+  const refinedEstimate = quoteIsTiered ? null : (refinedEstimateRaw as RefinedEstimate | null);
+  const tieredEstimate = quoteIsTiered ? (refinedEstimateRaw as TieredRefinedEstimate) : null;
+
+  const tierOptions: EstimateTierOption[] | undefined = tieredEstimate
+    ? PRICING_TIER_KEYS.map((tierKey) => {
+        const tier = tieredEstimate.tiers[tierKey];
+        return {
+          key: tierKey,
+          label: PRICING_TIER_LABELS[tierKey],
+          subtotal: tier.subtotal,
+          laborTotal: tier.laborTotal,
+          markupTotal: tier.markupTotal,
+          total: tier.total,
+          estimateMin: tier.estimateMin,
+          estimateMax: tier.estimateMax,
+          lineItems: tier.lineItems,
+        };
+      })
+    : undefined;
+
+  const initialSelectedTier = tieredEstimate?.selectedTier ?? null;
 
   if (!latestQuote) {
     await logAuditEventNonBlocking({
@@ -308,6 +338,8 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
           projectId={project.id}
           initialStatus={latestQuote.status as "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED"}
           initialReason={latestQuote.declinedReason}
+          tiers={tierOptions}
+          initialSelectedTier={initialSelectedTier}
         />
 
         {/* Ask a Question Section */}

@@ -7,6 +7,7 @@ import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
+import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
 import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
 
 export const ESTIMATE_GENERATION_DELAY_MINUTES_ENV = "ESTIMATE_GENERATION_DELAY_MINUTES";
@@ -35,15 +36,25 @@ export function buildEstimateGenerationJobId(projectId: string): string {
   return `estimate-generation:${projectId}`;
 }
 
-export function buildQuoteItems(
-  draftData: unknown
-): Array<{ description: string; quantity: number; unitPrice: number }> {
+export function getIntakeModificationLabels(draftData: unknown): string[] {
   const modificationItems =
     draftData && typeof draftData === "object" && !Array.isArray(draftData)
       ? (draftData as { modificationItems?: unknown }).modificationItems
       : undefined;
 
-  if (!Array.isArray(modificationItems) || modificationItems.length === 0) {
+  if (!Array.isArray(modificationItems)) {
+    return [];
+  }
+
+  return modificationItems.map((item) => (typeof item === "string" ? item : String(item)));
+}
+
+export function buildQuoteItems(
+  draftData: unknown
+): Array<{ description: string; quantity: number; unitPrice: number }> {
+  const modificationLabels = getIntakeModificationLabels(draftData);
+
+  if (modificationLabels.length === 0) {
     return [
       {
         description: "Home modifications (initial intake estimate)",
@@ -53,8 +64,8 @@ export function buildQuoteItems(
     ];
   }
 
-  return modificationItems.map((item) => ({
-    description: typeof item === "string" ? item : String(item),
+  return modificationLabels.map((description) => ({
+    description,
     quantity: 1,
     unitPrice: 150,
   }));
@@ -107,11 +118,13 @@ export async function processScheduledEstimateGeneration(
   }
 
   const quoteItems = buildQuoteItems(project.draftData);
+  const modificationCodes = normalizeModificationItems(getIntakeModificationLabels(project.draftData));
 
   try {
     const quoteResult = await generateQuote({
       projectId: project.id,
       items: quoteItems,
+      modificationCodes,
     });
 
     await markEstimateReadyForReview({
@@ -127,7 +140,6 @@ export async function processScheduledEstimateGeneration(
 
     return { projectId: project.id, status: "generated", quoteId: quoteResult.quoteId };
   } catch (error) {
-    // Still queue eligibility evaluation even if quote generation failed; eligibility may still be determined from intake draft
     void queueEligibilityEvaluation(project.id).catch((e) =>
       console.warn("Failed to queue eligibility evaluation after estimate generation (quote failed):", e)
     );

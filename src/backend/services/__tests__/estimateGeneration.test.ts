@@ -196,6 +196,7 @@ describe("processScheduledEstimateGeneration", () => {
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-3",
       items: [{ description: "Walk-in shower", quantity: 1, unitPrice: 150 }],
+      modificationCodes: ["WALK_IN_SHOWER"],
     });
     expect(mockedMarkEstimateReady).toHaveBeenCalledWith(
       expect.objectContaining({

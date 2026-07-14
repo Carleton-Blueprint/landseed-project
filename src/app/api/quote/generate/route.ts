@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { projectId, items } = body;
+    const { projectId, items, modificationCodes } = body;
     projectIdForAudit = projectId;
 
     if (!projectId) {
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
     const result = await generateQuote({
       projectId,
       items: quoteItems,
+      modificationCodes: Array.isArray(modificationCodes) ? modificationCodes : undefined,
     });
 
     const readyTransition = await markEstimateReadyForReview({
