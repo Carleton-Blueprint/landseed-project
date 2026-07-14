@@ -72,7 +72,7 @@ describe("estimateGeneration delay config", () => {
   });
 
   it("builds a stable per-project job id", () => {
-    expect(buildEstimateGenerationJobId("proj-1")).toBe("estimate-generation:proj-1");
+    expect(buildEstimateGenerationJobId("proj-1")).toBe("estimate-generation-proj-1");
   });
 });
 

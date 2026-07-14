@@ -33,7 +33,7 @@ export function getEstimateGenerationDelayMs(): number {
 }
 
 export function buildEstimateGenerationJobId(projectId: string): string {
-  return `estimate-generation:${projectId}`;
+  return `estimate-generation-${projectId}`;
 }
 
 export function getIntakeModificationLabels(draftData: unknown): string[] {
