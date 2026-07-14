@@ -17,7 +17,7 @@ jest.mock("@/backend/queue", () => ({
 }));
 
 jest.mock("@/backend/services/estimateGeneration", () => ({
-  buildEstimateGenerationJobId: jest.fn((projectId: string) => `estimate-generation-${projectId}`),
+  buildEstimateGenerationJobId: jest.fn((projectId: string) => `estimate-generation:${projectId}`),
   getEstimateGenerationDelayMs: jest.fn(() => 15 * 60 * 1000),
 }));
 
@@ -153,7 +153,7 @@ describe("finalizeIntake", () => {
       "generate-estimate",
       { projectId: "proj-3", actorUserId: "user-3" },
       expect.objectContaining({
-        jobId: "estimate-generation-proj-3",
+        jobId: "estimate-generation:proj-3",
         delay: 15 * 60 * 1000,
       })
     );
