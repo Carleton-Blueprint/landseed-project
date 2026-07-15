@@ -3,7 +3,8 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
+import { House, LogOut } from "lucide-react";
 
 export function Navigation() {
   const pathname = usePathname();
@@ -12,50 +13,49 @@ export function Navigation() {
   const isAuthenticated = !!session?.user;
   const isAdmin = session?.user?.role === "ADMIN";
 
-  // Clean, uncluttered navigation menu: removed "Submitted", "Caregiver", and "Share Access" from top bar
-  const navLinks = isAuthenticated
-    ? [
-        { href: "/", label: "Request Assessment" },
-        { href: "/dashboard", label: "Project Tracker" },
-        ...(isAdmin ? [{ href: "/admin", label: "Advisor Panel" }] : []),
-      ]
-    : [
-        { href: "/", label: "Request Assessment" },
-        { href: "/auth/signin", label: "Sign In" },
-      ];
+  if (!isAuthenticated) return null;
+
+  const navLinks = [
+    { href: "/dashboard", label: "My Projects" },
+    ...(isAdmin ? [{ href: "/admin", label: "Advisor Panel" }] : []),
+  ];
+
+  const initials = session?.user?.name
+    ? session.user.name
+        .split(" ")
+        .map((n: string) => n[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
+    : session?.user?.email?.[0]?.toUpperCase() ?? "?";
 
   return (
-    <header className="sticky top-0 z-40 border-b border-gray-100 bg-white/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        
-        {/* Brand Logo */}
-        <Link href={isAuthenticated ? "/dashboard" : "/"} className="flex items-center gap-2 group">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-md transition-all duration-200 group-hover:scale-105 group-hover:bg-emerald-700">
-            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75" />
-            </svg>
+    <header className="sticky top-0 z-40 border-b border-gray-100 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85 shadow-sm">
+      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-2 group"
+          aria-label="LandSeed home"
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm transition-transform duration-200 group-hover:scale-105">
+            <House className="h-4 w-4" />
           </div>
-          <span className="text-base font-extrabold text-slate-800 transition-colors duration-200 group-hover:text-emerald-700">
-            LandSeed <span className="text-emerald-600">Demo</span>
+          <span className="text-sm font-bold text-slate-800 transition-colors group-hover:text-emerald-700">
+            LandSeed
           </span>
         </Link>
 
-        {/* Global Navigation */}
-        <nav
-          className="flex flex-wrap items-center justify-end gap-2"
-          aria-label="Global navigation"
-        >
+        <nav className="flex items-center gap-1" aria-label="Main navigation">
           {navLinks.map((link) => {
             const isActive = pathname === link.href;
-
             return (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`rounded-lg border px-3.5 py-1.5 text-xs font-semibold tracking-wide transition-all duration-200 active:scale-95 ${
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 ${
                   isActive
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm"
-                    : "border-gray-200 bg-white text-gray-600 hover:border-emerald-300 hover:bg-emerald-50/30 hover:text-emerald-700"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                 }`}
               >
                 {link.label}
@@ -63,38 +63,31 @@ export function Navigation() {
             );
           })}
 
-          {!isAuthenticated && (
-            <Link
-              href="/auth/signup"
-              className={`rounded-lg border px-3.5 py-1.5 text-xs font-bold tracking-wide transition-all duration-200 active:scale-95 shadow-2xs ${
-                pathname === "/auth/signup"
-                  ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
-                  : "border-emerald-600 bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 hover:shadow"
-              }`}
-            >
-              Create Account
-            </Link>
-          )}
+          <div className="mx-2 h-5 w-px bg-gray-200" aria-hidden />
 
-          {/* Profile Avatar / Link */}
-          {isAuthenticated && (
-            <>
-              <div className="h-6 w-[1px] bg-gray-200 mx-1 hidden sm:block" />
-              <Link
-                href="/profile"
-                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white shadow-md transition-all duration-200 active:scale-90 ${
-                  pathname === "/profile"
-                    ? "bg-emerald-600 ring-2 ring-emerald-400"
-                    : "bg-slate-700 hover:bg-emerald-600 hover:scale-105"
-                }`}
-                title="My Profile"
-              >
-                DU
-              </Link>
-            </>
-          )}
+          <div className="flex items-center gap-2">
+            <Link
+              href="/profile"
+              className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white shadow transition-all duration-150 ${
+                pathname === "/profile"
+                  ? "bg-emerald-600 ring-2 ring-emerald-300"
+                  : "bg-slate-700 hover:bg-emerald-600 hover:scale-105"
+              }`}
+              title="My Profile"
+              aria-label="My Profile"
+            >
+              {initials}
+            </Link>
+            <button
+              onClick={() => signOut({ callbackUrl: "/" })}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-all duration-150 hover:bg-red-50 hover:text-red-500"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </nav>
-        
       </div>
     </header>
   );

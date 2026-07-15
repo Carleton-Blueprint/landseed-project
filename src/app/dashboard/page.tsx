@@ -313,16 +313,16 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       {/* Dashboard header */}
       <div className="border-b bg-white">
-        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-start sm:justify-between md:px-8">
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between md:px-8">
           <div className="min-w-0">
             <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-              Project Tracker
+              My Projects
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Track your home modification projects and InPlace AI-discovered grant eligibility.
+              Track your home modification projects and grant eligibility.
             </p>
           </div>
-          <div className="shrink-0 self-end sm:self-start">
+          <div className="shrink-0">
             <NotificationCenter notifications={notifications} />
           </div>
         </div>

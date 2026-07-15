@@ -193,7 +193,7 @@ export function DashboardProjectsClient({
         </div>
       )}
 
-      {/* Tabs Bar */}
+      {/* Tabs Bar & Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-200 pb-4">
         <nav className="flex space-x-2" aria-label="Projects Filter">
           <button
@@ -227,6 +227,15 @@ export function DashboardProjectsClient({
             Drafts <span className={`ml-1 rounded-full px-2 py-0.5 text-xs ${activeTab === "draft" ? "bg-emerald-700 text-white" : "bg-gray-100 text-gray-600"}`}>{draftProjects.length}</span>
           </button>
         </nav>
+
+        {projects.length > 0 && (
+          <Link href="/">
+            <Button className="h-9 gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all">
+              <span className="text-base leading-none">+</span>
+              Start New Project
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Projects List or Empty State */}
@@ -242,16 +251,21 @@ export function DashboardProjectsClient({
           </h2>
           <p className="mt-1 text-sm text-gray-500">
             {activeTab === "submitted"
-              ? "When you submit a project request from the intake form, it will appear here."
+              ? "When you submit a project request, it will appear here."
               : activeTab === "draft"
               ? "You don't have any pending project applications."
               : "Submit a request to start a new home modification project."}
           </p>
-          <Link href="/">
-            <Button variant="default" className="mt-4">
-              Start New Project
-            </Button>
-          </Link>
+          {projects.length === 0 && (
+            <div className="mt-6">
+              <Link href="/">
+                <Button className="gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all">
+                  <span className="text-base leading-none">+</span>
+                  Start New Project
+                </Button>
+              </Link>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-5">

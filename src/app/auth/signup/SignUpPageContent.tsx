@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Button } from "@/frontend/components/ui/button";
 import { Input } from "@/frontend/components/ui/input";
-import { AuthPageShell } from "@/frontend/components/auth/AuthPageShell";
 import { 
   User, 
   Mail, 
@@ -392,15 +391,14 @@ function SignUpForm() {
       </form>
 
       {/* Sign In Link */}
-      <div className="border-t border-gray-100 pt-5 text-center">
-        <p className="text-sm text-gray-600">
-          Already have a LandSeed account?{" "}
+      <div className="border-t border-gray-100 pt-4 text-center">
+        <p className="text-sm text-gray-500">
+          Already have an account?{" "}
           <Link
-            href={callbackUrl !== "/dashboard" ? `/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/auth/signin"}
-            className="font-semibold text-emerald-600 hover:text-emerald-700 hover:underline transition-colors inline-flex items-center gap-1 ml-1"
+            href="/"
+            className="font-semibold text-emerald-600 hover:text-emerald-700 hover:underline transition-colors"
           >
-            Sign in here
-            <ArrowRight className="h-3.5 w-3.5" />
+            Sign in
           </Link>
         </p>
       </div>
@@ -408,22 +406,60 @@ function SignUpForm() {
   );
 }
 
+const SIGNUP_BG = `
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .su-fade-up   { animation: fade-up 0.55s cubic-bezier(.22,1,.36,1) both; }
+  .su-fade-up-1 { animation: fade-up 0.55s 0.08s cubic-bezier(.22,1,.36,1) both; }
+  .su-fade-up-2 { animation: fade-up 0.55s 0.16s cubic-bezier(.22,1,.36,1) both; }
+`;
+
 export function SignUpPageContent() {
   return (
-    <AuthPageShell
-      title="Create Client Account"
-      description="Set up your secure LandSeed portal to track your home adaptation projects"
-    >
-      <Suspense
-        fallback={
-          <div className="h-48 flex flex-col items-center justify-center gap-3">
-            <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm font-medium text-gray-600">Loading secure registration portal...</span>
-          </div>
-        }
-      >
-        <SignUpForm />
-      </Suspense>
-    </AuthPageShell>
+    <div className="relative flex min-h-screen items-start justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 px-4 py-12 sm:items-center">
+      <style>{SIGNUP_BG}</style>
+
+      {/* Decorative blobs */}
+      <div aria-hidden className="pointer-events-none fixed -top-24 -right-24 h-96 w-96 rounded-full bg-emerald-100/50 blur-3xl" />
+      <div aria-hidden className="pointer-events-none fixed -bottom-24 -left-24 h-80 w-80 rounded-full bg-teal-100/40 blur-3xl" />
+
+      <div className="relative z-10 w-full max-w-sm space-y-8">
+        {/* Logo */}
+        <div className="su-fade-up text-center">
+          <Link href="/" className="inline-flex flex-col items-center gap-3 group">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200 transition-transform group-hover:scale-105">
+              <Sparkles className="h-6 w-6 text-white" />
+            </div>
+            <span className="text-2xl font-bold tracking-tight text-gray-900">LandSeed</span>
+          </Link>
+          <p className="mt-1 text-sm text-gray-500">Create your secure account</p>
+        </div>
+
+        {/* Card */}
+        <div className="su-fade-up-1 rounded-2xl border border-gray-100 bg-white/90 p-7 shadow-xl shadow-gray-100/60 backdrop-blur-sm">
+          <h2 className="mb-5 text-base font-semibold text-gray-800">Set up your account</h2>
+          <Suspense
+            fallback={
+              <div className="flex justify-center py-10">
+                <span className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+              </div>
+            }
+          >
+            <SignUpForm />
+          </Suspense>
+        </div>
+
+        {/* Sign in link */}
+        <p className="su-fade-up-2 text-center text-sm text-gray-500">
+          Already have an account?{" "}
+          <Link href="/" className="font-semibold text-emerald-600 hover:text-emerald-700 hover:underline transition-colors">
+            Sign in
+          </Link>
+        </p>
+      </div>
+    </div>
   );
 }
+

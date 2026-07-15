@@ -33,10 +33,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
         <Providers>
-          <div className="min-h-screen bg-background">
-            <Navigation />
-            {children}
-          </div>
+          {/* Navigation hides itself when the user is unauthenticated */}
+          <Navigation />
+          {children}
         </Providers>
       </body>
     </html>
