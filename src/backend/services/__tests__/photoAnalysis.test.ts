@@ -60,7 +60,7 @@ describe("analyzeProjectPhoto", () => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
     process.env.OPENAI_API_KEY = "sk-test";
-    delete process.env.PHOTO_ANALYSIS_AI_ENABLED;
+    process.env.PHOTO_ANALYSIS_AI_ENABLED = "true";
     delete process.env.PHOTO_ANALYSIS_MOCK_AI;
   });
 
@@ -80,6 +80,15 @@ describe("analyzeProjectPhoto", () => {
 
   it("returns a SKIPPED no-signal result when PHOTO_ANALYSIS_AI_ENABLED=false", async () => {
     process.env.PHOTO_ANALYSIS_AI_ENABLED = "false";
+
+    const result = await analyzeProjectPhoto("https://example.com/photo.png");
+
+    expect(result.status).toBe("SKIPPED");
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("defaults to SKIPPED (dark ship) when PHOTO_ANALYSIS_AI_ENABLED is unset", async () => {
+    delete process.env.PHOTO_ANALYSIS_AI_ENABLED;
 
     const result = await analyzeProjectPhoto("https://example.com/photo.png");
 
@@ -191,7 +200,7 @@ describe("processPhotoModificationAnalysisJob", () => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
     process.env.OPENAI_API_KEY = "sk-test";
-    delete process.env.PHOTO_ANALYSIS_AI_ENABLED;
+    process.env.PHOTO_ANALYSIS_AI_ENABLED = "true";
     delete process.env.PHOTO_ANALYSIS_MOCK_AI;
   });
 
@@ -199,11 +208,12 @@ describe("processPhotoModificationAnalysisJob", () => {
     process.env = originalEnv;
   });
 
-  function mockPhoto(modificationItems: string[] = ["Grab bars"]) {
+  function mockPhoto(modificationItems: string[] = ["Grab bars"], analysisStatus = "PENDING") {
     mockFindUnique.mockResolvedValue({
       id: "photo-1",
       projectId: "project-1",
       url: "https://example.com/photo.png",
+      analysisStatus,
       project: { id: "project-1", draftData: { modificationItems } },
     });
   }
@@ -221,6 +231,19 @@ describe("processPhotoModificationAnalysisJob", () => {
       "Photo not found: missing"
     );
   });
+
+  it.each(["READY", "ANALYZING"])(
+    "skips re-analysis (cost guardrail) when the photo is already %s",
+    async (analysisStatus) => {
+      mockPhoto(["Grab bars"], analysisStatus);
+
+      await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+      expect(mockCreate).not.toHaveBeenCalled();
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+    }
+  );
 
   it("is a no-op when AI-inferred codes agree with the client's declared codes", async () => {
     mockPhoto(["Grab bars"]);

@@ -214,10 +214,13 @@ export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalys
     return noSignalResult("SKIPPED", "OPENAI_API_KEY not set");
   }
 
-  const enabled = (process.env.PHOTO_ANALYSIS_AI_ENABLED ?? "true").toLowerCase();
-  if (enabled === "false") {
-    debug("MAIN", "PHOTO_ANALYSIS_AI_ENABLED=false — skipping analysis");
-    return noSignalResult("SKIPPED", "PHOTO_ANALYSIS_AI_ENABLED=false");
+  // Defaults OFF (opt-in), unlike grant discovery's default-on AI flag: this feature
+  // auto-writes ProjectManualReviewFlag rows, a staff-visible workflow side effect,
+  // so it ships dark per-environment until product signs off on the rollout.
+  const enabled = (process.env.PHOTO_ANALYSIS_AI_ENABLED ?? "false").toLowerCase();
+  if (enabled !== "true") {
+    debug("MAIN", "PHOTO_ANALYSIS_AI_ENABLED is not \"true\" — skipping analysis");
+    return noSignalResult("SKIPPED", "PHOTO_ANALYSIS_AI_ENABLED is not enabled");
   }
 
   if ((process.env.PHOTO_ANALYSIS_MOCK_AI ?? "false").toLowerCase() === "true") {
@@ -315,6 +318,14 @@ export async function processPhotoModificationAnalysisJob(
 
   if (!photo) {
     throw new Error(`Photo not found: ${payload.photoId}`);
+  }
+
+  // Cost guardrail: at most one live analysis call per photo. READY means it already
+  // has a result; ANALYZING means a job is already in flight (e.g. a duplicate enqueue
+  // racing the jobId-deduped one). FAILED/SKIPPED/PENDING are all safe to (re)run.
+  if (photo.analysisStatus === "READY" || photo.analysisStatus === "ANALYZING") {
+    debug("MAIN", `Skipping re-analysis — photo ${photo.id} is already ${photo.analysisStatus}`);
+    return;
   }
 
   await prisma.photo.update({
