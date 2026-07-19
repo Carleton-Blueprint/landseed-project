@@ -212,13 +212,23 @@ model ProjectAccess {
 }
 
 model Photo {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   url               String
-  virus_scan_status String   @default("pending")
+  virus_scan_status String    @default("pending")
   projectId         String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // AI photo analysis / scope inference (advisory — see photoAnalysis.ts).
+  // Never overwrites the client's declared draftData.modificationItems; a
+  // mismatch trips a ProjectManualReviewFlag instead.
+  analysisStatus      String    @default("PENDING")
+  aiModificationCodes String[]  @default([])
+  aiConfidence        String?
+  analysisModel       String?
+  analysisError       String?   @db.Text
+  analyzedAt          DateTime?
 }
 
 model Quote {
@@ -630,6 +640,7 @@ enum ProjectManualReviewReasonCode {
   LOW_CONFIDENCE
   HIGH_COMPLEXITY
   BOTH
+  PHOTO_MODIFICATION_MISMATCH
 }
 
 enum CommunicationType {
