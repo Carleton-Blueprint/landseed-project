@@ -544,6 +544,7 @@ enum QuestionStatus {
 enum AuditEventCategory {
   MANUAL_CHANGE
   SENSITIVE_ACCESS
+  AI_GENERATION
 }
 
 enum AuditEventOutcome {

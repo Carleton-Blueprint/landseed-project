@@ -14,8 +14,13 @@
  */
 import { getOpenAIClient } from "lib/openai";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
+import { prisma } from "lib/prisma";
 import { MODIFICATION_CODES, ModificationCode } from "@/backend/eligibility/types";
+import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
 import { PHOTO_ANALYSIS_MODEL_NAME } from "@/backend/services/photoAnalysisModelConfig";
+import { getIntakeModificationLabels } from "@/backend/services/estimateGeneration";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { manualReviewQueue } from "@/backend/queue";
 
 export type PhotoAnalysisConfidence = "HIGH" | "MEDIUM" | "LOW";
 export type PhotoAnalysisStatus = "READY" | "FAILED" | "SKIPPED";
@@ -271,4 +276,115 @@ export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalys
     debug("MAIN", "Analysis threw an exception — returning no-signal result", { error: errorMessage });
     return noSignalResult("FAILED", errorMessage);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Job processing (invoked from the ai-jobs queue worker)
+// ---------------------------------------------------------------------------
+
+export const PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE = "PHOTO_MODIFICATION_ANALYSIS" as const;
+
+export interface PhotoModificationAnalysisJobPayload {
+  photoId: string;
+}
+
+function sameCodeSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setA = new Set(a);
+  return b.every((code) => setA.has(code));
+}
+
+/**
+ * Processes one photo-analysis job: runs analyzeProjectPhoto(), persists the
+ * result on the Photo row, and — only on READY results — reconciles the
+ * AI-inferred codes against the client's declared draftData.modificationItems.
+ *
+ * Reconciliation never overwrites the client's declared codes: agreement is a
+ * no-op, and disagreement (or LOW AI confidence) enqueues a manual-review flag
+ * (PHOTO_MODIFICATION_MISMATCH) via the existing manual-review queue/worker,
+ * which staff can act on. FAILED/SKIPPED results have no signal to reconcile,
+ * so the client's declared codes are left as the only source of truth.
+ */
+export async function processPhotoModificationAnalysisJob(
+  payload: PhotoModificationAnalysisJobPayload
+): Promise<void> {
+  const photo = await prisma.photo.findUnique({
+    where: { id: payload.photoId },
+    include: { project: true },
+  });
+
+  if (!photo) {
+    throw new Error(`Photo not found: ${payload.photoId}`);
+  }
+
+  await prisma.photo.update({
+    where: { id: photo.id },
+    data: { analysisStatus: "ANALYZING" },
+  });
+
+  const startedAt = Date.now();
+  const result = await analyzeProjectPhoto(photo.url);
+
+  await prisma.photo.update({
+    where: { id: photo.id },
+    data: {
+      analysisStatus: result.status,
+      aiModificationCodes: result.modificationCodes,
+      aiConfidence: result.confidence,
+      analysisModel: result.model,
+      analysisError: result.error,
+      analyzedAt: new Date(),
+    },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "AI_GENERATION",
+    action: result.status === "READY" ? "PHOTO_MODIFICATION_ANALYSIS_READY" : "PHOTO_MODIFICATION_ANALYSIS_FAILED",
+    outcome: result.status === "READY" ? "SUCCESS" : "FAILURE",
+    sensitivityLevel: "INTERNAL",
+    projectId: photo.projectId,
+    resourceType: "photo",
+    resourceId: photo.id,
+    description:
+      result.status === "READY"
+        ? "AI photo analysis completed"
+        : `AI photo analysis produced no signal (${result.status}): ${result.error ?? "unknown reason"}`,
+    metadata: {
+      model: result.model,
+      confidence: result.confidence,
+      modificationCodes: result.modificationCodes,
+      status: result.status,
+      error: result.error,
+      durationMs: Date.now() - startedAt,
+    },
+  });
+
+  if (result.status !== "READY") {
+    return;
+  }
+
+  const declaredCodes = normalizeModificationItems(getIntakeModificationLabels(photo.project.draftData));
+  const aiInferredCodes = result.modificationCodes;
+  const isMismatch = !sameCodeSet(declaredCodes, aiInferredCodes);
+  const isLowConfidence = result.confidence === "LOW";
+
+  if (!isMismatch && !isLowConfidence) {
+    return;
+  }
+
+  await manualReviewQueue.add(
+    "manual-review",
+    {
+      projectId: photo.projectId,
+      reason: "PHOTO_MODIFICATION_MISMATCH",
+      aiConfidence: result.confidence ?? "LOW",
+      photoId: photo.id,
+      metadata: { declaredCodes, aiInferredCodes },
+    },
+    {
+      jobId: `manual-review-${photo.projectId}-photo-${photo.id}`,
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 500 },
+    }
+  );
 }

@@ -16,8 +16,33 @@ jest.mock("lib/s3", () => ({
   getSignedDownloadUrlFromS3Url: jest.fn().mockResolvedValue("https://signed.example.com/photo.png"),
 }));
 
-const { analyzeProjectPhoto, buildPhotoAnalysisPrompt } =
-  require("../photoAnalysis") as typeof import("../photoAnalysis");
+const mockFindUnique = jest.fn();
+const mockUpdate = jest.fn();
+
+jest.mock("lib/prisma", () => ({
+  prisma: {
+    photo: {
+      findUnique: (...args: unknown[]) => mockFindUnique(...args),
+      update: (...args: unknown[]) => mockUpdate(...args),
+    },
+  },
+}));
+
+const mockLogAuditEventNonBlocking = jest.fn().mockResolvedValue(undefined);
+jest.mock("@/backend/audit/log", () => ({
+  logAuditEventNonBlocking: (...args: unknown[]) => mockLogAuditEventNonBlocking(...args),
+}));
+
+const mockManualReviewQueueAdd = jest.fn().mockResolvedValue(undefined);
+jest.mock("@/backend/queue", () => ({
+  manualReviewQueue: { add: (...args: unknown[]) => mockManualReviewQueueAdd(...args) },
+}));
+
+const {
+  analyzeProjectPhoto,
+  buildPhotoAnalysisPrompt,
+  processPhotoModificationAnalysisJob,
+} = require("../photoAnalysis") as typeof import("../photoAnalysis");
 
 describe("buildPhotoAnalysisPrompt", () => {
   it("includes every modification code in the taxonomy", () => {
@@ -155,6 +180,104 @@ describe("analyzeProjectPhoto", () => {
     expect(getSignedDownloadUrlFromS3Url).toHaveBeenCalledWith(
       "https://my-bucket.s3.amazonaws.com/photo.png",
       300
+    );
+  });
+});
+
+describe("processPhotoModificationAnalysisJob", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env = { ...originalEnv };
+    process.env.OPENAI_API_KEY = "sk-test";
+    delete process.env.PHOTO_ANALYSIS_AI_ENABLED;
+    delete process.env.PHOTO_ANALYSIS_MOCK_AI;
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  function mockPhoto(modificationItems: string[] = ["Grab bars"]) {
+    mockFindUnique.mockResolvedValue({
+      id: "photo-1",
+      projectId: "project-1",
+      url: "https://example.com/photo.png",
+      project: { id: "project-1", draftData: { modificationItems } },
+    });
+  }
+
+  function mockOpenAiResponse(modificationCodes: string[], confidence: string) {
+    mockCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({ modificationCodes, confidence, rationale: "test" }) } }],
+    });
+  }
+
+  it("throws when the photo is not found", async () => {
+    mockFindUnique.mockResolvedValue(null);
+
+    await expect(processPhotoModificationAnalysisJob({ photoId: "missing" })).rejects.toThrow(
+      "Photo not found: missing"
+    );
+  });
+
+  it("is a no-op when AI-inferred codes agree with the client's declared codes", async () => {
+    mockPhoto(["Grab bars"]);
+    mockOpenAiResponse(["GRAB_BARS"], "HIGH");
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenLastCalledWith({
+      where: { id: "photo-1" },
+      data: expect.objectContaining({
+        analysisStatus: "READY",
+        aiModificationCodes: ["GRAB_BARS"],
+        aiConfidence: "HIGH",
+      }),
+    });
+    expect(mockLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PHOTO_MODIFICATION_ANALYSIS_READY", outcome: "SUCCESS" })
+    );
+  });
+
+  it("flags a manual review when AI-inferred codes disagree with the client's declared codes", async () => {
+    mockPhoto(["Grab bars"]);
+    mockOpenAiResponse(["WALK_IN_SHOWER"], "HIGH");
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).toHaveBeenCalledWith(
+      "manual-review",
+      expect.objectContaining({
+        projectId: "project-1",
+        reason: "PHOTO_MODIFICATION_MISMATCH",
+        photoId: "photo-1",
+        metadata: { declaredCodes: ["GRAB_BARS"], aiInferredCodes: ["WALK_IN_SHOWER"] },
+      }),
+      expect.objectContaining({ jobId: "manual-review-project-1-photo-photo-1" })
+    );
+  });
+
+  it("flags a manual review on LOW confidence even when the codes agree", async () => {
+    mockPhoto(["Grab bars"]);
+    mockOpenAiResponse(["GRAB_BARS"], "LOW");
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reconcile or flag when analysis produces no signal", async () => {
+    mockPhoto(["Grab bars"]);
+    mockCreate.mockRejectedValue(new Error("network timeout"));
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+    expect(mockLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PHOTO_MODIFICATION_ANALYSIS_FAILED", outcome: "FAILURE" })
     );
   });
 });

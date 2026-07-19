@@ -17,7 +17,7 @@ import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { ProjectManualReviewReasonCode } from '@prisma/client';
 
 const worker = createManualReviewWorker(async (job) => {
-  const { projectId, assessmentId, aiConfidence, complexityScore, reason } = job.data;
+  const { projectId, assessmentId, aiConfidence, complexityScore, reason, photoId, metadata } = job.data;
 
   // Step 1: Validate project exists
   const project = await prisma.project.findUnique({
@@ -30,26 +30,29 @@ const worker = createManualReviewWorker(async (job) => {
   }
 
   // Step 2: Stale evaluation guard
-  // Ignore this job if the project has a newer assessment than the one triggering this flag
-  const latestAssessment = await prisma.eligibilityAssessment.findFirst({
-    where: { projectId },
-    orderBy: { createdAt: 'desc' },
-    select: { id: true, createdAt: true },
-  });
+  // Only applies to eligibility-assessment-driven triggers (grant discovery). Triggers with no
+  // assessmentId (e.g. photo analysis) have nothing to go stale against, so they skip this guard.
+  if (assessmentId) {
+    const latestAssessment = await prisma.eligibilityAssessment.findFirst({
+      where: { projectId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, createdAt: true },
+    });
 
-  if (latestAssessment && latestAssessment.id !== assessmentId) {
-    console.log(
-      `[ManualReview] Stale evaluation guard: ignoring job for assessment ${assessmentId} ` +
-        `(newer assessment exists: ${latestAssessment.id})`
-    );
-    return;
+    if (latestAssessment && latestAssessment.id !== assessmentId) {
+      console.log(
+        `[ManualReview] Stale evaluation guard: ignoring job for assessment ${assessmentId} ` +
+          `(newer assessment exists: ${latestAssessment.id})`
+      );
+      return;
+    }
   }
 
   // Step 3: Determine reason enum value
   const reasonCode = reason as ProjectManualReviewReasonCode;
 
   // Step 4: Build description for audit trail
-  const description = buildFlagDescription(reasonCode, aiConfidence, complexityScore);
+  const description = buildFlagDescription(reasonCode, aiConfidence, complexityScore, metadata);
 
   // Step 5: Upsert ProjectManualReviewFlag
   const existingFlag = await prisma.projectManualReviewFlag.findUnique({
@@ -63,7 +66,7 @@ const worker = createManualReviewWorker(async (job) => {
         reason: reasonCode,
         isActive: true,
         lastEvaluatedAt: new Date(),
-        lastEvaluationEligibilityAssessmentId: assessmentId,
+        lastEvaluationEligibilityAssessmentId: assessmentId ?? null,
         description,
       },
     });
@@ -75,6 +78,8 @@ const worker = createManualReviewWorker(async (job) => {
       assessmentId,
       reason: reasonCode,
       description,
+      photoId,
+      metadata,
     });
 
     console.log(`[ManualReview] Updated flag for project ${projectId} (reason: ${reasonCode})`);
@@ -85,7 +90,7 @@ const worker = createManualReviewWorker(async (job) => {
         reason: reasonCode,
         isActive: true,
         lastEvaluatedAt: new Date(),
-        lastEvaluationEligibilityAssessmentId: assessmentId,
+        lastEvaluationEligibilityAssessmentId: assessmentId ?? null,
         description,
       },
     });
@@ -97,6 +102,8 @@ const worker = createManualReviewWorker(async (job) => {
       assessmentId,
       reason: reasonCode,
       description,
+      photoId,
+      metadata,
     });
 
     console.log(`[ManualReview] Created flag for project ${projectId} (reason: ${reasonCode})`);
@@ -125,7 +132,8 @@ worker.on('error', (err) => {
 function buildFlagDescription(
   reason: ProjectManualReviewReasonCode,
   aiConfidence: string,
-  complexityScore?: number
+  complexityScore?: number,
+  metadata?: Record<string, unknown>
 ): string {
   const parts: string[] = [];
 
@@ -135,6 +143,15 @@ function buildFlagDescription(
     parts.push(`Project complexity is HIGH (${complexityScore ?? 0} signals detected)`);
   } else if (reason === 'BOTH') {
     parts.push('LOW AI confidence + HIGH complexity');
+  } else if (reason === 'PHOTO_MODIFICATION_MISMATCH') {
+    const declared = metadata?.declaredCodes;
+    const aiInferred = metadata?.aiInferredCodes;
+    parts.push(
+      Array.isArray(declared) && Array.isArray(aiInferred)
+        ? `AI-inferred modification codes (${aiInferred.join(', ') || 'none'}) differ from the ` +
+            `client-declared codes (${declared.join(', ') || 'none'})`
+        : 'AI-inferred modification codes differ from the client-declared codes, or AI confidence was LOW'
+    );
   }
 
   parts.push(`AI confidence level: ${aiConfidence}`);
@@ -152,6 +169,8 @@ async function createAuditEvent({
   assessmentId,
   reason,
   description,
+  photoId,
+  metadata,
 }: {
   action: string;
   flagId: string;
@@ -159,6 +178,8 @@ async function createAuditEvent({
   assessmentId?: string;
   reason: ProjectManualReviewReasonCode;
   description: string;
+  photoId?: string;
+  metadata?: Record<string, unknown>;
 }): Promise<void> {
   await logAuditEventNonBlocking({
     category: 'MANUAL_CHANGE',
@@ -170,6 +191,8 @@ async function createAuditEvent({
     description,
     metadata: {
       ...(assessmentId ? { assessmentId } : {}),
+      ...(photoId ? { photoId } : {}),
+      ...(metadata ?? {}),
       reason,
       timestamp: new Date().toISOString(),
     },
