@@ -18,12 +18,14 @@ jest.mock("lib/s3", () => ({
 
 const mockFindUnique = jest.fn();
 const mockUpdate = jest.fn();
+const mockFindMany = jest.fn();
 
 jest.mock("lib/prisma", () => ({
   prisma: {
     photo: {
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
       update: (...args: unknown[]) => mockUpdate(...args),
+      findMany: (...args: unknown[]) => mockFindMany(...args),
     },
   },
 }));
@@ -202,6 +204,7 @@ describe("processPhotoModificationAnalysisJob", () => {
     process.env.OPENAI_API_KEY = "sk-test";
     process.env.PHOTO_ANALYSIS_AI_ENABLED = "true";
     delete process.env.PHOTO_ANALYSIS_MOCK_AI;
+    mockFindMany.mockResolvedValue([]);
   });
 
   afterAll(() => {
@@ -224,6 +227,26 @@ describe("processPhotoModificationAnalysisJob", () => {
     });
   }
 
+  interface SiblingPhoto {
+    virus_scan_status?: string;
+    analysisStatus: string;
+    aiModificationCodes?: string[];
+    aiConfidence?: string | null;
+  }
+
+  // Represents the state of ALL of the project's photos (including this job's own photo,
+  // post-update) as seen by the project-level completion/reconciliation check.
+  function mockProjectPhotos(photos: SiblingPhoto[]) {
+    mockFindMany.mockResolvedValue(
+      photos.map((p) => ({
+        virus_scan_status: p.virus_scan_status ?? "clean",
+        analysisStatus: p.analysisStatus,
+        aiModificationCodes: p.aiModificationCodes ?? [],
+        aiConfidence: p.aiConfidence ?? null,
+      }))
+    );
+  }
+
   it("throws when the photo is not found", async () => {
     mockFindUnique.mockResolvedValue(null);
 
@@ -241,17 +264,18 @@ describe("processPhotoModificationAnalysisJob", () => {
 
       expect(mockCreate).not.toHaveBeenCalled();
       expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockFindMany).not.toHaveBeenCalled();
       expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
     }
   );
 
-  it("is a no-op when AI-inferred codes agree with the client's declared codes", async () => {
+  it("persists the analysis result and logs an audit event regardless of reconciliation outcome", async () => {
     mockPhoto(["Grab bars"]);
     mockOpenAiResponse(["GRAB_BARS"], "HIGH");
+    mockProjectPhotos([{ analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "HIGH" }]);
 
     await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
 
-    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenLastCalledWith({
       where: { id: "photo-1" },
       data: expect.objectContaining({
@@ -265,9 +289,38 @@ describe("processPhotoModificationAnalysisJob", () => {
     );
   });
 
-  it("flags a manual review when AI-inferred codes disagree with the client's declared codes", async () => {
+  it("does not reconcile while another of the project's photos is still pending analysis", async () => {
     mockPhoto(["Grab bars"]);
-    mockOpenAiResponse(["WALK_IN_SHOWER"], "HIGH");
+    mockOpenAiResponse(["GRAB_BARS"], "HIGH");
+    mockProjectPhotos([
+      { analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "HIGH" },
+      { analysisStatus: "PENDING" }, // sibling photo not yet analyzed
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("is a project-level no-op when the union of all photos' codes agrees with the declared codes", async () => {
+    mockPhoto(["Grab bars", "Widened doorway"]);
+    mockOpenAiResponse(["GRAB_BARS"], "HIGH");
+    // This photo shows GRAB_BARS; a sibling (e.g. an entryway shot) shows WIDENED_DOORWAY —
+    // together they account for everything declared, so no photo alone needs to match.
+    mockProjectPhotos([
+      { analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "HIGH" },
+      { analysisStatus: "READY", aiModificationCodes: ["WIDENED_DOORWAY"], aiConfidence: "HIGH" },
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("flags a manual review when the union of all photos' codes still disagrees with the declared codes", async () => {
+    mockPhoto(["Grab bars", "Widened doorway"]);
+    mockOpenAiResponse(["GRAB_BARS"], "HIGH");
+    mockProjectPhotos([{ analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "HIGH" }]);
 
     await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
 
@@ -276,25 +329,61 @@ describe("processPhotoModificationAnalysisJob", () => {
       expect.objectContaining({
         projectId: "project-1",
         reason: "PHOTO_MODIFICATION_MISMATCH",
-        photoId: "photo-1",
-        metadata: { declaredCodes: ["GRAB_BARS"], aiInferredCodes: ["WALK_IN_SHOWER"] },
+        aiConfidence: "HIGH",
+        metadata: {
+          declaredCodes: ["GRAB_BARS", "WIDENED_DOORWAY"],
+          aiInferredCodes: ["GRAB_BARS"],
+          analyzedPhotoCount: 1,
+        },
       }),
-      expect.objectContaining({ jobId: "manual-review-project-1-photo-photo-1" })
+      expect.objectContaining({ jobId: "manual-review-project-1-photo-mismatch" })
     );
   });
 
-  it("flags a manual review on LOW confidence even when the codes agree", async () => {
+  it("flags a manual review when every analyzed photo is LOW confidence, even if codes match", async () => {
     mockPhoto(["Grab bars"]);
     mockOpenAiResponse(["GRAB_BARS"], "LOW");
+    mockProjectPhotos([{ analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "LOW" }]);
 
     await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
 
     expect(mockManualReviewQueueAdd).toHaveBeenCalledTimes(1);
   });
 
-  it("does not reconcile or flag when analysis produces no signal", async () => {
+  it("does not flag on mixed confidence when the union of codes still matches", async () => {
+    mockPhoto(["Grab bars"]);
+    mockOpenAiResponse(["GRAB_BARS"], "LOW");
+    // One LOW-confidence photo alongside a HIGH-confidence one that agrees — not ALL low,
+    // so a single uncertain photo shouldn't drag down an otherwise solid match.
+    mockProjectPhotos([
+      { analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "LOW" },
+      { analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "HIGH" },
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("treats infected sibling photos as excluded (not pending) for the completion check", async () => {
+    mockPhoto(["Grab bars"]);
+    mockOpenAiResponse(["GRAB_BARS"], "HIGH");
+    mockProjectPhotos([
+      { analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "HIGH" },
+      { virus_scan_status: "infected", analysisStatus: "PENDING" },
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    // Complete (infected photo excluded) and codes match — no flag, but this confirms
+    // completion wasn't blocked by the infected photo's still-PENDING analysisStatus.
+    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("does not reconcile when no photo on the project produced a usable READY result", async () => {
     mockPhoto(["Grab bars"]);
     mockCreate.mockRejectedValue(new Error("network timeout"));
+    mockProjectPhotos([{ analysisStatus: "FAILED" }]);
 
     await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
 

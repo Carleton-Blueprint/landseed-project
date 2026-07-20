@@ -297,16 +297,82 @@ function sameCodeSet(a: string[], b: string[]): boolean {
   return b.every((code) => setA.has(code));
 }
 
+const CONFIDENCE_RANK: Record<PhotoAnalysisConfidence, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
+
 /**
- * Processes one photo-analysis job: runs analyzeProjectPhoto(), persists the
- * result on the Photo row, and — only on READY results — reconciles the
- * AI-inferred codes against the client's declared draftData.modificationItems.
+ * Once every photo on the project has reached a terminal state (analyzed, or excluded
+ * because it came back infected), reconciles the client's declared modification codes
+ * against the UNION of AI-inferred codes across all successfully analyzed photos —
+ * not any single photo in isolation. A single photo only shows one room, so comparing
+ * it alone against the full declared list produces false-positive mismatches (e.g. a
+ * bathroom photo "missing" a declared doorway-widening code). The project-level union
+ * is the meaningful comparison: it only flags when NO photo, collectively, accounts for
+ * a declared code.
  *
- * Reconciliation never overwrites the client's declared codes: agreement is a
- * no-op, and disagreement (or LOW AI confidence) enqueues a manual-review flag
- * (PHOTO_MODIFICATION_MISMATCH) via the existing manual-review queue/worker,
- * which staff can act on. FAILED/SKIPPED results have no signal to reconcile,
- * so the client's declared codes are left as the only source of truth.
+ * No-ops (does not overwrite declared codes, ever) when: other photos are still
+ * pending analysis, or no photo produced a usable (READY) result to reconcile with.
+ */
+async function maybeReconcileProjectModificationCodes(
+  projectId: string,
+  projectDraftData: unknown
+): Promise<void> {
+  const photos = await prisma.photo.findMany({
+    where: { projectId },
+    select: { virus_scan_status: true, analysisStatus: true, aiModificationCodes: true, aiConfidence: true },
+  });
+
+  const isComplete = photos.every(
+    (p) =>
+      p.virus_scan_status === "infected" ||
+      p.analysisStatus === "READY" ||
+      p.analysisStatus === "FAILED" ||
+      p.analysisStatus === "SKIPPED"
+  );
+  if (!isComplete) {
+    return;
+  }
+
+  const readyPhotos = photos.filter((p) => p.analysisStatus === "READY");
+  if (readyPhotos.length === 0) {
+    // No photo produced a usable signal (all FAILED/SKIPPED/infected) — nothing to reconcile.
+    return;
+  }
+
+  const declaredCodes = normalizeModificationItems(getIntakeModificationLabels(projectDraftData));
+  const aiInferredCodes = Array.from(new Set(readyPhotos.flatMap((p) => p.aiModificationCodes)));
+  const isMismatch = !sameCodeSet(declaredCodes, aiInferredCodes);
+  const allLowConfidence = readyPhotos.every((p) => p.aiConfidence === "LOW");
+
+  if (!isMismatch && !allLowConfidence) {
+    return;
+  }
+
+  const aggregateConfidence = readyPhotos.reduce<PhotoAnalysisConfidence>((worst, p) => {
+    const confidence = (p.aiConfidence as PhotoAnalysisConfidence | null) ?? "LOW";
+    return CONFIDENCE_RANK[confidence] < CONFIDENCE_RANK[worst] ? confidence : worst;
+  }, "HIGH");
+
+  await manualReviewQueue.add(
+    "manual-review",
+    {
+      projectId,
+      reason: "PHOTO_MODIFICATION_MISMATCH",
+      aiConfidence: aggregateConfidence,
+      metadata: { declaredCodes, aiInferredCodes, analyzedPhotoCount: readyPhotos.length },
+    },
+    {
+      jobId: `manual-review-${projectId}-photo-mismatch`,
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 500 },
+    }
+  );
+}
+
+/**
+ * Processes one photo-analysis job: runs analyzeProjectPhoto() and persists the result
+ * on the Photo row. Regardless of this photo's own outcome, then checks whether the
+ * project's photo analysis is now fully complete and, if so, runs the project-level
+ * reconciliation once (see maybeReconcileProjectModificationCodes) — never per-photo.
  */
 export async function processPhotoModificationAnalysisJob(
   payload: PhotoModificationAnalysisJobPayload
@@ -370,32 +436,5 @@ export async function processPhotoModificationAnalysisJob(
     },
   });
 
-  if (result.status !== "READY") {
-    return;
-  }
-
-  const declaredCodes = normalizeModificationItems(getIntakeModificationLabels(photo.project.draftData));
-  const aiInferredCodes = result.modificationCodes;
-  const isMismatch = !sameCodeSet(declaredCodes, aiInferredCodes);
-  const isLowConfidence = result.confidence === "LOW";
-
-  if (!isMismatch && !isLowConfidence) {
-    return;
-  }
-
-  await manualReviewQueue.add(
-    "manual-review",
-    {
-      projectId: photo.projectId,
-      reason: "PHOTO_MODIFICATION_MISMATCH",
-      aiConfidence: result.confidence ?? "LOW",
-      photoId: photo.id,
-      metadata: { declaredCodes, aiInferredCodes },
-    },
-    {
-      jobId: `manual-review-${photo.projectId}-photo-${photo.id}`,
-      removeOnComplete: { count: 100 },
-      removeOnFail: { count: 500 },
-    }
-  );
+  await maybeReconcileProjectModificationCodes(photo.projectId, photo.project.draftData);
 }
