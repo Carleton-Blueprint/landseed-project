@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { NotificationEventType } from "@prisma/client";
 import { createEmailWorker } from "@/backend/queue";
 import { processNotification } from "@/backend/notifications/service";
