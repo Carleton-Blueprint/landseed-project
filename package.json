@@ -28,7 +28,8 @@
     "worker:manual-fallback-export-cleanup": "tsx src/backend/queue/manualFallbackExportCleanupWorker.ts",
     "worker:account-deletion": "tsx src/backend/queue/accountDeletionWorker.ts",
     "worker:account-deletion-finalizer": "tsx src/backend/queue/accountDeletionFinalizerWorker.ts",
-    "worker:estimate-generation": "tsx src/backend/queue/estimateGenerationWorker.ts"
+    "worker:estimate-generation": "tsx src/backend/queue/estimateGenerationWorker.ts",
+    "worker:image-generation": "tsx src/backend/queue/imageGenerationWorker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1000.0",
@@ -48,6 +49,7 @@
     "lucide-react": "^0.460.0",
     "next": "^15.1.0",
     "next-auth": "5.0.0-beta.28",
+    "openai": "^6.46.0",
     "pdf-lib": "^1.17.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

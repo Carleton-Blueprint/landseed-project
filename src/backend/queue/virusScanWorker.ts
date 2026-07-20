@@ -17,7 +17,8 @@
  *   Upload API → Redis Queue → This Worker → ClamAV → Database Update
  */
 
-import { createVirusScanWorker } from "./index";
+import "dotenv/config";
+import { createVirusScanWorker, aiJobsQueue } from "./index";
 import { prisma } from "lib/prisma";
 import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import NodeClam from "clamscan";
@@ -27,6 +28,11 @@ import { tmpdir } from "os";
 import { Readable } from "stream";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import {
+  ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
+  type AccessibilityImageGenerationJobPayload,
+} from "@/backend/services/imageGeneration";
+import { isLiveImageGenerationEnabled } from "lib/openai";
 
 // Initialize S3 client for downloading files to scan
 const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
@@ -247,6 +253,15 @@ const worker = createVirusScanWorker(async (job) => {
           where: { id: photoId },
           data: { virus_scan_status: "clean" },
         });
+
+        if (isLiveImageGenerationEnabled()) {
+          const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
+          await aiJobsQueue.add(`accessibility-image-generation:${photoId}`, {
+            jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
+            payload: jobPayload,
+          });
+          console.log(`   🖼️  Queued accessibility image generation for photo ${photoId}`);
+        }
       }
 
       console.log(`✅ Virus scan completed: CLEAN`);
