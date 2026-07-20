@@ -255,17 +255,27 @@ const worker = createVirusScanWorker(async (job) => {
           data: { virus_scan_status: "clean" },
         });
 
-        // Queue AI photo analysis now that the photo is confirmed clean. Photos only —
-        // documents (grant PDFs, etc.) aren't candidates for modification-type inference.
-        try {
-          await aiJobsQueue.add(
-            "ai-jobs",
-            { jobType: PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE, payload: { photoId } },
-            { jobId: `photo-analysis-${photoId}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
-          );
-          console.log(`   🤖 Queued photo modification analysis for ${photoId}`);
-        } catch (queueError) {
-          console.warn(`   ⚠️  Failed to queue photo analysis for ${photoId}:`, queueError);
+        // Queue AI photo analysis now that the photo is confirmed clean — but only if the
+        // project has already been promoted out of the guided-intake shell. Before promotion,
+        // Project.draftData (and therefore the client's declared modification codes) doesn't
+        // exist yet, so analyzing now would reconcile against nothing. finalizeIntake() sweeps
+        // clean, unanalyzed photos at promotion time instead; this covers the race where a
+        // scan finishes after the project is already promoted. Photos only — documents (grant
+        // PDFs, etc.) aren't candidates for modification-type inference.
+        const isPromoted = photo?.project.status !== "draft";
+        if (isPromoted) {
+          try {
+            await aiJobsQueue.add(
+              "ai-jobs",
+              { jobType: PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE, payload: { photoId } },
+              { jobId: `photo-analysis-${photoId}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
+            );
+            console.log(`   🤖 Queued photo modification analysis for ${photoId}`);
+          } catch (queueError) {
+            console.warn(`   ⚠️  Failed to queue photo analysis for ${photoId}:`, queueError);
+          }
+        } else {
+          console.log(`   ⏳ Project not yet promoted — deferring photo analysis for ${photoId} to intake finalization`);
         }
 
         if (isLiveImageGenerationEnabled()) {

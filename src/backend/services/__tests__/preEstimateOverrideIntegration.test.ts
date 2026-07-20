@@ -41,6 +41,13 @@ jest.mock("@/backend/queue", () => ({
   estimateGenerationQueue: {
     add: jest.fn(),
   },
+  aiJobsQueue: {
+    add: jest.fn(),
+  },
+}));
+
+jest.mock("@/backend/services/photoAnalysis", () => ({
+  PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE: "PHOTO_MODIFICATION_ANALYSIS",
 }));
 
 const mockedProjectUpdateManyInTransaction = jest.fn();
@@ -53,6 +60,9 @@ jest.mock("lib/prisma", () => ({
     },
     quote: {
       findFirst: jest.fn(),
+    },
+    photo: {
+      findMany: jest.fn().mockResolvedValue([]),
     },
     $transaction: jest.fn(async (callback: (tx: { project: { updateMany: jest.Mock } }) => unknown) =>
       callback({ project: { updateMany: mockedProjectUpdateManyInTransaction } })

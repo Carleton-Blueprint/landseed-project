@@ -1,6 +1,6 @@
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import { estimateGenerationQueue } from "@/backend/queue";
+import { estimateGenerationQueue, aiJobsQueue } from "@/backend/queue";
 import {
   buildEstimateGenerationJobId,
   getEstimateGenerationDelayMs,
@@ -14,11 +14,18 @@ jest.mock("@/backend/queue", () => ({
   estimateGenerationQueue: {
     add: jest.fn(),
   },
+  aiJobsQueue: {
+    add: jest.fn(),
+  },
 }));
 
 jest.mock("@/backend/services/estimateGeneration", () => ({
   buildEstimateGenerationJobId: jest.fn((projectId: string) => `estimate-generation-${projectId}`),
   getEstimateGenerationDelayMs: jest.fn(() => 15 * 60 * 1000),
+}));
+
+jest.mock("@/backend/services/photoAnalysis", () => ({
+  PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE: "PHOTO_MODIFICATION_ANALYSIS",
 }));
 
 const serpLineItem = {
@@ -47,6 +54,9 @@ jest.mock("lib/prisma", () => ({
     quote: {
       findFirst: jest.fn(),
     },
+    photo: {
+      findMany: jest.fn(),
+    },
     $transaction: jest.fn(async (callback: (tx: { project: { updateMany: jest.Mock } }) => unknown) =>
       callback({ project: { updateMany: mockedProjectUpdateMany } })
     ),
@@ -63,6 +73,9 @@ describe("finalizeIntake", () => {
     quote: {
       findFirst: jest.Mock;
     };
+    photo: {
+      findMany: jest.Mock;
+    };
     $transaction: jest.Mock;
   };
 
@@ -70,10 +83,12 @@ describe("finalizeIntake", () => {
   const mockedQueueAdd = estimateGenerationQueue.add as jest.MockedFunction<
     typeof estimateGenerationQueue.add
   >;
+  const mockedAiJobsQueueAdd = aiJobsQueue.add as jest.MockedFunction<typeof aiJobsQueue.add>;
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockedProjectUpdateMany.mockReset();
+    mockedPrisma.photo.findMany.mockResolvedValue([]);
   });
 
   it("returns an existing quote range for an already finalized project", async () => {
@@ -156,6 +171,44 @@ describe("finalizeIntake", () => {
         jobId: "estimate-generation-proj-3",
         delay: 15 * 60 * 1000,
       })
+    );
+
+    expect(mockedPrisma.photo.findMany).toHaveBeenCalledWith({
+      where: {
+        projectId: "proj-3",
+        virus_scan_status: "clean",
+        analysisStatus: { notIn: ["READY", "ANALYZING"] },
+      },
+      select: { id: true },
+    });
+    expect(mockedAiJobsQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("queues photo analysis for clean, unanalyzed photos on finalize (deferred pre-promotion uploads)", async () => {
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-6",
+      status: "draft",
+      draftData: {
+        modificationItems: ["Grab bars"],
+      },
+      quotes: [],
+    });
+
+    mockedProjectUpdateMany.mockResolvedValue({ count: 1 });
+    mockedPrisma.photo.findMany.mockResolvedValue([{ id: "photo-1" }, { id: "photo-2" }]);
+
+    await finalizeIntake({ projectId: "proj-6", actorUserId: "user-6" });
+
+    expect(mockedAiJobsQueueAdd).toHaveBeenCalledTimes(2);
+    expect(mockedAiJobsQueueAdd).toHaveBeenCalledWith(
+      "ai-jobs",
+      { jobType: "PHOTO_MODIFICATION_ANALYSIS", payload: { photoId: "photo-1" } },
+      expect.objectContaining({ jobId: "photo-analysis-photo-1" })
+    );
+    expect(mockedAiJobsQueueAdd).toHaveBeenCalledWith(
+      "ai-jobs",
+      { jobType: "PHOTO_MODIFICATION_ANALYSIS", payload: { photoId: "photo-2" } },
+      expect.objectContaining({ jobId: "photo-analysis-photo-2" })
     );
   });
 
