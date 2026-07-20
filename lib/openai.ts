@@ -11,3 +11,7 @@ export function getOpenAIClient(): OpenAI {
   }
   return openaiClient;
 }
+
+export function isLiveImageGenerationEnabled(): boolean {
+  return process.env.LIVE_IMAGE_GENERATION_ENABLED === "true";
+}

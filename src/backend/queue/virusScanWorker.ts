@@ -17,6 +17,7 @@
  *   Upload API → Redis Queue → This Worker → ClamAV → Database Update
  */
 
+import "dotenv/config";
 import { createVirusScanWorker, aiJobsQueue } from "./index";
 import { prisma } from "lib/prisma";
 import { PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE } from "@/backend/services/photoAnalysis";
@@ -28,6 +29,11 @@ import { tmpdir } from "os";
 import { Readable } from "stream";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import {
+  ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
+  type AccessibilityImageGenerationJobPayload,
+} from "@/backend/services/imageGeneration";
+import { isLiveImageGenerationEnabled } from "lib/openai";
 
 // Initialize S3 client for downloading files to scan
 const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
@@ -260,6 +266,19 @@ const worker = createVirusScanWorker(async (job) => {
           console.log(`   🤖 Queued photo modification analysis for ${photoId}`);
         } catch (queueError) {
           console.warn(`   ⚠️  Failed to queue photo analysis for ${photoId}:`, queueError);
+        }
+
+        if (isLiveImageGenerationEnabled()) {
+          try {
+            const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
+            await aiJobsQueue.add(`accessibility-image-generation:${photoId}`, {
+              jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
+              payload: jobPayload,
+            });
+            console.log(`   🖼️  Queued accessibility image generation for photo ${photoId}`);
+          } catch (queueError) {
+            console.warn(`   ⚠️  Failed to queue image generation for ${photoId}:`, queueError);
+          }
         }
       }
 

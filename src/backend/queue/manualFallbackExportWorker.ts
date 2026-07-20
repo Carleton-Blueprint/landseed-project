@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createManualFallbackExportWorker } from "@/backend/queue";
 import { processManualFallbackExport } from "@/backend/services/manualFallbackExport";
 

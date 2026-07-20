@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 import { builderTrendTransferQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 
 type TransferRow = {
   id: string;
@@ -66,7 +67,9 @@ export async function retryBuilderTrendTransfer(input: {
   }
 
   const existingJob = await builderTrendTransferQueue.getJob(transfer.id);
-  const alreadyQueued = Boolean(existingJob);
+  const existingJobState = existingJob ? await existingJob.getState() : null;
+  const isTerminalJobState = existingJobState === "failed" || existingJobState === "completed";
+  const alreadyQueued = Boolean(existingJob) && !isTerminalJobState;
 
   await prisma.$executeRaw(
     Prisma.sql`
@@ -79,7 +82,13 @@ export async function retryBuilderTrendTransfer(input: {
     `
   );
 
-  if (!alreadyQueued) {
+  if (existingJob && isTerminalJobState) {
+    // A job with this id already exists but is dead (failed/completed); BullMQ won't
+    // create a new one for the same jobId, so move the existing one back to waiting.
+    // Reset attemptsMade so a manual retry gets the same full backoff cycle as a
+    // fresh transfer, instead of immediately re-exhausting on a single attempt.
+    await existingJob.retry(existingJobState as "failed" | "completed", { resetAttemptsMade: true });
+  } else if (!existingJob) {
     await enqueueBuilderTrendTransfer(transfer.id);
   }
 
@@ -89,7 +98,10 @@ export async function retryBuilderTrendTransfer(input: {
   };
 }
 
-export async function processBuilderTrendTransfer(transferId: string): Promise<void> {
+export async function processBuilderTrendTransfer(
+  transferId: string,
+  attemptContext: { attemptsMade: number; maxAttempts: number }
+): Promise<void> {
   const rows = await prisma.$queryRaw<TransferRow[]>(
     Prisma.sql`
       SELECT
@@ -115,6 +127,8 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
   }
 
   const startedAtMs = Date.now();
+  const attemptNumber = attemptContext.attemptsMade + 1;
+  const isFinalAttempt = attemptNumber >= attemptContext.maxAttempts;
 
   try {
     const result = await sendMockedBuilderTrendTransfer();
@@ -145,19 +159,22 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
       description: "BuilderTrend transfer processed successfully",
       metadata: {
         transferStatus: "SENT",
-        attemptNumber: transfer.attempts + 1,
+        attemptNumber,
         durationMs: Date.now() - startedAtMs,
         externalReference: result.externalReference,
       },
     });
   } catch (error) {
+    const nextStatus = isFinalAttempt ? "FAILED" : "RETRYING";
+    const errorMessage = error instanceof Error ? error.message : "Unknown BuilderTrend transfer error";
+
     await prisma.$executeRaw(
       Prisma.sql`
         UPDATE "BuilderTrendTransfer"
         SET
-          "status" = 'FAILED'::"BuilderTrendTransferStatus",
+          "status" = ${nextStatus}::"BuilderTrendTransferStatus",
           "attempts" = "attempts" + 1,
-          "lastError" = ${error instanceof Error ? error.message : "Unknown BuilderTrend transfer error"},
+          "lastError" = ${errorMessage},
           "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ${transfer.id}
       `
@@ -172,15 +189,79 @@ export async function processBuilderTrendTransfer(transferId: string): Promise<v
       quoteId: transfer.quoteId,
       resourceType: "buildertrend_transfer",
       resourceId: transfer.id,
-      description: "BuilderTrend transfer processing failed",
+      description: isFinalAttempt
+        ? "BuilderTrend transfer failed on final retry attempt"
+        : "BuilderTrend transfer attempt failed, retry scheduled",
       metadata: {
-        transferStatus: "FAILED",
-        attemptNumber: transfer.attempts + 1,
+        transferStatus: nextStatus,
+        attemptNumber,
+        maxAttempts: attemptContext.maxAttempts,
+        isFinalAttempt,
         durationMs: Date.now() - startedAtMs,
-        errorMessage: error instanceof Error ? error.message : "Unknown BuilderTrend transfer error",
+        errorMessage,
       },
     });
 
     throw error;
   }
+}
+
+/**
+ * Called once a BuilderTrend transfer's job has permanently failed (all retry
+ * attempts exhausted). Atomically claims the transfer via the
+ * fallbackRequestedAt guard so a manual retry racing with this handler, or a
+ * duplicate worker 'failed' event, can't trigger the export more than once.
+ */
+export async function triggerManualFallbackForExhaustedTransfer(transferId: string): Promise<void> {
+  const claimedRows = await prisma.$queryRaw<Array<{ id: string; projectId: string }>>(
+    Prisma.sql`
+      UPDATE "BuilderTrendTransfer"
+      SET "fallbackRequestedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${transferId}
+        AND "status" = 'FAILED'::"BuilderTrendTransferStatus"
+        AND "fallbackRequestedAt" IS NULL
+      RETURNING "id", "projectId"
+    `
+  );
+
+  if (claimedRows.length === 0) {
+    return;
+  }
+
+  const transfer = claimedRows[0];
+
+  const project = await prisma.project.findUnique({
+    where: { id: transfer.projectId },
+    select: {
+      id: true,
+      userId: true,
+      user: { select: { email: true, name: true } },
+    },
+  });
+
+  if (!project) {
+    return;
+  }
+
+  const exportRequest = await requestManualFallbackExport({
+    projectId: project.id,
+    requestedByUserId: project.userId,
+    requestedByEmail: project.user.email,
+    requestedByName: project.user.name,
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "BUILDERTREND_TRANSFER_FALLBACK_TRIGGERED",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    projectId: project.id,
+    resourceType: "buildertrend_transfer",
+    resourceId: transfer.id,
+    description: "BuilderTrend transfer exhausted all retry attempts; manual fallback export triggered automatically",
+    metadata: {
+      exportRequestId: exportRequest.exportRequestId,
+      triggeredBy: "system:buildertrend-retry-exhausted",
+    },
+  });
 }

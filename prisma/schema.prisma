@@ -99,27 +99,26 @@ model ProjectStaffNote {
   @@index([createdAt])
 }
 
-
 model AccountDeletionRequest {
-  id                      String                        @id @default(cuid())
-  targetUserId            String?
-  targetUserEmailSnapshot String
+  id                       String                       @id @default(cuid())
+  targetUserId             String?
+  targetUserEmailSnapshot  String
   targetUserNameSnapshot   String?
-  requestedByUserId       String?
+  requestedByUserId        String?
   requestedByEmailSnapshot String?
   requestedByNameSnapshot  String?
-  status                  AccountDeletionRequestStatus  @default(REQUESTED)
-  requestedAt             DateTime                      @default(now())
-  gracePeriodEndsAt       DateTime
-  advanceNoticeDueAt      DateTime
-  noticeSentAt            DateTime?
-  cancelledAt             DateTime?
-  deletedAt               DateTime?
-  lastError               String?                       @db.Text
-  requestMetadata         Json?
-  targetUser              User?                         @relation("AccountDeletionTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
-  requestedByUser         User?                         @relation("AccountDeletionRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
-  notices                 AccountDeletionNotice[]
+  status                   AccountDeletionRequestStatus @default(REQUESTED)
+  requestedAt              DateTime                     @default(now())
+  gracePeriodEndsAt        DateTime
+  advanceNoticeDueAt       DateTime
+  noticeSentAt             DateTime?
+  cancelledAt              DateTime?
+  deletedAt                DateTime?
+  lastError                String?                      @db.Text
+  requestMetadata          Json?
+  targetUser               User?                        @relation("AccountDeletionTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  requestedByUser          User?                        @relation("AccountDeletionRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  notices                  AccountDeletionNotice[]
 
   @@index([targetUserId])
   @@index([requestedByUserId])
@@ -130,22 +129,22 @@ model AccountDeletionRequest {
 }
 
 model AccountDeletionNotice {
-  id                      String                      @id @default(cuid())
+  id                       String                      @id @default(cuid())
   accountDeletionRequestId String
-  noticeType             AccountDeletionNoticeType
-  status                 AccountDeletionNoticeStatus  @default(PENDING)
-  recipientEmail         String
-  recipientName          String?
-  subject                String?
-  scheduledFor           DateTime
-  sentAt                 DateTime?
-  failedAt               DateTime?
-  communicationHistoryId String?
-  lastError              String?                     @db.Text
-  metadata               Json?
-  createdAt              DateTime                    @default(now())
-  updatedAt              DateTime                    @updatedAt
-  accountDeletionRequest AccountDeletionRequest      @relation(fields: [accountDeletionRequestId], references: [id], onDelete: Cascade)
+  noticeType               AccountDeletionNoticeType
+  status                   AccountDeletionNoticeStatus @default(PENDING)
+  recipientEmail           String
+  recipientName            String?
+  subject                  String?
+  scheduledFor             DateTime
+  sentAt                   DateTime?
+  failedAt                 DateTime?
+  communicationHistoryId   String?
+  lastError                String?                     @db.Text
+  metadata                 Json?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+  accountDeletionRequest   AccountDeletionRequest      @relation(fields: [accountDeletionRequestId], references: [id], onDelete: Cascade)
 
   @@index([accountDeletionRequestId, noticeType])
   @@index([status])
@@ -212,13 +211,20 @@ model ProjectAccess {
 }
 
 model Photo {
-  id                String    @id @default(cuid())
-  url               String
-  virus_scan_status String    @default("pending")
-  projectId         String
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id                  String                @id @default(cuid())
+  url                 String
+  virus_scan_status   String                @default("pending")
+  projectId           String
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  generatedImageUrl   String?
+  generatedImageS3Key String?
+  generationStatus    PhotoGenerationStatus @default(PENDING)
+  generationError     String?
+  generationCostUsd   Decimal?              @db.Decimal(10, 4)
+  generationModel     String?
+  generatedAt         DateTime?
+  project             Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   // AI photo analysis / scope inference (advisory — see photoAnalysis.ts).
   // Never overwrites the client's declared draftData.modificationItems; a
@@ -273,20 +279,21 @@ model DeclineSurveyResponse {
 }
 
 model BuilderTrendTransfer {
-  id                String                     @id @default(cuid())
-  projectId         String
-  quoteId           String                     @unique
-  status            BuilderTrendTransferStatus @default(PENDING)
-  payload           Json?
-  attempts          Int                        @default(0)
-  externalReference String?
-  lastError         String?
-  requestedAt       DateTime                   @default(now())
-  sentAt            DateTime?
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
-  project           Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  quote             Quote                      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  id                  String                     @id @default(cuid())
+  projectId           String
+  quoteId             String                     @unique
+  status              BuilderTrendTransferStatus @default(PENDING)
+  payload             Json?
+  attempts            Int                        @default(0)
+  externalReference   String?
+  lastError           String?
+  requestedAt         DateTime                   @default(now())
+  sentAt              DateTime?
+  fallbackRequestedAt DateTime?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  project             Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quote               Quote                      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([status])
@@ -335,12 +342,12 @@ model AuditEvent {
   signedAt         DateTime?
   signedBy         String?
 
-  ipAddress        String?
-  userAgent        String?
-  createdAt        DateTime              @default(now())
-  actorUser        User?                 @relation(fields: [actorUserId], references: [id])
-  project          Project?              @relation(fields: [projectId], references: [id])
-  quote            Quote?                @relation(fields: [quoteId], references: [id])
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  actorUser User?    @relation(fields: [actorUserId], references: [id])
+  project   Project? @relation(fields: [projectId], references: [id])
+  quote     Quote?   @relation(fields: [quoteId], references: [id])
 
   @@index([createdAt])
   @@index([category, createdAt])
@@ -451,33 +458,33 @@ model ProjectManualReviewFlag {
 }
 
 model CommunicationHistory {
-  id                   String                    @id @default(cuid())
-  projectId            String
-  project              Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
-  communicationType    CommunicationType
-  category             CommunicationCategory
-  
-  recipientId          String?
-  recipient            User?                     @relation("CommunicationHistoryRecipient", fields: [recipientId], references: [id])
-  senderId             String?
-  sender               User?                     @relation("CommunicationHistorySender", fields: [senderId], references: [id])
-  recipientEmail       String
-  
-  subject              String
-  contentSummary       String
-  
-  linkedResourceType   String?
-  linkedResourceId     String?
-  
-  status               CommunicationStatus
-  
-  metadata             Json?
-  
-  sentAt               DateTime                  @default(now())
-  deliveredAt          DateTime?
-  readAt               DateTime?
-  createdAt            DateTime                  @default(now())
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  communicationType CommunicationType
+  category          CommunicationCategory
+
+  recipientId    String?
+  recipient      User?   @relation("CommunicationHistoryRecipient", fields: [recipientId], references: [id])
+  senderId       String?
+  sender         User?   @relation("CommunicationHistorySender", fields: [senderId], references: [id])
+  recipientEmail String
+
+  subject        String
+  contentSummary String
+
+  linkedResourceType String?
+  linkedResourceId   String?
+
+  status CommunicationStatus
+
+  metadata Json?
+
+  sentAt      DateTime  @default(now())
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
 
   @@index([projectId, sentAt(sort: Desc)])
   @@index([recipientId, projectId])
@@ -521,6 +528,7 @@ enum ProjectAccessRole {
 
 enum BuilderTrendTransferStatus {
   PENDING
+  RETRYING
   SENT
   FAILED
 }
@@ -545,6 +553,13 @@ enum AuditEventCategory {
   MANUAL_CHANGE
   SENSITIVE_ACCESS
   AI_GENERATION
+}
+
+enum PhotoGenerationStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
 }
 
 enum AuditEventOutcome {
