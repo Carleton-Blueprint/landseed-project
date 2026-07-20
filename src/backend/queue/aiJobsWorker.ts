@@ -2,12 +2,11 @@
  * ai-jobs queue worker.
  *
  * Single consumer for the shared "ai-jobs" BullMQ queue, dispatching by
- * job.data.jobType. This is the intended consolidation point for future
- * ai-jobs job types (e.g. accessibility image generation) — a second worker
- * process also listening on "ai-jobs" would race this one for jobs it
- * doesn't recognize (BullMQ delivers each job to exactly one consumer), so
- * new job types should be added as cases here rather than as separate
- * worker processes on the same queue.
+ * job.data.jobType. A second worker process also listening on "ai-jobs"
+ * would race this one for jobs it doesn't recognize (BullMQ delivers each
+ * job to exactly one consumer, and an unrecognized jobType is just logged
+ * and dropped) — so new job types belong here as additional switch cases,
+ * not as separate worker processes on the same queue.
  *
  * How to run:
  *   npm run worker:ai-jobs
@@ -19,6 +18,11 @@ import {
   processPhotoModificationAnalysisJob,
   type PhotoModificationAnalysisJobPayload,
 } from "@/backend/services/photoAnalysis";
+import {
+  ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
+  processAccessibilityImageGenerationJob,
+  type AccessibilityImageGenerationJobPayload,
+} from "@/backend/services/imageGeneration";
 
 const worker = createAiJobsWorker(async (job) => {
   switch (job.data.jobType) {
@@ -26,6 +30,12 @@ const worker = createAiJobsWorker(async (job) => {
       const payload = job.data.payload as PhotoModificationAnalysisJobPayload;
       await processPhotoModificationAnalysisJob(payload);
       console.log("Photo modification analysis job processed", { photoId: payload.photoId });
+      break;
+    }
+    case ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE: {
+      const payload = job.data.payload as AccessibilityImageGenerationJobPayload;
+      await processAccessibilityImageGenerationJob(payload);
+      console.log("Accessibility image generation job processed", { photoId: payload.photoId });
       break;
     }
     default:
