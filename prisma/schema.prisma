@@ -269,20 +269,21 @@ model DeclineSurveyResponse {
 }
 
 model BuilderTrendTransfer {
-  id                String                     @id @default(cuid())
-  projectId         String
-  quoteId           String                     @unique
-  status            BuilderTrendTransferStatus @default(PENDING)
-  payload           Json?
-  attempts          Int                        @default(0)
-  externalReference String?
-  lastError         String?
-  requestedAt       DateTime                   @default(now())
-  sentAt            DateTime?
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
-  project           Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  quote             Quote                      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  id                  String                     @id @default(cuid())
+  projectId           String
+  quoteId             String                     @unique
+  status              BuilderTrendTransferStatus @default(PENDING)
+  payload             Json?
+  attempts            Int                        @default(0)
+  externalReference   String?
+  lastError           String?
+  requestedAt         DateTime                   @default(now())
+  sentAt              DateTime?
+  fallbackRequestedAt DateTime?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  project             Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quote               Quote                      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([status])
@@ -517,6 +518,7 @@ enum ProjectAccessRole {
 
 enum BuilderTrendTransferStatus {
   PENDING
+  RETRYING
   SENT
   FAILED
 }
