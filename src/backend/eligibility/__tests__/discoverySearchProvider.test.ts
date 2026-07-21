@@ -430,6 +430,7 @@ describe('discoverAndEvaluateGrants', () => {
       expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
       expect(result.discoveredGrants.length).toBeGreaterThan(0);
       expect(result.discoveredGrants.map((grant) => grant.grantId)).not.toContain('live_hatc_canada');
+      expect(result.discoveryMetadata.aiFailureReason).toMatch(/429/);
     } finally {
       restoreDiscoveryEnv(savedEnv);
     }
@@ -460,6 +461,7 @@ describe('discoverAndEvaluateGrants', () => {
       const result = await discoverAndEvaluateGrants(baseEligibilityInput);
 
       expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
+      expect(result.discoveryMetadata.aiFailureReason).toMatch(/parse/i);
     } finally {
       restoreDiscoveryEnv(savedEnv);
     }
@@ -488,8 +490,40 @@ describe('discoverAndEvaluateGrants', () => {
       const result = await discoverAndEvaluateGrants(baseEligibilityInput);
 
       expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
+      expect(result.discoveryMetadata.aiFailureReason).toMatch(/no output text/i);
     } finally {
       restoreDiscoveryEnv(savedEnv);
+    }
+  });
+
+  it('does not report a failure reason when AI is intentionally disabled', async () => {
+    const originalAiEnabled = process.env.GRANT_DISCOVERY_AI_ENABLED;
+    const originalOpenAiKey = process.env.OPENAI_API_KEY;
+
+    process.env.GRANT_DISCOVERY_AI_ENABLED = 'false';
+    delete process.env.OPENAI_API_KEY;
+
+    try {
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = jest.fn(
+        async () => catalogFetchFallback()
+      ) as typeof fetch;
+
+      const result = await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
+      expect(result.discoveryMetadata.aiFailureReason).toBeNull();
+    } finally {
+      if (typeof originalAiEnabled === 'undefined') {
+        delete process.env.GRANT_DISCOVERY_AI_ENABLED;
+      } else {
+        process.env.GRANT_DISCOVERY_AI_ENABLED = originalAiEnabled;
+      }
+
+      if (typeof originalOpenAiKey === 'undefined') {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = originalOpenAiKey;
+      }
     }
   });
 
