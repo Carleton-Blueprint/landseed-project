@@ -95,6 +95,8 @@ async function fetchFromSerpAPI(query: string): Promise<PriceResult> {
     throw new Error("Missing SERP_API_KEY");
   }
 
+  // sort_by=1 = "Price: low to high" — shopping_results below comes back price-ascending,
+  // which the best-match loop relies on to break early on the first preferred-store hit.
   const url = `https://serpapi.com/search.json?engine=google_shopping&q=${encodeURIComponent(
     query
   )}&gl=ca&hl=en&location=Ottawa,+Ontario,+Canada&sort_by=1&api_key=${apiKey}`;
