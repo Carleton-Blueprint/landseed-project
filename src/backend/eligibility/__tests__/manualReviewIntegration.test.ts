@@ -22,10 +22,63 @@ import { prisma } from "lib/prisma";
 import { evaluateProjectEligibility } from "@/backend/eligibility/service";
 import { manualReviewQueue, createManualReviewWorker } from "@/backend/queue";
 import { FeatureFlag, isFeatureFlagEnabled } from "@/backend/features/flags";
+import { EligibilityDecision, EligibilityInput } from "@/backend/eligibility/types";
 import { Worker } from "bullmq";
 import Redis from "ioredis";
 
 jest.setTimeout(15000);
+
+// The real discovery provider's dev mock mode (GRANT_DISCOVERY_MOCK_AI) always
+// returns the same fixed HIGH/MEDIUM/LOW grant trio regardless of project input,
+// so AI confidence never varies by scenario. Mock discovery here so this test can
+// deterministically exercise both the low-confidence and high-confidence paths
+// through the real classify/enqueue pipeline.
+jest.mock("@/backend/eligibility/discoverySearchProvider", () => {
+  const actual = jest.requireActual("@/backend/eligibility/discoverySearchProvider");
+  return {
+    ...actual,
+    discoverAndEvaluateGrants: jest.fn(async (input: EligibilityInput) => {
+      const confidence = input.required.clientConsentConfirmed ? "HIGH" : "LOW";
+      return {
+        overallDecision: EligibilityDecision.NEEDS_MORE_INFO,
+        programDecisions: {},
+        reasonCodes: [],
+        staffReasonMessages: [],
+        clientReasonMessages: [],
+        missingRequirements: [],
+        discoveredGrants: [
+          {
+            grantId: "test_grant",
+            title: "Test Grant",
+            scope: "NATIONAL",
+            jurisdiction: "CA",
+            sourceUrl: null,
+            summary: "Test grant for integration test.",
+            decision: EligibilityDecision.NEEDS_MORE_INFO,
+            relevanceScore: 50,
+            confidence,
+            matchedCriteria: [],
+            missingCriteria: [],
+            rationale: "Test rationale.",
+          },
+        ],
+        discoveryMetadata: {
+          provider: "HEURISTIC",
+          engineVersion: "test",
+          promptVersion: "test",
+          scoringVersion: "test",
+          modelVersion: "test",
+          sourceSnapshotId: null,
+          query: "test",
+          searchedScopes: ["NATIONAL"],
+          candidateCount: 1,
+          returnedCount: 1,
+          executedAt: new Date().toISOString(),
+        },
+      };
+    }),
+  };
+});
 
 describe("FR-2.6: Manual Review Integration Tests", () => {
   let worker: Worker;
@@ -116,13 +169,19 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      const jobCount = await manualReviewQueue.count();
+      // The worker created in beforeAll processes jobs immediately, so by the
+      // time we check, the job may already be "completed" rather than still
+      // waiting/active — manualReviewQueue.count() only counts those states.
+      // Look up the job by its deterministic ID instead, which returns it
+      // regardless of state.
+      const jobId = `manual-review-${project.id}-${result.assessmentId}`;
+      const job = await manualReviewQueue.getJob(jobId);
       const isEnabled = isFeatureFlagEnabled(FeatureFlag.MANUAL_REVIEW_AUTO_FLAG);
 
       if (isEnabled) {
-        expect(jobCount).toBeGreaterThan(0);
+        expect(job).toBeDefined();
       } else {
-        expect(jobCount).toBe(0);
+        expect(job).toBeUndefined();
       }
 
       await prisma.project.delete({ where: { id: project.id } });

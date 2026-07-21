@@ -3,6 +3,10 @@ import { isDevAuthBypassEnabled } from "@/backend/auth/devBypass";
 describe("isDevAuthBypassEnabled", () => {
   const originalNodeEnv = process.env.NODE_ENV;
 
+  beforeEach(() => {
+    delete process.env.DEV_AUTH_BYPASS;
+  });
+
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
     delete process.env.DEV_AUTH_BYPASS;
