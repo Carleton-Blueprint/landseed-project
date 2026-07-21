@@ -1,8 +1,27 @@
-import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 
 const PROJECT_ROOT = join(__dirname, "../../../..");
+
+function findFilesContaining(rootDir: string, needle: string, excludeDirName: string): string[] {
+  const matches: string[] = [];
+
+  function walk(dir: string) {
+    for (const entry of readdirSync(dir)) {
+      if (entry === excludeDirName) continue;
+      const fullPath = join(dir, entry);
+      const stats = statSync(fullPath);
+      if (stats.isDirectory()) {
+        walk(fullPath);
+      } else if (stats.isFile() && readFileSync(fullPath, "utf-8").includes(needle)) {
+        matches.push(relative(PROJECT_ROOT, fullPath));
+      }
+    }
+  }
+
+  walk(rootDir);
+  return matches;
+}
 
 const CLIENT_FACING_SURFACES = [
   "src/app/api/project/route.ts",
@@ -61,13 +80,7 @@ describe("ProjectStaffNote client exclusion", () => {
   });
 
   it("limits projectStaffNotes service imports to admin routes and service tests", () => {
-    const matches = execSync('rg -l "projectStaffNotes" src --glob "!**/__tests__/**"', {
-      cwd: PROJECT_ROOT,
-      encoding: "utf-8",
-    })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
+    const matches = findFilesContaining(join(PROJECT_ROOT, "src"), "projectStaffNotes", "__tests__");
 
     const unexpected = matches.filter(
       (file) => !ALLOWED_PROJECT_STAFF_NOTE_IMPORT_PATTERNS.some((pattern) => pattern.test(file))

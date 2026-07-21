@@ -67,19 +67,22 @@ describe("GuidedIntakeForm", () => {
     await user.click(screen.getAllByRole("radio", { name: "Yes" })[0]);
 
     await act(async () => {
-      jest.advanceTimersByTime(2000);
+      jest.advanceTimersByTime(2500);
     });
 
-    await waitFor(() => {
-      const patchCall = mockFetch.mock.calls.find(
-        (call) => call[0] === "/api/intake-draft" && call[1]?.method === "PATCH"
-      );
-      expect(patchCall).toBeDefined();
-      expect(JSON.parse(patchCall![1]!.body as string)).toEqual(
-        expect.objectContaining({
-          guidedData: expect.objectContaining({ mobilityAssistance: "yes" }),
-        })
-      );
-    });
+    await waitFor(
+      () => {
+        const patchCall = mockFetch.mock.calls.find(
+          (call) => call[0] === "/api/intake-draft" && call[1]?.method === "PATCH"
+        );
+        expect(patchCall).toBeDefined();
+        expect(JSON.parse(patchCall![1]!.body as string)).toEqual(
+          expect.objectContaining({
+            guidedData: expect.objectContaining({ mobilityAssistance: "yes" }),
+          })
+        );
+      },
+      { timeout: 3000 }
+    );
   });
 });

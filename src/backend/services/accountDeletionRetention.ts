@@ -309,9 +309,6 @@ export async function finalizeAccountDeletionRequest(input: {
       claimed = true;
 
       if (request.targetUserId) {
-        await tx.session.deleteMany({ where: { userId: request.targetUserId } });
-        await tx.account.deleteMany({ where: { userId: request.targetUserId } });
-
         await tx.user.update({
           where: { id: request.targetUserId },
           data: {
