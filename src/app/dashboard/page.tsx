@@ -70,15 +70,42 @@ function getMockNotifications(projects: { id: string; address: string; status: s
   const items: NotificationItem[] = [];
 
   if (first) {
-    if (first.status === "estimate_ready") {
+    // If the project is in draft mode, simulate an automated 7-day reminder
+    if (first.status === "draft") {
+      const requestDate = new Date(now - 8 * 24 * 60 * 60 * 1000);
+      const formattedDate = requestDate.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
       items.push({
-        id: `mock-estimate-approval-${first.id}`,
+        id: `mock-reminder-7d-${first.id}`,
         kind: "action_required",
-        title: "Estimate Awaiting Approval",
-        body: `Your final estimate for ${first.address} requires your approval to proceed to the next steps.`,
-        href: `/projects/${first.id}/estimate`,
-        createdAt: new Date(now - 1000 * 60 * 5).toISOString(),
+        title: "Additional photos requested",
+        body: `Additional photos requested by the advisory team on ${formattedDate}`,
+        href: `/dashboard/${first.id}`,
+        createdAt: requestDate.toISOString(),
         urgent: true,
+        read: false,
+      });
+    }
+
+    if (first.status === "estimate_ready") {
+      const inactivityDate = new Date(now - 15 * 24 * 60 * 60 * 1000);
+      const formattedDate = inactivityDate.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+      items.push({
+        id: `mock-reminder-14d-estimate-${first.id}`,
+        kind: "action_required",
+        title: "Estimate Expiring Soon",
+        body: `Refined Estimate for ${first.address}, delivered on ${formattedDate}, will expire after 30 days of inactivity.`,
+        href: `/projects/${first.id}/estimate`,
+        createdAt: inactivityDate.toISOString(),
+        urgent: true,
+        read: false,
       });
     }
 
@@ -180,6 +207,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       typeof prisma.project.findMany<{
         include: {
           photos: true;
+          documents: true;
           quotes: {
             orderBy: { createdAt: "desc" };
             take: 1;
@@ -194,6 +222,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     >
   > = [];
   const eligibilityByProject = new Map<string, ProjectEligibility>();
+  let reminders: NotificationItem[] = [];
 
   try {
     projects = await prisma.project.findMany({
@@ -205,6 +234,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       orderBy: { createdAt: "desc" },
       include: {
         photos: true,
+        documents: true,
         quotes: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -241,13 +271,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         assessedAt: a.createdAt,
       });
     }
+
+    if (session?.user?.id) {
+      const { getDashboardReminders } = await import("@/backend/notifications/reminders");
+      reminders = await getDashboardReminders(session.user.id);
+    }
   } catch {
     // No DB in dev — renders empty dashboard
   }
 
-  const notifications = getMockNotifications(
-    projects.map((p) => ({ id: p.id, address: p.address, status: p.status }))
-  );
+  const notifications = [
+    ...reminders,
+    ...getMockNotifications(
+      projects.map((p) => ({ id: p.id, address: p.address, status: p.status }))
+    ),
+  ];
 
   const projectItems: DashboardProjectItem[] = projects.map((project) => {
     const estimateSummary = getEstimateSummary(project);

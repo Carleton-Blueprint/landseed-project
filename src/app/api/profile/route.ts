@@ -9,7 +9,7 @@ const MOCK_DB_FILE = "/Users/diandrainturire/Desktop/landseed-project-main/previ
 
 const profileSchema = z.object({
   name: z.string().min(1).max(120),
-  email: z.string().email(),
+  email: z.string().email().optional(),
   phone: z.string().optional().nullable(),
 });
 
@@ -21,6 +21,7 @@ function readMockProfile(defaultUser: { id: string; name: string; email: string 
         name: data.name || defaultUser.name,
         email: data.email || defaultUser.email,
         phone: data.phone ?? "(555) 019-2834",
+        pendingEmail: data.pendingEmail || null,
       };
     } catch {
       // ignore
@@ -30,15 +31,27 @@ function readMockProfile(defaultUser: { id: string; name: string; email: string 
     name: defaultUser.name,
     email: defaultUser.email,
     phone: "(555) 019-2834",
+    pendingEmail: null,
   };
 }
 
-function writeMockProfile(data: { name: string; email: string; phone?: string | null | undefined }) {
+function writeMockProfile(data: { name: string; phone?: string | null | undefined }) {
   const dir = path.dirname(MOCK_DB_FILE);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(MOCK_DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(MOCK_DB_FILE)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(MOCK_DB_FILE, "utf-8"));
+    } catch {}
+  }
+  const updated = {
+    ...existing,
+    name: data.name,
+    phone: data.phone,
+  };
+  fs.writeFileSync(MOCK_DB_FILE, JSON.stringify(updated, null, 2), "utf-8");
 }
 
 export async function GET() {
@@ -60,7 +73,7 @@ export async function GET() {
   try {
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { name: true, email: true, phone: true },
+      select: { name: true, email: true, phone: true, pendingEmail: true },
     });
     return NextResponse.json(user);
   } catch (error) {
@@ -69,6 +82,7 @@ export async function GET() {
       name: session.user.name || "Dev User",
       email: session.user.email || "dev@example.com",
       phone: "",
+      pendingEmail: null,
     });
   }
 }
@@ -86,14 +100,18 @@ export async function PUT(request: Request) {
     // File-based development persistence fallback
     if (process.env.NODE_ENV === "development") {
       writeMockProfile(data);
-      return NextResponse.json({ success: true, user: data });
+      const user = readMockProfile({
+        id: session.user.id,
+        name: session.user.name || "Dev User",
+        email: session.user.email || "dev@example.com",
+      });
+      return NextResponse.json({ success: true, user });
     }
 
     const updated = await prisma.user.update({
       where: { id: session.user.id },
       data: {
         name: data.name,
-        email: data.email,
         phone: data.phone,
       },
     });

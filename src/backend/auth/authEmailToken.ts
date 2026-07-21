@@ -20,6 +20,8 @@ export function generateRawAuthEmailToken(): string {
 function ttlForPurpose(purpose: AuthEmailTokenPurpose): number {
   switch (purpose) {
     case AuthEmailTokenPurpose.EMAIL_VERIFICATION:
+    case AuthEmailTokenPurpose.EMAIL_CHANGE_CURRENT:
+    case AuthEmailTokenPurpose.EMAIL_CHANGE_NEW:
       return EMAIL_VERIFICATION_TTL_MS;
     case AuthEmailTokenPurpose.PASSWORD_RESET:
       return PASSWORD_RESET_TTL_MS;

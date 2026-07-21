@@ -13,6 +13,7 @@ model User {
   email                         String?                         @unique
   phone                         String?
   emailVerified                 DateTime?
+  pendingEmail                  String?
   passwordHash                  String?
   image                         String?
   createdAt                     DateTime                        @default(now())
@@ -583,6 +584,8 @@ enum EligibilityDecision {
 enum AuthEmailTokenPurpose {
   EMAIL_VERIFICATION
   PASSWORD_RESET
+  EMAIL_CHANGE_CURRENT
+  EMAIL_CHANGE_NEW
 }
 
 model AuthEmailToken {

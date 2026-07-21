@@ -4,14 +4,15 @@
  */
 import { redirect } from "next/navigation";
 
-export default function SignInPage({
+export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const resolvedParams = await searchParams;
   const callbackUrl =
-    typeof searchParams.callbackUrl === "string"
-      ? searchParams.callbackUrl
+    typeof resolvedParams.callbackUrl === "string"
+      ? resolvedParams.callbackUrl
       : undefined;
 
   const target = callbackUrl ? `/?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/";

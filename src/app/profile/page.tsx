@@ -30,6 +30,14 @@ export default function ProfilePage() {
   const [successMessage, setSuccessMessage] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
 
+  // Email change states
+  const [pendingEmail, setPendingEmail] = React.useState<string | null>(null);
+  const [showChangeEmailForm, setShowChangeEmailForm] = React.useState(false);
+  const [newEmailInput, setNewEmailInput] = React.useState("");
+  const [changeEmailError, setChangeEmailError] = React.useState<string | null>(null);
+  const [changeEmailSuccess, setChangeEmailSuccess] = React.useState<string | null>(null);
+  const [changeEmailLoading, setChangeEmailLoading] = React.useState(false);
+
   // Export states
   const [isExportingPdf, setIsExportingPdf] = React.useState(false);
   const [isExportingCsv, setIsExportingCsv] = React.useState(false);
@@ -39,6 +47,7 @@ export default function ProfilePage() {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
@@ -57,6 +66,7 @@ export default function ProfilePage() {
             email: data.email || "",
             phone: data.phone || "",
           });
+          setPendingEmail(data.pendingEmail || null);
         }
       } catch (err) {
         console.error("Failed to load profile", err);
@@ -86,6 +96,88 @@ export default function ProfilePage() {
       console.error("Error updating profile", err);
     }
   }
+
+  const handleRequestChangeEmail = async () => {
+    setChangeEmailError(null);
+    setChangeEmailSuccess(null);
+
+    const emailResult = z.string().email("Invalid email format").safeParse(newEmailInput);
+    if (!emailResult.success) {
+      setChangeEmailError(emailResult.error.errors[0].message);
+      return;
+    }
+
+    setChangeEmailLoading(true);
+    try {
+      const res = await fetch("/api/profile/change-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newEmail: newEmailInput }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setChangeEmailError(data.error || "Failed to request email change.");
+      } else {
+        setPendingEmail(newEmailInput);
+        setChangeEmailSuccess("Verification email sent to your current email address.");
+        setShowChangeEmailForm(false);
+        setNewEmailInput("");
+      }
+    } catch {
+      setChangeEmailError("An error occurred. Please try again.");
+    } finally {
+      setChangeEmailLoading(false);
+    }
+  };
+
+  const handleCancelChangeEmail = async () => {
+    setChangeEmailError(null);
+    setChangeEmailSuccess(null);
+    setChangeEmailLoading(true);
+    try {
+      const res = await fetch("/api/profile/change-email", {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setChangeEmailError(data.error || "Failed to cancel email change.");
+      } else {
+        setPendingEmail(null);
+        setChangeEmailSuccess("Email change request cancelled successfully.");
+      }
+    } catch {
+      setChangeEmailError("An error occurred. Please try again.");
+    } finally {
+      setChangeEmailLoading(false);
+    }
+  };
+
+  const handleResendChangeEmail = async () => {
+    if (!pendingEmail) return;
+    setChangeEmailError(null);
+    setChangeEmailSuccess(null);
+    setChangeEmailLoading(true);
+    try {
+      const res = await fetch("/api/profile/change-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newEmail: pendingEmail }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setChangeEmailError(data.error || "Failed to resend verification email.");
+      } else {
+        setChangeEmailSuccess("Verification email resent to your current email address.");
+      }
+    } catch {
+      setChangeEmailError("An error occurred. Please try again.");
+    } finally {
+      setChangeEmailLoading(false);
+    }
+  };
 
   const handleExport = async (format: "pdf" | "csv") => {
     setExportError(null);
@@ -162,21 +254,124 @@ export default function ProfilePage() {
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="profile-email" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                Email
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="profile-email" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Email Address
+                </label>
+                {!pendingEmail && !showChangeEmailForm && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowChangeEmailForm(true);
+                      setChangeEmailSuccess(null);
+                      setChangeEmailError(null);
+                    }}
+                    className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+                  >
+                    Change email
+                  </button>
+                )}
+              </div>
               <input
                 id="profile-email"
                 type="email"
-                {...register("email")}
-                className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm text-sm"
-                aria-invalid={!!errors.email}
-                aria-describedby={errors.email ? "profile-email-error" : undefined}
+                value={watch("email") || ""}
+                readOnly
+                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-500 cursor-not-allowed shadow-sm text-sm"
               />
-              {errors.email && (
-                <p id="profile-email-error" className="text-xs font-medium text-red-600 mt-1" role="alert">
-                  {errors.email.message}
-                </p>
+
+              {showChangeEmailForm && (
+                <div className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-xl space-y-3 mt-2">
+                  <h3 className="text-xs font-bold text-gray-900">Request Email Change</h3>
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    To change your email address, you will need to complete a two-step verification. First, a confirmation link will be sent to your current email. After that, a link will be sent to your new email address.
+                  </p>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="new-email" className="text-xs font-semibold text-gray-500">
+                      New Email Address
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id="new-email"
+                        type="email"
+                        placeholder="new.email@example.com"
+                        value={newEmailInput}
+                        onChange={(e) => setNewEmailInput(e.target.value)}
+                        className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRequestChangeEmail}
+                        disabled={changeEmailLoading}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+                      >
+                        {changeEmailLoading ? "Sending…" : "Request Change"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowChangeEmailForm(false);
+                          setNewEmailInput("");
+                          setChangeEmailError(null);
+                        }}
+                        className="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-xs font-semibold transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                  {changeEmailError && (
+                    <p className="text-xs font-medium text-red-600" role="alert">
+                      {changeEmailError}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {pendingEmail && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-2 mt-2">
+                  <div className="flex items-start gap-2.5">
+                    <svg className="h-5 w-5 text-amber-600 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div className="flex-1 space-y-1">
+                      <h4 className="text-sm font-bold text-amber-900">Email Change Pending</h4>
+                      <p className="text-xs text-amber-800 leading-relaxed">
+                        A request to change your email to <strong>{pendingEmail}</strong> is currently pending. 
+                        A verification email has been sent to your current email address. Please check your inbox and click the link.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center pl-7.5">
+                    <button
+                      type="button"
+                      onClick={handleResendChangeEmail}
+                      disabled={changeEmailLoading}
+                      className="text-xs font-semibold text-amber-900 underline hover:text-amber-950 transition-colors disabled:opacity-50"
+                    >
+                      Resend verification email
+                    </button>
+                    <span className="text-xs text-amber-400">|</span>
+                    <button
+                      type="button"
+                      onClick={handleCancelChangeEmail}
+                      disabled={changeEmailLoading}
+                      className="text-xs font-semibold text-red-700 underline hover:text-red-800 transition-colors disabled:opacity-50"
+                    >
+                      Cancel request
+                    </button>
+                  </div>
+                  {changeEmailError && (
+                    <p className="text-xs font-medium text-red-600" role="alert">
+                      {changeEmailError}
+                    </p>
+                  )}
+                  {changeEmailSuccess && (
+                    <p className="text-xs font-semibold text-emerald-800" role="status">
+                      {changeEmailSuccess}
+                    </p>
+                  )}
+                </div>
               )}
             </div>
 
