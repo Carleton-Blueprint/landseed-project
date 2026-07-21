@@ -20,6 +20,7 @@
 import "dotenv/config";
 import { createVirusScanWorker, aiJobsQueue } from "./index";
 import { prisma } from "lib/prisma";
+import { PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE } from "@/backend/services/photoAnalysis";
 import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import NodeClam from "clamscan";
 import { writeFile, unlink } from "fs/promises";
@@ -254,13 +255,40 @@ const worker = createVirusScanWorker(async (job) => {
           data: { virus_scan_status: "clean" },
         });
 
+        // Queue AI photo analysis now that the photo is confirmed clean — but only if the
+        // project has already been promoted out of the guided-intake shell. Before promotion,
+        // Project.draftData (and therefore the client's declared modification codes) doesn't
+        // exist yet, so analyzing now would reconcile against nothing. finalizeIntake() sweeps
+        // clean, unanalyzed photos at promotion time instead; this covers the race where a
+        // scan finishes after the project is already promoted. Photos only — documents (grant
+        // PDFs, etc.) aren't candidates for modification-type inference.
+        const isPromoted = photo?.project.status !== "draft";
+        if (isPromoted) {
+          try {
+            await aiJobsQueue.add(
+              "ai-jobs",
+              { jobType: PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE, payload: { photoId } },
+              { jobId: `photo-analysis-${photoId}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
+            );
+            console.log(`   🤖 Queued photo modification analysis for ${photoId}`);
+          } catch (queueError) {
+            console.warn(`   ⚠️  Failed to queue photo analysis for ${photoId}:`, queueError);
+          }
+        } else {
+          console.log(`   ⏳ Project not yet promoted — deferring photo analysis for ${photoId} to intake finalization`);
+        }
+
         if (isLiveImageGenerationEnabled()) {
-          const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
-          await aiJobsQueue.add(`accessibility-image-generation:${photoId}`, {
-            jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
-            payload: jobPayload,
-          });
-          console.log(`   🖼️  Queued accessibility image generation for photo ${photoId}`);
+          try {
+            const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
+            await aiJobsQueue.add(`accessibility-image-generation:${photoId}`, {
+              jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
+              payload: jobPayload,
+            });
+            console.log(`   🖼️  Queued accessibility image generation for photo ${photoId}`);
+          } catch (queueError) {
+            console.warn(`   ⚠️  Failed to queue image generation for ${photoId}:`, queueError);
+          }
         }
       }
 

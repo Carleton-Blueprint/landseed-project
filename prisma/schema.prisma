@@ -225,6 +225,16 @@ model Photo {
   generationModel     String?
   generatedAt         DateTime?
   project             Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // AI photo analysis / scope inference (advisory — see photoAnalysis.ts).
+  // Never overwrites the client's declared draftData.modificationItems; a
+  // mismatch trips a ProjectManualReviewFlag instead.
+  analysisStatus      String    @default("PENDING")
+  aiModificationCodes String[]  @default([])
+  aiConfidence        String?
+  analysisModel       String?
+  analysisError       String?   @db.Text
+  analyzedAt          DateTime?
 }
 
 model Quote {
@@ -646,6 +656,7 @@ enum ProjectManualReviewReasonCode {
   LOW_CONFIDENCE
   HIGH_COMPLEXITY
   BOTH
+  PHOTO_MODIFICATION_MISMATCH
 }
 
 enum CommunicationType {
