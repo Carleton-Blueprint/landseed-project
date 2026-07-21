@@ -18,6 +18,8 @@ export function getPricingSourceFromRefinedEstimate(refinedEstimate: unknown): P
     return "serp_api_partial";
   }
 
-  const allSerpSourced = lineItems.every((item) => item.pricingSource !== null && item.pricingSource !== undefined);
+  const allSerpSourced = lineItems.every(
+    (item) => item.pricingSource !== null && item.pricingSource !== undefined && item.pricingSource !== "fallback"
+  );
   return allSerpSourced ? "serp_api" : "serp_api_partial";
 }

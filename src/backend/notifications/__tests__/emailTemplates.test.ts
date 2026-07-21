@@ -90,4 +90,33 @@ describe("renderEmailTemplate", () => {
     expect(template.text).toContain("https://example.test/auth/reset-password?token=abc");
   });
 
+  it("renders the email-change verify-old template with the pending new address and 1-hour expiry", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.EMAIL_CHANGE_VERIFY_OLD,
+      recipientName: "Alex",
+      newEmail: "alex-new@example.com",
+      authActionLink: "https://example.test/api/account/email-change/verify-old?token=abc",
+    });
+
+    expect(template.templateName).toBe("email-change-verify-old-v1");
+    expect(template.subject).toBe("Confirm your Landseed email change");
+    expect(template.html).toContain("alex-new@example.com");
+    expect(template.html).toContain("expires in 1 hour");
+    expect(template.text).toContain("https://example.test/api/account/email-change/verify-old?token=abc");
+  });
+
+  it("renders the email-change verify-new template with 1-hour expiry", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.EMAIL_CHANGE_VERIFY_NEW,
+      recipientName: "Alex",
+      authActionLink: "https://example.test/api/account/email-change/verify-new?token=abc",
+    });
+
+    expect(template.templateName).toBe("email-change-verify-new-v1");
+    expect(template.subject).toBe("Confirm your new Landseed email address");
+    expect(template.html).toContain("Confirm new email");
+    expect(template.html).toContain("expires in 1 hour");
+    expect(template.text).toContain("https://example.test/api/account/email-change/verify-new?token=abc");
+  });
+
 });

@@ -22,10 +22,49 @@ const priceResult = {
   status: "ok" as const,
 };
 
+const emptyPriceResult = {
+  name: "Grab bars",
+  price: null,
+  currency: null,
+  store: null,
+  link: null,
+  thumbnail: null,
+  query: "Grab bars",
+  fetchedAt: "2026-06-15T10:00:00.000Z",
+  status: "empty" as const,
+};
+
 describe("generateMockRefinedEstimate", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedGetMaterialPrice.mockResolvedValue(priceResult);
+  });
+
+  it("tags the line item pricingSource as the store when SerpAPI returns a real price", async () => {
+    const result = await generateMockRefinedEstimate([
+      { description: "Grab bars", quantity: 1, unitPrice: 150 },
+    ]);
+
+    expect(isTieredEstimate(result)).toBe(false);
+    if (!isTieredEstimate(result)) {
+      expect(result.lineItems[0].pricingSource).toBe("Home Depot");
+      expect(result.lineItems[0].materialUnitCost).toBe(200);
+    }
+  });
+
+  it("falls back to the item's unitPrice and tags pricingSource as fallback when SerpAPI has no price", async () => {
+    mockedGetMaterialPrice.mockResolvedValue(emptyPriceResult);
+
+    const result = await generateMockRefinedEstimate([
+      { description: "Grab bars", quantity: 1, unitPrice: 150 },
+    ]);
+
+    expect(isTieredEstimate(result)).toBe(false);
+    if (!isTieredEstimate(result)) {
+      expect(result.lineItems[0].pricingSource).toBe("fallback");
+      expect(result.lineItems[0].pricingLink).toBeNull();
+      expect(result.lineItems[0].materialUnitCost).toBe(150);
+    }
   });
 
   it("returns a single estimate (no tiers) when no modification code supports tiering", async () => {

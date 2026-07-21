@@ -55,6 +55,56 @@ export async function enqueueAuthEmail(input: EnqueueAuthEmailInput): Promise<vo
   });
 }
 
+export function buildEmailChangeOldConfirmIdempotencyKey(userId: string, tokenId: string): string {
+  return `email-change-old:${userId}:${tokenId}`;
+}
+
+export function buildEmailChangeNewConfirmIdempotencyKey(userId: string, tokenId: string): string {
+  return `email-change-new:${userId}:${tokenId}`;
+}
+
+export type EnqueueEmailChangeVerificationInput = {
+  userId: string;
+  purpose:
+    | typeof AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM
+    | typeof AuthEmailTokenPurpose.EMAIL_CHANGE_NEW_CONFIRM;
+  newEmail: string;
+  recipientEmail: string;
+  recipientName?: string | null;
+};
+
+export async function enqueueEmailChangeVerification(input: EnqueueEmailChangeVerificationInput): Promise<void> {
+  const { rawToken, tokenId } = await createAuthEmailToken({
+    userId: input.userId,
+    purpose: input.purpose,
+    newEmail: input.newEmail,
+  });
+
+  const baseUrl = getAppBaseUrl();
+  const isOldConfirm = input.purpose === AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM;
+  const eventType = isOldConfirm
+    ? NotificationEventType.EMAIL_CHANGE_VERIFY_OLD
+    : NotificationEventType.EMAIL_CHANGE_VERIFY_NEW;
+
+  const actionLink = isOldConfirm
+    ? `${baseUrl}/api/account/email-change/verify-old?token=${encodeURIComponent(rawToken)}`
+    : `${baseUrl}/api/account/email-change/verify-new?token=${encodeURIComponent(rawToken)}`;
+
+  const idempotencyKey = isOldConfirm
+    ? buildEmailChangeOldConfirmIdempotencyKey(input.userId, tokenId)
+    : buildEmailChangeNewConfirmIdempotencyKey(input.userId, tokenId);
+
+  await enqueueNotification({
+    eventType,
+    idempotencyKey,
+    recipientEmail: input.recipientEmail,
+    recipientName: input.recipientName,
+    userId: input.userId,
+    authActionLink: actionLink,
+    newEmail: input.newEmail,
+  });
+}
+
 export async function enqueueEmailVerificationIfNeeded(input: {
   userId: string;
   recipientEmail: string;
