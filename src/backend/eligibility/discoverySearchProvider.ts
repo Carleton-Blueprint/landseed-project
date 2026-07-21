@@ -755,11 +755,14 @@ async function tryOpenAiWebSearch(
 
   debug('AI', `Calling OpenAI Responses API — model: ${DISCOVERY_MODEL_NAME}`);
 
+  const orgId = process.env.OPENAI_ORG_ID?.trim();
+
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
+      ...(orgId ? { 'OpenAI-Organization': orgId } : {}),
     },
     body: JSON.stringify({
       model: DISCOVERY_MODEL_NAME,

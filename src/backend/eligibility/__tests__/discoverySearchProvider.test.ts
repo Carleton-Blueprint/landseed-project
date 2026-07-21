@@ -596,4 +596,78 @@ describe('discoverAndEvaluateGrants', () => {
       restoreDiscoveryEnv(savedEnv);
     }
   });
+
+  it('sends the OpenAI-Organization header when OPENAI_ORG_ID is configured', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+    const originalOrgId = process.env.OPENAI_ORG_ID;
+    process.env.OPENAI_ORG_ID = 'org-landseed-123';
+
+    try {
+      let capturedHeaders: HeadersInit | undefined;
+      const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          capturedHeaders = init?.headers;
+          return new Response(
+            JSON.stringify({ output_text: JSON.stringify({ decisions: [mockOpenAiDecision()] }) }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      expect(capturedHeaders).toMatchObject({ 'OpenAI-Organization': 'org-landseed-123' });
+    } finally {
+      if (typeof originalOrgId === 'undefined') {
+        delete process.env.OPENAI_ORG_ID;
+      } else {
+        process.env.OPENAI_ORG_ID = originalOrgId;
+      }
+      restoreDiscoveryEnv(savedEnv);
+    }
+  });
+
+  it('omits the OpenAI-Organization header when OPENAI_ORG_ID is not configured', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+    const originalOrgId = process.env.OPENAI_ORG_ID;
+    delete process.env.OPENAI_ORG_ID;
+
+    try {
+      let capturedHeaders: HeadersInit | undefined;
+      const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          capturedHeaders = init?.headers;
+          return new Response(
+            JSON.stringify({ output_text: JSON.stringify({ decisions: [mockOpenAiDecision()] }) }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      expect(capturedHeaders).not.toHaveProperty('OpenAI-Organization');
+    } finally {
+      if (typeof originalOrgId === 'undefined') {
+        delete process.env.OPENAI_ORG_ID;
+      } else {
+        process.env.OPENAI_ORG_ID = originalOrgId;
+      }
+      restoreDiscoveryEnv(savedEnv);
+    }
+  });
 });
