@@ -19,6 +19,7 @@ const priceResult = {
   thumbnail: null,
   query: "Grab bars",
   fetchedAt: "2026-06-15T10:00:00.000Z",
+  status: "ok" as const,
 };
 
 describe("generateMockRefinedEstimate", () => {
