@@ -32,9 +32,9 @@ describe("getMaterialPrice", () => {
   it("returns the cheapest preferred-store item and logs a success cost entry", async () => {
     mockFetch.mockResolvedValue(
       shoppingResponse([
-        { title: "Grab bar (AliExpress)", price: "$8.79", source: "AliExpress", link: "https://a.example" },
-        { title: "Grab bar (Amazon)", price: "$11.88", source: "Amazon CA", link: "https://b.example" },
-        { title: "Grab bar (Home Depot)", price: "$16.09", source: "Home Depot", link: "https://c.example" },
+        { title: "Grab bar (AliExpress)", price: "$8.79", source: "AliExpress", product_link: "https://a.example" },
+        { title: "Grab bar (Amazon)", price: "$11.88", source: "Amazon CA", product_link: "https://b.example" },
+        { title: "Grab bar (Home Depot)", price: "$16.09", source: "Home Depot", product_link: "https://c.example" },
       ])
     );
 
@@ -52,8 +52,8 @@ describe("getMaterialPrice", () => {
   it("falls back to the cheapest overall item when no preferred store is present", async () => {
     mockFetch.mockResolvedValue(
       shoppingResponse([
-        { title: "Grab bar (AliExpress)", price: "$8.79", source: "AliExpress", link: "https://a.example" },
-        { title: "Grab bar (Amazon)", price: "$11.88", source: "Amazon CA", link: "https://b.example" },
+        { title: "Grab bar (AliExpress)", price: "$8.79", source: "AliExpress", product_link: "https://a.example" },
+        { title: "Grab bar (Amazon)", price: "$11.88", source: "Amazon CA", product_link: "https://b.example" },
       ])
     );
 
@@ -62,6 +62,7 @@ describe("getMaterialPrice", () => {
     expect(result.status).toBe("ok");
     expect(result.store).toBe("AliExpress");
     expect(result.price).toBe(8.79);
+    expect(result.link).toBe("https://a.example");
   });
 
   it("returns an empty status when shopping_results is empty", async () => {

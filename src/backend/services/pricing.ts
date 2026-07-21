@@ -162,7 +162,7 @@ async function fetchFromSerpAPI(query: string): Promise<PriceResult> {
     price: parsePrice(best.price),
     currency: best.price || null,
     store: best.source || null,
-    link: best.link || null,
+    link: best.product_link || null,
     thumbnail: best.thumbnail || null,
     query,
     fetchedAt: new Date().toISOString(),
