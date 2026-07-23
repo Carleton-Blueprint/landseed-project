@@ -255,4 +255,5 @@ describe("finalizeIntake", () => {
 
     expect(mockedQueueAdd).not.toHaveBeenCalled();
   });
+
 });
