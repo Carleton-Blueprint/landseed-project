@@ -430,6 +430,7 @@ describe('discoverAndEvaluateGrants', () => {
       expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
       expect(result.discoveredGrants.length).toBeGreaterThan(0);
       expect(result.discoveredGrants.map((grant) => grant.grantId)).not.toContain('live_hatc_canada');
+      expect(result.discoveryMetadata.aiFailureReason).toMatch(/429/);
     } finally {
       restoreDiscoveryEnv(savedEnv);
     }
@@ -460,6 +461,7 @@ describe('discoverAndEvaluateGrants', () => {
       const result = await discoverAndEvaluateGrants(baseEligibilityInput);
 
       expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
+      expect(result.discoveryMetadata.aiFailureReason).toMatch(/parse/i);
     } finally {
       restoreDiscoveryEnv(savedEnv);
     }
@@ -488,8 +490,40 @@ describe('discoverAndEvaluateGrants', () => {
       const result = await discoverAndEvaluateGrants(baseEligibilityInput);
 
       expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
+      expect(result.discoveryMetadata.aiFailureReason).toMatch(/no output text/i);
     } finally {
       restoreDiscoveryEnv(savedEnv);
+    }
+  });
+
+  it('does not report a failure reason when AI is intentionally disabled', async () => {
+    const originalAiEnabled = process.env.GRANT_DISCOVERY_AI_ENABLED;
+    const originalOpenAiKey = process.env.OPENAI_API_KEY;
+
+    process.env.GRANT_DISCOVERY_AI_ENABLED = 'false';
+    delete process.env.OPENAI_API_KEY;
+
+    try {
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = jest.fn(
+        async () => catalogFetchFallback()
+      ) as typeof fetch;
+
+      const result = await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
+      expect(result.discoveryMetadata.aiFailureReason).toBeNull();
+    } finally {
+      if (typeof originalAiEnabled === 'undefined') {
+        delete process.env.GRANT_DISCOVERY_AI_ENABLED;
+      } else {
+        process.env.GRANT_DISCOVERY_AI_ENABLED = originalAiEnabled;
+      }
+
+      if (typeof originalOpenAiKey === 'undefined') {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = originalOpenAiKey;
+      }
     }
   });
 
@@ -559,6 +593,80 @@ describe('discoverAndEvaluateGrants', () => {
       expect(capturedBody).toContain('Toronto');
       expect(capturedBody).toContain('municipal home accessibility grant program');
     } finally {
+      restoreDiscoveryEnv(savedEnv);
+    }
+  });
+
+  it('sends the OpenAI-Organization header when OPENAI_ORG_ID is configured', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+    const originalOrgId = process.env.OPENAI_ORG_ID;
+    process.env.OPENAI_ORG_ID = 'org-landseed-123';
+
+    try {
+      let capturedHeaders: HeadersInit | undefined;
+      const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          capturedHeaders = init?.headers;
+          return new Response(
+            JSON.stringify({ output_text: JSON.stringify({ decisions: [mockOpenAiDecision()] }) }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      expect(capturedHeaders).toMatchObject({ 'OpenAI-Organization': 'org-landseed-123' });
+    } finally {
+      if (typeof originalOrgId === 'undefined') {
+        delete process.env.OPENAI_ORG_ID;
+      } else {
+        process.env.OPENAI_ORG_ID = originalOrgId;
+      }
+      restoreDiscoveryEnv(savedEnv);
+    }
+  });
+
+  it('omits the OpenAI-Organization header when OPENAI_ORG_ID is not configured', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+    const originalOrgId = process.env.OPENAI_ORG_ID;
+    delete process.env.OPENAI_ORG_ID;
+
+    try {
+      let capturedHeaders: HeadersInit | undefined;
+      const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          capturedHeaders = init?.headers;
+          return new Response(
+            JSON.stringify({ output_text: JSON.stringify({ decisions: [mockOpenAiDecision()] }) }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      expect(capturedHeaders).not.toHaveProperty('OpenAI-Organization');
+    } finally {
+      if (typeof originalOrgId === 'undefined') {
+        delete process.env.OPENAI_ORG_ID;
+      } else {
+        process.env.OPENAI_ORG_ID = originalOrgId;
+      }
       restoreDiscoveryEnv(savedEnv);
     }
   });

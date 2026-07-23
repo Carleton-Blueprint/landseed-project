@@ -79,6 +79,30 @@ export async function evaluateProjectEligibility(
       };
     }
 
+    // Step 3.5: Audit log the AI fallback if the live discovery call was attempted but failed
+    // (as opposed to being intentionally disabled/unconfigured, which is not a failure).
+    if (evaluation.discoveryMetadata.provider === 'HEURISTIC' && evaluation.discoveryMetadata.aiFailureReason) {
+      await logAuditEventNonBlocking({
+        category: 'AI_GENERATION',
+        action: 'GRANT_DISCOVERY_AI_FALLBACK',
+        outcome: 'FAILURE',
+        resourceType: 'EligibilityAssessment',
+        resourceId: assessment.id,
+        projectId: project.id,
+        actorUserId: performedBy?.id ?? null,
+        reason: evaluation.discoveryMetadata.aiFailureReason,
+        description: 'Live AI grant discovery failed; fell back to heuristic catalog scoring.',
+        metadata: {
+          failureReason: evaluation.discoveryMetadata.aiFailureReason,
+          engineVersion: evaluation.discoveryMetadata.engineVersion,
+          promptVersion: evaluation.discoveryMetadata.promptVersion,
+          scoringVersion: evaluation.discoveryMetadata.scoringVersion,
+          modelVersion: evaluation.discoveryMetadata.modelVersion,
+          sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
+        },
+      });
+    }
+
     // Step 4: Audit log (if audit event creation is available)
     if (performedBy) {
       await logAuditEventNonBlocking({

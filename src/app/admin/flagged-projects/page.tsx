@@ -7,19 +7,22 @@ import { hasMinimumRole } from "@/backend/auth/requireRole";
 
 export const metadata: Metadata = {
   title: "Flagged Projects — Landseed Project Admin",
-  description: "Projects flagged for manual review due to complexity or low AI confidence.",
+  description:
+    "Projects flagged for manual review due to complexity, low AI confidence, or a photo/intake modification mismatch.",
 };
 
 const reasonLabel: Record<string, string> = {
   LOW_CONFIDENCE: "Low Confidence",
   HIGH_COMPLEXITY: "High Complexity",
   BOTH: "Low Confidence + High Complexity",
+  PHOTO_MODIFICATION_MISMATCH: "Photo/Intake Mismatch",
 };
 
 const reasonBadgeColor: Record<string, string> = {
   LOW_CONFIDENCE: "bg-yellow-100 text-yellow-800 border border-yellow-300",
   HIGH_COMPLEXITY: "bg-orange-100 text-orange-800 border border-orange-300",
   BOTH: "bg-red-100 text-red-800 border border-red-300",
+  PHOTO_MODIFICATION_MISMATCH: "bg-blue-100 text-blue-800 border border-blue-300",
 };
 
 interface FlaggedProject {
@@ -113,7 +116,8 @@ export default async function FlaggedProjectsPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Flagged Projects</h1>
           <p className="mt-2 text-gray-600">
-            Projects flagged for manual review due to high complexity or low AI confidence.
+            Projects flagged for manual review due to high complexity, low AI confidence, or a photo/intake
+            modification mismatch.
           </p>
         </div>
 

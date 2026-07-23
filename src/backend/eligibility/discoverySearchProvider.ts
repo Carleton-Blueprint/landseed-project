@@ -38,6 +38,11 @@ export interface GrantDiscoveryMetadata {
   candidateCount: number;
   returnedCount: number;
   executedAt: string;
+  /**
+   * Non-null only when the AI web-search path was attempted and failed (as opposed to being
+   * disabled or unconfigured, which are expected skips).
+   */
+  aiFailureReason: string | null;
 }
 
 export interface GrantDiscoveryEvaluationResult {
@@ -121,7 +126,14 @@ function readVersionedFile(relativePath: string): string {
 
 function resolveAutomaticVersions(): Omit<
   GrantDiscoveryMetadata,
-  'provider' | 'query' | 'searchedScopes' | 'candidateCount' | 'returnedCount' | 'executedAt' | 'sourceSnapshotId'
+  | 'provider'
+  | 'query'
+  | 'searchedScopes'
+  | 'candidateCount'
+  | 'returnedCount'
+  | 'executedAt'
+  | 'sourceSnapshotId'
+  | 'aiFailureReason'
 > & { sourceSnapshotId: string } {
   const engineSource = readVersionedFile('src/backend/eligibility/discoverySearchProvider.ts');
   const promptSource = readVersionedFile('src/backend/eligibility/discoveryPrompt.ts');
@@ -634,20 +646,29 @@ function parseJsonObjectFromModelText(content: string): { decisions?: LlmGrantDe
   return null;
 }
 
+interface OpenAiWebSearchOutcome {
+  decisions: LlmGrantDecision[] | null;
+  /**
+   * Set only when the AI path was attempted and failed. Null for intentional skips
+   * (no API key configured, AI disabled, or mock mode) — those are not failures.
+   */
+  failureReason: string | null;
+}
+
 async function tryOpenAiWebSearch(
   input: EligibilityInput,
   fallbackCandidates: DiscoveryCandidateEvaluation[]
-): Promise<LlmGrantDecision[] | null> {
+): Promise<OpenAiWebSearchOutcome> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     debug('AI', 'OPENAI_API_KEY not set — skipping AI web search');
-    return null;
+    return { decisions: null, failureReason: null };
   }
 
   const enabled = (process.env.GRANT_DISCOVERY_AI_ENABLED ?? 'true').toLowerCase();
   if (enabled === 'false') {
     debug('AI', 'GRANT_DISCOVERY_AI_ENABLED=false — skipping AI web search');
-    return null;
+    return { decisions: null, failureReason: null };
   }
 
   // -----------------------------------------------------------
@@ -655,8 +676,7 @@ async function tryOpenAiWebSearch(
   // -----------------------------------------------------------
   if ((process.env.GRANT_DISCOVERY_MOCK_AI ?? 'false').toLowerCase() === 'true') {
     debug('AI', 'MOCK MODE — returning hardcoded decisions instead of calling OpenAI');
-    return [
-      {
+    return { failureReason: null, decisions: [{
         grantId: 'mock_hatc_canada',
         title: 'Home Accessibility Tax Credit (HATC) [MOCK]',
         scope: 'NATIONAL',
@@ -698,7 +718,7 @@ async function tryOpenAiWebSearch(
         confidence: 'LOW',
         rationale: 'Mock: modification codes match but residency and income criteria not confirmed.',
       },
-    ];
+    ] };
   }
 
   const scopedQueries = buildSearchQueries(input);
@@ -735,11 +755,14 @@ async function tryOpenAiWebSearch(
 
   debug('AI', `Calling OpenAI Responses API — model: ${DISCOVERY_MODEL_NAME}`);
 
+  const orgId = process.env.OPENAI_ORG_ID?.trim();
+
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
+      ...(orgId ? { 'OpenAI-Organization': orgId } : {}),
     },
     body: JSON.stringify({
       model: DISCOVERY_MODEL_NAME,
@@ -755,7 +778,10 @@ async function tryOpenAiWebSearch(
   if (!response.ok) {
     const errBody = await response.text().catch(() => '(unreadable)');
     debug('AI', 'OpenAI error body', { body: errBody });
-    return null;
+    return {
+      decisions: null,
+      failureReason: `OpenAI API returned ${response.status} ${response.statusText}: ${errBody.slice(0, 300)}`,
+    };
   }
 
   const body = (await response.json().catch(() => null)) as OpenAiResponsesBody | null;
@@ -770,7 +796,7 @@ async function tryOpenAiWebSearch(
 
   if (!content) {
     debug('AI', 'No content in response');
-    return null;
+    return { decisions: null, failureReason: 'OpenAI response contained no output text' };
   }
 
   let parsed: { decisions?: LlmGrantDecision[] } | null = null;
@@ -779,17 +805,17 @@ async function tryOpenAiWebSearch(
     debug('AI', `JSON parsed — decisions count: ${parsed?.decisions?.length ?? 'missing'}`);
   } catch (err) {
     debug('AI', 'JSON parse error', { error: String(err), raw: content.slice(0, 500) });
-    return null;
+    return { decisions: null, failureReason: `Failed to parse JSON from OpenAI response: ${String(err)}` };
   }
 
   if (!parsed) {
     debug('AI', 'JSON parse error', { contentLength: content.length, raw: content.slice(0, 500) });
-    return null;
+    return { decisions: null, failureReason: 'Failed to parse JSON from OpenAI response' };
   }
 
   if (!Array.isArray(parsed.decisions)) {
     debug('AI', 'decisions is not an array', { parsed });
-    return null;
+    return { decisions: null, failureReason: 'OpenAI response JSON did not contain a decisions array' };
   }
 
   const valid = parsed.decisions.filter(
@@ -816,7 +842,11 @@ async function tryOpenAiWebSearch(
     sourceUrl: d.sourceUrl,
   })));
 
-  return valid;
+  if (valid.length === 0 && dropped > 0) {
+    return { decisions: valid, failureReason: `All ${dropped} OpenAI decision(s) were malformed and dropped` };
+  }
+
+  return { decisions: valid, failureReason: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -955,11 +985,13 @@ export async function discoverAndEvaluateGrants(
 
   let provider: GrantDiscoveryProvider = 'HEURISTIC';
   let finalCandidates = heuristicCandidates;
+  let aiFailureReason: string | null = null;
 
   try {
     // Step 3: AI web search
     debug('MAIN', 'Step 3 — attempting AI web search...');
-    const llmDecisions = await tryOpenAiWebSearch(input, heuristicCandidates);
+    const { decisions: llmDecisions, failureReason } = await tryOpenAiWebSearch(input, heuristicCandidates);
+    aiFailureReason = failureReason;
 
     if (llmDecisions && llmDecisions.length > 0) {
       provider = 'OPENAI';
@@ -993,6 +1025,7 @@ export async function discoverAndEvaluateGrants(
   } catch (err) {
     debug('MAIN', 'AI web search threw an exception — falling back to heuristic', { error: String(err) });
     provider = 'HEURISTIC';
+    aiFailureReason = `Exception during AI web search: ${String(err)}`;
   }
 
   debug('MAIN', `Step 3 complete — provider=${provider}, finalCandidates=${finalCandidates.length}`, finalCandidates.map((c) => ({
@@ -1009,6 +1042,7 @@ export async function discoverAndEvaluateGrants(
     candidateCount: sources.length,
     returnedCount: finalCandidates.length,
     executedAt: new Date().toISOString(),
+    aiFailureReason: provider === 'HEURISTIC' ? aiFailureReason : null,
   });
 
   debug('MAIN', '=== discoverAndEvaluateGrants END ===', {
@@ -1042,5 +1076,6 @@ export function resolveGrantDiscoveryMetadata(
     candidateCount: overrides.candidateCount ?? 0,
     returnedCount: overrides.returnedCount ?? 0,
     executedAt: overrides.executedAt ?? new Date().toISOString(),
+    aiFailureReason: overrides.aiFailureReason ?? null,
   };
 }

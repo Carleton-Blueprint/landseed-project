@@ -1,11 +1,12 @@
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import { estimateGenerationQueue } from "@/backend/queue";
+import { estimateGenerationQueue, aiJobsQueue } from "@/backend/queue";
 import {
   buildEstimateGenerationJobId,
   getEstimateGenerationDelayMs,
 } from "@/backend/services/estimateGeneration";
 import { getPricingSourceFromRefinedEstimate } from "@/backend/services/pricingSource";
+import { PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE } from "@/backend/services/photoAnalysis";
 
 export interface FinalizeIntakeInput {
   projectId: string;
@@ -185,6 +186,32 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
       removeOnFail: { count: 500 },
     }
   );
+
+  // Sweep photos that finished virus scanning before the project was promoted — the
+  // clean-scan trigger in virusScanWorker.ts defers to this point in that case, since
+  // Project.draftData (and the client's declared modification codes) only exists now.
+  // Reuses the same jobId as the clean-scan trigger, so if a scan happens to clear right
+  // around promotion and both paths fire, BullMQ's jobId dedup makes the second a no-op.
+  const cleanUnanalyzedPhotos = await prisma.photo.findMany({
+    where: {
+      projectId: project.id,
+      virus_scan_status: "clean",
+      analysisStatus: { notIn: ["READY", "ANALYZING"] },
+    },
+    select: { id: true },
+  });
+
+  for (const photo of cleanUnanalyzedPhotos) {
+    try {
+      await aiJobsQueue.add(
+        "ai-jobs",
+        { jobType: PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE, payload: { photoId: photo.id } },
+        { jobId: `photo-analysis-${photo.id}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
+      );
+    } catch (queueError) {
+      console.warn(`Failed to queue photo analysis for ${photo.id} at intake finalization:`, queueError);
+    }
+  }
 
   return {
     ok: true,

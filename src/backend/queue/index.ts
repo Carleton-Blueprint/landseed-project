@@ -57,10 +57,14 @@ export const builderTrendTransferQueue = new Queue<{
 
 export const manualReviewQueue = new Queue<{
   projectId: string;
-  assessmentId: string;
+  // Omitted for triggers with no EligibilityAssessment (e.g. photo analysis) —
+  // the worker's stale-evaluation guard only applies when this is present.
+  assessmentId?: string;
   aiConfidence: "HIGH" | "MEDIUM" | "LOW";
   complexityScore?: number;
   reason?: string;
+  photoId?: string;
+  metadata?: Record<string, unknown>;
 }>("manual-review", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 1000 } },
@@ -147,10 +151,12 @@ export function createManualReviewWorker(
   processor: (job: {
     data: {
       projectId: string;
-      assessmentId: string;
+      assessmentId?: string;
       aiConfidence: "HIGH" | "MEDIUM" | "LOW";
       complexityScore?: number;
       reason?: string;
+      photoId?: string;
+      metadata?: Record<string, unknown>;
     };
   }) => Promise<void>
 ) {
