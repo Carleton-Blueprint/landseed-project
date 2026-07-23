@@ -74,7 +74,8 @@ function buildLineItemForTier(
   priceResult: PriceResultLike,
   tierAdjustment: PricingTierAdjustment
 ): RefinedEstimateLineItem {
-  const baseUnitCost = roundToCents(priceResult?.price ?? item.unitPrice ?? 150);
+  const usedSerpPrice = priceResult?.status === "ok" && priceResult.price !== null;
+  const baseUnitCost = roundToCents((usedSerpPrice ? priceResult!.price! : null) ?? item.unitPrice ?? 150);
   const materialUnitCost = roundToCents(baseUnitCost * tierAdjustment.materialMultiplier);
   const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, baseUnitCost);
   const laborRate = roundToCents(baseLaborRate * tierAdjustment.laborMultiplier);
@@ -89,8 +90,8 @@ function buildLineItemForTier(
     description: item.description,
     quantity: item.quantity,
     pricingQuery: formatQuery(item.description),
-    pricingSource: priceResult?.store ?? priceResult?.name ?? null,
-    pricingLink: priceResult?.link ?? null,
+    pricingSource: usedSerpPrice ? (priceResult!.store ?? priceResult!.name) : "fallback",
+    pricingLink: usedSerpPrice ? priceResult!.link : null,
     materialUnitCost,
     materialTotal,
     laborHours,

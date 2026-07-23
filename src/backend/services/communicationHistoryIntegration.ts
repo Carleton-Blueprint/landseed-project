@@ -27,6 +27,8 @@ export function getCategoryFromEventType(eventType: NotificationEventType): Comm
       return CommunicationCategory.DOCUMENT;
     case NotificationEventType.EMAIL_VERIFICATION:
     case NotificationEventType.PASSWORD_RESET:
+    case NotificationEventType.EMAIL_CHANGE_VERIFY_OLD:
+    case NotificationEventType.EMAIL_CHANGE_VERIFY_NEW:
       return CommunicationCategory.SYSTEM_ALERT;
     default:
       return CommunicationCategory.OTHER;

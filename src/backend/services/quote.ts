@@ -19,6 +19,7 @@ import {
   isTieredEstimate,
   type AnyRefinedEstimate,
 } from '@/backend/services/pricingTiers';
+import { getPricingSourceFromRefinedEstimate } from '@/backend/services/pricingSource';
 import type { ModificationCode } from '@/backend/eligibility/types';
 
 const prisma = new PrismaClient();
@@ -57,11 +58,6 @@ interface PricingDecisionAuditTrailEntry {
   createdAt: Date;
   actor?: { id: string; name: string | null; email: string | null } | null;
   metadata: ReturnType<typeof normalizePricingDecisionAuditMetadata>;
-}
-
-function getPricingSourceFromRefinedEstimate(refinedEstimate: RefinedEstimate): "serp_api" | "serp_api_partial" {
-  const allSerpSourced = refinedEstimate.lineItems.every((item) => item.pricingSource !== null);
-  return allSerpSourced ? "serp_api" : "serp_api_partial";
 }
 
 /**

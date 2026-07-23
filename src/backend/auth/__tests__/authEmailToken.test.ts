@@ -110,6 +110,44 @@ describe("authEmailToken utilities", () => {
 
       expect(result.expiresAt.toISOString()).toBe("2026-06-26T13:00:00.000Z");
     });
+
+    it("uses a 1-hour expiry for both email-change purposes", async () => {
+      const now = new Date("2026-06-26T12:00:00.000Z").getTime();
+      jest.spyOn(Date, "now").mockReturnValue(now);
+      (prisma.authEmailToken.create as jest.Mock).mockResolvedValue({ id: "token-1" });
+
+      const oldConfirm = await createAuthEmailToken({
+        userId: "user-1",
+        purpose: AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM,
+      });
+      const newConfirm = await createAuthEmailToken({
+        userId: "user-1",
+        purpose: AuthEmailTokenPurpose.EMAIL_CHANGE_NEW_CONFIRM,
+        newEmail: "new@example.com",
+      });
+
+      expect(oldConfirm.expiresAt.toISOString()).toBe("2026-06-26T13:00:00.000Z");
+      expect(newConfirm.expiresAt.toISOString()).toBe("2026-06-26T13:00:00.000Z");
+      expect(prisma.authEmailToken.create).toHaveBeenLastCalledWith({
+        data: expect.objectContaining({
+          purpose: AuthEmailTokenPurpose.EMAIL_CHANGE_NEW_CONFIRM,
+          newEmail: "new@example.com",
+        }),
+      });
+    });
+
+    it("stores newEmail as null when not provided", async () => {
+      (prisma.authEmailToken.create as jest.Mock).mockResolvedValue({ id: "token-1" });
+
+      await createAuthEmailToken({
+        userId: "user-1",
+        purpose: AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM,
+      });
+
+      expect(prisma.authEmailToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ newEmail: null }),
+      });
+    });
   });
 
   describe("findValidAuthEmailToken", () => {
@@ -153,11 +191,26 @@ describe("authEmailToken utilities", () => {
         userId: "user-1",
         expiresAt: new Date(Date.now() + 60_000),
         usedAt: null,
+        newEmail: null,
       });
 
       await expect(
         findValidAuthEmailToken("valid-token", AuthEmailTokenPurpose.EMAIL_VERIFICATION)
-      ).resolves.toEqual({ ok: true, tokenId: "token-1", userId: "user-1" });
+      ).resolves.toEqual({ ok: true, tokenId: "token-1", userId: "user-1", newEmail: null });
+    });
+
+    it("returns the pending newEmail for email-change tokens", async () => {
+      (prisma.authEmailToken.findFirst as jest.Mock).mockResolvedValue({
+        id: "token-1",
+        userId: "user-1",
+        expiresAt: new Date(Date.now() + 60_000),
+        usedAt: null,
+        newEmail: "new@example.com",
+      });
+
+      await expect(
+        findValidAuthEmailToken("valid-token", AuthEmailTokenPurpose.EMAIL_CHANGE_NEW_CONFIRM)
+      ).resolves.toEqual({ ok: true, tokenId: "token-1", userId: "user-1", newEmail: "new@example.com" });
     });
   });
 
@@ -168,12 +221,13 @@ describe("authEmailToken utilities", () => {
         userId: "user-1",
         expiresAt: new Date(Date.now() + 60_000),
         usedAt: null,
+        newEmail: null,
       });
       (prisma.authEmailToken.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       await expect(
         consumeAuthEmailToken("valid-token", AuthEmailTokenPurpose.PASSWORD_RESET)
-      ).resolves.toEqual({ ok: true, tokenId: "token-1", userId: "user-1" });
+      ).resolves.toEqual({ ok: true, tokenId: "token-1", userId: "user-1", newEmail: null });
 
       expect(prisma.authEmailToken.updateMany).toHaveBeenCalledWith({
         where: {

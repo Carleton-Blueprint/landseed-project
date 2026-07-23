@@ -12,7 +12,9 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
 
   const isAuthEvent =
     payload.eventType === NotificationEventType.EMAIL_VERIFICATION ||
-    payload.eventType === NotificationEventType.PASSWORD_RESET;
+    payload.eventType === NotificationEventType.PASSWORD_RESET ||
+    payload.eventType === NotificationEventType.EMAIL_CHANGE_VERIFY_OLD ||
+    payload.eventType === NotificationEventType.EMAIL_CHANGE_VERIFY_NEW;
 
   await emailQueue.add(
     `notify-${payload.idempotencyKey}`,
@@ -36,6 +38,7 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
       authActionLink: payload.authActionLink,
       seniorName: payload.seniorName,
       isCaregiverSubmission: payload.isCaregiverSubmission,
+      newEmail: payload.newEmail,
     },
     {
       removeOnComplete: 100,
