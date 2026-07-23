@@ -198,9 +198,73 @@ describe("finalizeIntake", () => {
     );
   });
 
-  it("marks source as serp_api_partial when any line item lacks a pricing source", async () => {
+  it("expands complex modification requests into multiple itemized quote items", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-4",
+      status: "draft",
+      draftData: {
+        modificationItems: ["Grab bars + raised toilet + walk-in shower"],
+      },
+      quotes: [],
+    });
+
+    mockedProjectUpdateMany.mockResolvedValue({ count: 1 });
+    mockedGenerateQuote.mockResolvedValue({
+      quoteId: "quote-multi",
+      subtotal: 2100,
+      total: 2450,
+      pricingMatrixVersion: 3,
+      eligibilityAssessmentId: undefined,
+      estimateMin: 2327.5,
+      estimateMax: 2572.5,
+      pricingSource: "serp_api",
+      refinedEstimate: {
+        lineItems: [serpLineItem],
+        subtotal: 2100,
+        laborTotal: 600,
+        markupTotal: 350,
+        total: 2450,
+        estimateMin: 2327.5,
+        estimateMax: 2572.5,
+      },
+    });
+    mockedMarkEstimateReady.mockResolvedValue({
+      projectId: "proj-4",
+      quoteId: "quote-multi",
+      projectStatus: "estimate_ready",
+      triggerSource: "legacy-quote-generation",
+      notificationIdempotencyKey: "estimate-ready:quote-multi",
+      notified: true,
+      notificationQueuedAt: "2026-06-15T10:05:00.000Z",
+    });
+
+    await finalizeIntake({ projectId: "proj-4", actorUserId: "user-4" });
+
+    expect(mockedGenerateQuote).toHaveBeenCalledWith({
+      projectId: "proj-4",
+      items: [
+        {
+          description: "Grab bars",
+          quantity: 1,
+          unitPrice: 150,
+        },
+        {
+          description: "Raised toilet",
+          quantity: 1,
+          unitPrice: 150,
+        },
+        {
+          description: "Walk-in shower",
+          quantity: 1,
+          unitPrice: 150,
+        },
+      ],
+    });
+  });
+
+  it("marks source as serp_api_partial when any line item lacks a pricing source", async () => {
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-5",
       status: "draft",
       draftData: {
         modificationItems: ["Walk-in shower"],
@@ -248,7 +312,7 @@ describe("finalizeIntake", () => {
 
   it("keeps project submitted when quote generation fails", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
-      id: "proj-5",
+      id: "proj-6",
       status: "draft",
       draftData: {
         modificationItems: ["Grab bars"],
@@ -260,13 +324,13 @@ describe("finalizeIntake", () => {
     mockedGenerateQuote.mockRejectedValue(new Error("pricing failed"));
 
     const result = await finalizeIntake({
-      projectId: "proj-5",
-      actorUserId: "user-5",
+      projectId: "proj-6",
+      actorUserId: "user-6",
     });
 
     expect(result).toEqual({
       ok: true,
-      projectId: "proj-5",
+      projectId: "proj-6",
       status: "submitted",
       message: "Intake finalized successfully. Preliminary quote generation is pending.",
     });

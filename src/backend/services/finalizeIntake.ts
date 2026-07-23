@@ -83,13 +83,46 @@ function toQuoteRangeResult(quote: QuoteRecordShape): QuoteRangeResult {
   };
 }
 
+function normalizeModificationDescriptions(modificationItems: unknown): string[] {
+  if (!Array.isArray(modificationItems) || modificationItems.length === 0) {
+    return [];
+  }
+
+  const descriptions = modificationItems.flatMap((item) => {
+    if (typeof item !== "string") {
+      return item == null ? [] : [String(item)];
+    }
+
+    const trimmed = item.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    return trimmed
+      .split(/\s*(?:\+|,|;|\/|\band\b)\s*/i)
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+  });
+
+  return descriptions.map((description) => {
+    const trimmed = description.trim().replace(/\s+/g, " ");
+    if (!trimmed) {
+      return trimmed;
+    }
+
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  });
+}
+
 function buildQuoteItems(draftData: unknown): Array<{ description: string; quantity: number; unitPrice: number }> {
   const modificationItems =
     draftData && typeof draftData === "object" && !Array.isArray(draftData)
       ? (draftData as { modificationItems?: unknown }).modificationItems
       : undefined;
 
-  if (!Array.isArray(modificationItems) || modificationItems.length === 0) {
+  const normalizedDescriptions = normalizeModificationDescriptions(modificationItems);
+
+  if (normalizedDescriptions.length === 0) {
     return [
       {
         description: "Home modifications (initial intake estimate)",
@@ -99,8 +132,8 @@ function buildQuoteItems(draftData: unknown): Array<{ description: string; quant
     ];
   }
 
-  return modificationItems.map((item) => ({
-    description: typeof item === "string" ? item : String(item),
+  return normalizedDescriptions.map((description) => ({
+    description,
     quantity: 1,
     unitPrice: 150,
   }));
