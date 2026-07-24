@@ -36,6 +36,10 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
       authActionLink: payload.authActionLink,
       seniorName: payload.seniorName,
       isCaregiverSubmission: payload.isCaregiverSubmission,
+      senderId: payload.senderId,
+      linkedResourceId: payload.linkedResourceId,
+      informationRequestType: payload.informationRequestType,
+      informationRequestMessage: payload.informationRequestMessage,
     },
     {
       removeOnComplete: 100,

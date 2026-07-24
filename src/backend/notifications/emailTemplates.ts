@@ -14,7 +14,22 @@ type TemplateInput = {
   authActionLink?: string | null;
   seniorName?: string | null;
   isCaregiverSubmission?: boolean;
+  informationRequestType?: string;
+  informationRequestMessage?: string;
 };
+
+function formatInformationRequestType(requestType?: string): string {
+  switch (requestType) {
+    case "PHOTOS":
+      return "additional photos";
+    case "DOCUMENTS":
+      return "additional documents";
+    case "GENERAL_INFORMATION":
+      return "additional information";
+    default:
+      return "additional information";
+  }
+}
 
 export type RenderedEmailTemplate = {
   templateName: string;
@@ -187,6 +202,27 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
       subject: "Reset your Landseed password",
       html: `<p>Hi ${recipientName},</p><p>We received a request to reset your Landseed password.</p><p>This link expires in 1 hour. If you did not request this, you can ignore this email.</p>${linkHtml}${authSupportFooter()}`,
       text: `Hi ${recipientName},\n\nWe received a request to reset your Landseed password.\n\nThis link expires in 1 hour. If you did not request this, you can ignore this email.${linkText}\nIf you need help, reply to this email or contact the Landseed advisory team.\n\nLandseed Team`,
+    };
+  }
+
+  if (input.eventType === NotificationEventType.INFORMATION_REQUEST_CREATED) {
+    const recipientName = safeName(input.recipientName);
+    const addressLine = input.projectAddress ? ` for ${input.projectAddress}` : "";
+    const requestKind = formatInformationRequestType(input.informationRequestType);
+    const dashboardLink = input.estimateLink?.trim();
+    const message = input.informationRequestMessage?.trim();
+    const linkHtml = dashboardLink
+      ? `<p><a href="${dashboardLink}">View your project</a></p>`
+      : "";
+    const linkText = dashboardLink ? `\nView your project: ${dashboardLink}\n` : "";
+    const messageHtml = message ? `<p><strong>Details:</strong> ${message}</p>` : "";
+    const messageText = message ? `\nDetails: ${message}\n` : "";
+
+    return {
+      templateName: "information-request-created-v1",
+      subject: `Action needed on your Landseed project${addressLine}`,
+      html: `<p>Hi ${recipientName},</p><p>Our advisory team has requested ${requestKind}${addressLine} to keep your project moving.</p>${messageHtml}<p>Please respond within 7 days so we can continue processing your project.</p>${linkHtml}<p>If you have questions, reply to this email and our team can help.</p><p>Landseed Team</p>`,
+      text: `Hi ${recipientName},\n\nOur advisory team has requested ${requestKind}${addressLine} to keep your project moving.${messageText}\nPlease respond within 7 days so we can continue processing your project.${linkText}\nIf you have questions, reply to this email and our team can help.\n\nLandseed Team`,
     };
   }
 

@@ -31,6 +31,8 @@ model User {
   intakeDraft                   IntakeDraft?
   authEmailTokens               AuthEmailToken[]
   projectStaffNotes             ProjectStaffNote[]
+  informationRequestsMade       InformationRequest[]            @relation("InformationRequestRequestedBy")
+  grantSignatures               GrantSignature[]                @relation("GrantSignatureSigner")
 }
 
 model Project {
@@ -59,6 +61,8 @@ model Project {
   consultationRequest           ConsultationRequest?
   intakeDraft                   IntakeDraft?
   staffNotes                    ProjectStaffNote[]
+  informationRequests           InformationRequest[]
+  grantSignatures               GrantSignature[]
 }
 
 model IntakeDraft {
@@ -493,6 +497,52 @@ model CommunicationHistory {
   @@index([status])
 }
 
+model InformationRequest {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  requestType InformationRequestType
+  message     String                 @db.Text
+
+  requestedByUserId String
+  requestedByUser   User   @relation("InformationRequestRequestedBy", fields: [requestedByUserId], references: [id])
+
+  status InformationRequestStatus @default(PENDING)
+
+  respondedAt       DateTime?
+  followUpFlaggedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
+}
+
+model GrantSignature {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  signerUserId String
+  signerUser   User   @relation("GrantSignatureSigner", fields: [signerUserId], references: [id])
+
+  acknowledgementType GrantAcknowledgementType
+  signatureData       String                   @db.Text
+
+  signedAt  DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([signerUserId])
+  @@index([projectId, acknowledgementType])
+}
+
 // ——— Enums ———
 
 enum GrantApplicationStatus {
@@ -617,6 +667,7 @@ enum NotificationEventType {
   FILE_MALWARE_DETECTED
   EMAIL_VERIFICATION
   PASSWORD_RESET
+  INFORMATION_REQUEST_CREATED
 }
 
 enum AccountDeletionRequestStatus {
@@ -674,6 +725,7 @@ enum CommunicationCategory {
   SUBMISSION_RECEIPT
   SURVEY
   SYSTEM_ALERT
+  INFORMATION_REQUEST
   OTHER
 }
 
@@ -684,4 +736,23 @@ enum CommunicationStatus {
   FAILED
   READ
   BOUNCED
+}
+
+enum InformationRequestType {
+  PHOTOS
+  DOCUMENTS
+  GENERAL_INFORMATION
+}
+
+enum InformationRequestStatus {
+  PENDING
+  RESPONDED
+  FOLLOW_UP_FLAGGED
+}
+
+enum GrantAcknowledgementType {
+  CONSENT_TO_SUBMIT
+  ACCURACY_ATTESTATION
+  INFORMATION_SHARING_CONSENT
+  TERMS_AND_CONDITIONS
 }
