@@ -1,12 +1,17 @@
 "use client";
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useImperativeHandle, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 
 export interface PhotoUploadInterfaceProps {
   onUpload?: (files: File[]) => void;
+  onDeleteFile?: (file: File, index: number) => void;
   maxFiles?: number;
   maxSizeMB?: number;
+}
+
+export interface PhotoUploadInterfaceHandle {
+  removeFile: (file: File) => void;
 }
 
 const ACCEPTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".heic"];
@@ -25,11 +30,13 @@ function isAcceptedFileType(file: File) {
   );
 }
 
-export function PhotoUploadInterface({
-  onUpload,
-  maxFiles = 10,
-  maxSizeMB = 10,
-}: PhotoUploadInterfaceProps) {
+export const PhotoUploadInterface = React.forwardRef<
+  PhotoUploadInterfaceHandle,
+  PhotoUploadInterfaceProps
+>(function PhotoUploadInterface(
+  { onUpload, onDeleteFile, maxFiles = 10, maxSizeMB = 10 },
+  ref
+) {
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [replaceIndex, setReplaceIndex] = useState<number | null>(null);
@@ -148,13 +155,25 @@ export function PhotoUploadInterface({
   });
 
   const removeFile = (index: number) => {
+    const removedFile = files[index];
     const filteredFiles = files.filter((_, i) => i !== index);
     setFiles(filteredFiles);
     if (onUpload) {
       onUpload(filteredFiles);
     }
+    onDeleteFile?.(removedFile, index);
     setError(null);
   };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      removeFile: (file: File) => {
+        setFiles((prev) => prev.filter((f) => f !== file));
+      },
+    }),
+    []
+  );
 
   return (
     <div className="w-full space-y-4">
@@ -252,4 +271,4 @@ export function PhotoUploadInterface({
       )}
     </div>
   );
-}
+});
