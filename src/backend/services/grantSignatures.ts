@@ -5,9 +5,18 @@
  * an existing one. See /api/project/{id}/grant-signature.
  */
 
+import { createHash } from "node:crypto";
 import { GrantAcknowledgementType } from "@prisma/client";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { prisma } from "lib/prisma";
+
+// Fingerprints signatureData so the audit trail's tamper-evident hash chain
+// (see logAuditEvent) actually commits to what was signed, not just that a
+// signing event occurred. Compare this against a fresh hash of the current
+// GrantSignature.signatureData to detect any out-of-band modification.
+function hashSignatureData(signatureData: string): string {
+  return createHash("sha256").update(signatureData).digest("hex");
+}
 
 export const GRANT_SIGNATURE_DATA_MAX_LENGTH = 500_000; // ~375KB decoded; covers a small canvas-drawn PNG data URI or a typed name
 export const GRANT_SIGNATURE_DATA_MIN_LENGTH = 1;
@@ -154,6 +163,7 @@ export async function createGrantSignature(input: {
     resourceId: signature.id,
     description: `Signed grant acknowledgement: ${acknowledgementType}`,
     metadata: { acknowledgementType },
+    afterState: { signatureDataHash: hashSignatureData(signatureData) },
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
   });
