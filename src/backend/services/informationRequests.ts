@@ -3,7 +3,7 @@
  * from a client. Created via /api/admin/projects/{projectId}/information-requests.
  */
 
-import { InformationRequestType } from "@prisma/client";
+import { InformationRequestStatus, InformationRequestType } from "@prisma/client";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { prisma } from "lib/prisma";
 
@@ -13,7 +13,13 @@ export const INFORMATION_REQUEST_MESSAGE_MIN_LENGTH = 10;
 export const INFORMATION_REQUEST_AUDIT_ACTIONS = {
   CREATE: "INFORMATION_REQUEST_CREATE",
   NOTIFICATION_FAILED: "INFORMATION_REQUEST_NOTIFICATION_FAILED",
+  RESPONDED: "INFORMATION_REQUEST_RESPONDED",
 } as const;
+
+const OPEN_STATUSES: InformationRequestStatus[] = [
+  InformationRequestStatus.PENDING,
+  InformationRequestStatus.FOLLOW_UP_FLAGGED,
+];
 
 const VALID_REQUEST_TYPES = Object.values(InformationRequestType);
 
@@ -38,6 +44,32 @@ export interface SerializedInformationRequest {
   status: string;
   requestedByUserId: string;
   createdAt: Date;
+  respondedAt: Date | null;
+  followUpFlaggedAt: Date | null;
+}
+
+function serializeInformationRequest(row: {
+  id: string;
+  projectId: string;
+  requestType: InformationRequestType;
+  message: string;
+  status: InformationRequestStatus;
+  requestedByUserId: string;
+  createdAt: Date;
+  respondedAt: Date | null;
+  followUpFlaggedAt: Date | null;
+}): SerializedInformationRequest {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    requestType: row.requestType,
+    message: row.message,
+    status: row.status,
+    requestedByUserId: row.requestedByUserId,
+    createdAt: row.createdAt,
+    respondedAt: row.respondedAt,
+    followUpFlaggedAt: row.followUpFlaggedAt,
+  };
 }
 
 function normalizeRequestType(requestType: unknown): InformationRequestType {
@@ -126,15 +158,58 @@ export async function createInformationRequest(input: {
   });
 
   return {
-    informationRequest: {
-      id: informationRequest.id,
-      projectId: informationRequest.projectId,
-      requestType: informationRequest.requestType,
-      message: informationRequest.message,
-      status: informationRequest.status,
-      requestedByUserId: informationRequest.requestedByUserId,
-      createdAt: informationRequest.createdAt,
-    },
+    informationRequest: serializeInformationRequest(informationRequest),
     project,
   };
+}
+
+export async function listInformationRequestsForProject(
+  projectId: string
+): Promise<SerializedInformationRequest[]> {
+  const rows = await prisma.informationRequest.findMany({
+    where: { projectId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return rows.map(serializeInformationRequest);
+}
+
+/**
+ * Best-effort: marks any open (PENDING or FOLLOW_UP_FLAGGED) information
+ * requests on a project as RESPONDED. Called when a client uploads a photo
+ * or document, since we don't track which specific request an upload
+ * addresses — any client-initiated upload counts as a response.
+ */
+export async function markInformationRequestsRespondedForProject(
+  projectId: string,
+  respondedByUserId: string
+): Promise<number> {
+  const openRequests = await prisma.informationRequest.findMany({
+    where: { projectId, status: { in: OPEN_STATUSES } },
+    select: { id: true },
+  });
+
+  if (openRequests.length === 0) {
+    return 0;
+  }
+
+  const respondedAt = new Date();
+  await prisma.informationRequest.updateMany({
+    where: { id: { in: openRequests.map((r) => r.id) } },
+    data: { status: InformationRequestStatus.RESPONDED, respondedAt },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: INFORMATION_REQUEST_AUDIT_ACTIONS.RESPONDED,
+    outcome: "SUCCESS",
+    sensitivityLevel: "CONFIDENTIAL",
+    actorUserId: respondedByUserId,
+    projectId,
+    resourceType: "InformationRequest",
+    description: "Client upload marked open information requests as responded",
+    metadata: { informationRequestIds: openRequests.map((r) => r.id) },
+  });
+
+  return openRequests.length;
 }

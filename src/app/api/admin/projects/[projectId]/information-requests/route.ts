@@ -1,5 +1,6 @@
 /**
  * API Route: /api/admin/projects/[projectId]/information-requests
+ * GET: List information requests staff have made on a project (any status).
  * POST: Request additional photos, documents, or information from a client.
  * Auth: NextAuth (admin/advisory only)
  */
@@ -14,6 +15,7 @@ import {
   INFORMATION_REQUEST_AUDIT_ACTIONS,
   InformationRequestError,
   createInformationRequest,
+  listInformationRequestsForProject,
 } from "@/backend/services/informationRequests";
 import { enqueueInformationRequestNotificationForClient } from "@/backend/notifications/informationRequestNotificationContract";
 
@@ -58,6 +60,27 @@ function informationRequestErrorResponse(error: unknown): Response | null {
   }
 
   return null;
+}
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  try {
+    const { projectId } = await params;
+    const session = await auth();
+    const denied = await requireAdminForInformationRequests(request, session, projectId);
+    if (denied) return denied;
+
+    const informationRequests = await listInformationRequestsForProject(projectId);
+    return Response.json({ informationRequests }, { status: 200 });
+  } catch (error) {
+    const known = informationRequestErrorResponse(error);
+    if (known) return known;
+
+    console.error("Information request GET error:", error);
+    return Response.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
 
 export async function POST(

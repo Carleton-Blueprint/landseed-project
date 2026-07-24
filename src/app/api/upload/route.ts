@@ -13,6 +13,7 @@ import { authGateResponse } from "@/backend/auth/authGateResponse";
 import { requireVerifiedEmail } from "@/backend/auth/requireVerifiedEmail";
 import { ProjectAccessRole } from "@prisma/client";
 import { virusScanQueue } from "@/backend/queue";
+import { markInformationRequestsRespondedForProject } from "@/backend/services/informationRequests";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -121,6 +122,12 @@ export async function POST(request: NextRequest) {
     );
 
     console.log(`✅ Photo ${photo.id} uploaded. Virus scan job queued.`);
+
+    try {
+      await markInformationRequestsRespondedForProject(projectId, session.user.id);
+    } catch (markError) {
+      console.warn("Failed to mark information requests as responded:", markError);
+    }
 
     const displayUrl = await signPhotoUrlForDisplay(photo.url);
 
