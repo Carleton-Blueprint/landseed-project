@@ -31,6 +31,10 @@ const worker = createEmailWorker(async (job) => {
     authActionLink: job.data.authActionLink,
     seniorName: job.data.seniorName,
     isCaregiverSubmission: job.data.isCaregiverSubmission,
+    senderId: job.data.senderId,
+    linkedResourceId: job.data.linkedResourceId,
+    informationRequestType: job.data.informationRequestType,
+    informationRequestMessage: job.data.informationRequestMessage,
   });
 });
 

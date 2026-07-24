@@ -667,6 +667,7 @@ enum NotificationEventType {
   FILE_MALWARE_DETECTED
   EMAIL_VERIFICATION
   PASSWORD_RESET
+  INFORMATION_REQUEST_CREATED
 }
 
 enum AccountDeletionRequestStatus {
@@ -724,6 +725,7 @@ enum CommunicationCategory {
   SUBMISSION_RECEIPT
   SURVEY
   SYSTEM_ALERT
+  INFORMATION_REQUEST
   OTHER
 }
 
