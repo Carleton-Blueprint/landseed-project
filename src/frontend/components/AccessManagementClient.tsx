@@ -10,7 +10,6 @@ import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 
 /* ------------------------------------------------------------------ */
-/* Types                                                               */
 /* ------------------------------------------------------------------ */
 
 export type AccessMember = {
@@ -32,7 +31,6 @@ type Props = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Role badge                                                          */
 /* ------------------------------------------------------------------ */
 
 const ROLE_STYLES: Record<string, { label: string; className: string }> = {
@@ -65,7 +63,6 @@ function RoleBadge({ role }: { role: string }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Avatar initials                                                     */
 /* ------------------------------------------------------------------ */
 
 function Avatar({ name, email }: { name: string | null; email: string | null }) {
@@ -82,7 +79,6 @@ function Avatar({ name, email }: { name: string | null; email: string | null }) 
 }
 
 /* ------------------------------------------------------------------ */
-/* Role descriptions (tooltip-like helper text)                        */
 /* ------------------------------------------------------------------ */
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
@@ -92,7 +88,6 @@ const ROLE_DESCRIPTIONS: Record<string, string> = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Single project panel                                                */
 /* ------------------------------------------------------------------ */
 
 function ProjectAccessPanel({
@@ -106,11 +101,9 @@ function ProjectAccessPanel({
     (m) => m.user.id === currentUserId && m.role === "OWNER"
   );
 
-  // Local optimistic state
   const [members, setMembers] = React.useState<AccessMember[]>(project.accessList);
   const [open, setOpen] = React.useState(true);
 
-  // Invite form state
   const [inviteEmail, setInviteEmail] = React.useState("");
   const [inviteRole, setInviteRole] = React.useState<"EDITOR" | "VIEWER">("VIEWER");
   const [inviteStatus, setInviteStatus] = React.useState<
@@ -118,7 +111,6 @@ function ProjectAccessPanel({
   >("idle");
   const [inviteError, setInviteError] = React.useState<string | null>(null);
 
-  // Per-member action state
   const [memberActions, setMemberActions] = React.useState<
     Record<string, "idle" | "updating" | "revoking">
   >({});
@@ -127,7 +119,6 @@ function ProjectAccessPanel({
     setMemberActions((prev) => ({ ...prev, [userId]: state }));
   }
 
-  /* Invite */
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
     setInviteError(null);
@@ -151,7 +142,6 @@ function ProjectAccessPanel({
         setInviteStatus("error");
         return;
       }
-      // Optimistically update the list
       const newMember: AccessMember = {
         role: data.access.role,
         createdAt: new Date().toISOString(),
@@ -177,7 +167,6 @@ function ProjectAccessPanel({
     }
   }
 
-  /* Change role */
   async function handleRoleChange(member: AccessMember, newRole: "OWNER" | "EDITOR" | "VIEWER") {
     if (newRole === member.role) return;
     setMemberAction(member.user.id, "updating");
@@ -205,7 +194,6 @@ function ProjectAccessPanel({
     }
   }
 
-  /* Revoke */
   async function handleRevoke(member: AccessMember) {
     if (!confirm(`Remove ${member.user.name ?? member.user.email} from this project?`)) return;
     setMemberAction(member.user.id, "revoking");
@@ -238,10 +226,8 @@ function ProjectAccessPanel({
       className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md"
       id={`access-panel-${project.id}`}
     >
-      {/* Accent bar */}
       <div className="h-1 w-full bg-gradient-to-r from-emerald-400 to-teal-500" />
 
-      {/* Header / accordion toggle */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -268,13 +254,11 @@ function ProjectAccessPanel({
         <ChevronIcon open={open} />
       </button>
 
-      {/* Body */}
       {open && (
         <div
           id={`access-panel-body-${project.id}`}
           className="border-t border-gray-100 px-6 pb-6 pt-4 space-y-5"
         >
-          {/* Member list */}
           <div className="space-y-2">
             {sortedMembers.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No members yet.</p>
@@ -290,10 +274,8 @@ function ProjectAccessPanel({
                     className="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50/60 px-4 py-3 transition-colors hover:bg-gray-50"
                     id={`member-${project.id}-${member.user.id}`}
                   >
-                    {/* Avatar */}
                     <Avatar name={member.user.name} email={member.user.email} />
 
-                    {/* Name + email */}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-gray-900">
                         {member.user.name ?? "(No name)"}
@@ -309,10 +291,8 @@ function ProjectAccessPanel({
                       </p>
                     </div>
 
-                    {/* Role controls */}
                     <div className="flex shrink-0 items-center gap-2">
                       {isOwner && !isPrimaryCreator ? (
-                        /* Editable role selector */
                         <div className="relative">
                           <select
                             id={`role-select-${project.id}-${member.user.id}`}
@@ -340,7 +320,6 @@ function ProjectAccessPanel({
                           </div>
                         </div>
                       ) : (
-                        /* Read-only badge */
                         <div className="flex items-center gap-1">
                           <RoleBadge role={member.role} />
                           {isPrimaryCreator && (
@@ -353,7 +332,6 @@ function ProjectAccessPanel({
                         </div>
                       )}
 
-                      {/* Revoke button */}
                       {isOwner && !isPrimaryCreator && (
                         <button
                           type="button"
@@ -379,7 +357,6 @@ function ProjectAccessPanel({
             )}
           </div>
 
-          {/* Invite form — only shown to OWNERs */}
           {isOwner && (
             <div className="rounded-xl border border-dashed border-emerald-200 bg-emerald-50/40 p-4">
               <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-gray-800">
@@ -462,7 +439,6 @@ function ProjectAccessPanel({
                 </Button>
               </form>
 
-              {/* Inline feedback */}
               {inviteError && (
                 <p
                   id={`invite-error-${project.id}`}
@@ -484,7 +460,6 @@ function ProjectAccessPanel({
                 </p>
               )}
 
-              {/* Permission level legend */}
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-emerald-100 pt-3">
                 {(["VIEWER", "EDITOR"] as const).map((r) => (
                   <p key={r} className="text-[10px] text-gray-500">
@@ -502,7 +477,6 @@ function ProjectAccessPanel({
 }
 
 /* ------------------------------------------------------------------ */
-/* Chevron icon                                                         */
 /* ------------------------------------------------------------------ */
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -521,14 +495,12 @@ function ChevronIcon({ open }: { open: boolean }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Root component                                                      */
 /* ------------------------------------------------------------------ */
 
 export function AccessManagementClient({ projects, currentUserId }: Props) {
   if (projects.length === 0) {
     return (
       <div className="space-y-8">
-        {/* Onboarding Intro Card */}
         <div className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/20 p-6 shadow-sm sm:p-8">
           <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-emerald-100/30 blur-2xl" />
           
@@ -562,7 +534,6 @@ export function AccessManagementClient({ projects, currentUserId }: Props) {
           </div>
         </div>
 
-        {/* Step-by-Step Walkthrough Grid */}
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm space-y-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 text-xs font-bold">1</div>
@@ -589,7 +560,6 @@ export function AccessManagementClient({ projects, currentUserId }: Props) {
           </div>
         </div>
 
-        {/* Detailed Role Reference Section */}
         <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm space-y-4">
           <h3 className="text-sm font-bold text-gray-900">Explore Access Control Roles</h3>
           
@@ -629,7 +599,6 @@ export function AccessManagementClient({ projects, currentUserId }: Props) {
           </div>
         </div>
 
-        {/* Empty State Call to Action */}
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center shadow-sm">
           <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">

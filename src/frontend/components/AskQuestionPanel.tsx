@@ -133,7 +133,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
 
-  // Fetch existing questions
   const fetchQuestions = useCallback(async () => {
     try {
       const res = await fetch(`/api/quote/${quoteId}/questions`);
@@ -152,7 +151,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
     fetchQuestions();
   }, [fetchQuestions]);
 
-  // Submit a question
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
@@ -190,14 +188,12 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
 
       const data = await res.json();
 
-      // Add to list and reset form
       setQuestions((prev) => [data.question, ...prev]);
       setSubmitSuccess(true);
       setSelectedCategory(null);
       setSubject("");
       setMessage("");
 
-      // Hide success message after 4s
       setTimeout(() => {
         setSubmitSuccess(false);
         setIsFormOpen(false);
@@ -254,7 +250,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
           )}
         </div>
 
-        {/* Stats */}
         {questions.length > 0 && (
           <div className="relative z-10 flex gap-4 mt-4 pt-4 border-t border-white/15">
             <div className="flex items-center gap-2">
@@ -276,7 +271,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
       {/* ─── Question Form ─── */}
       {isFormOpen && (
         <div className="rounded-2xl border border-gray-200 bg-white shadow-lg overflow-hidden animate-in">
-          {/* Success State */}
           {submitSuccess ? (
             <div className="p-8 text-center">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 mb-4">
@@ -291,7 +285,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
             </div>
           ) : (
             <form onSubmit={handleSubmit}>
-              {/* Form Header */}
               <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
                 <h4 className="font-semibold text-gray-800">New Question</h4>
                 <button
@@ -309,7 +302,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
               </div>
 
               <div className="p-6 space-y-5">
-                {/* Category Selector */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     What is your question about?
@@ -345,7 +337,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
                   </div>
                 </div>
 
-                {/* Subject */}
                 <div>
                   <label htmlFor="question-subject" className="block text-sm font-semibold text-gray-700 mb-1.5">
                     Subject
@@ -369,7 +360,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
                   </p>
                 </div>
 
-                {/* Message */}
                 <div>
                   <label htmlFor="question-message" className="block text-sm font-semibold text-gray-700 mb-1.5">
                     Your Question
@@ -393,7 +383,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
                   </p>
                 </div>
 
-                {/* Error */}
                 {submitError && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -404,7 +393,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
                 )}
               </div>
 
-              {/* Form Footer */}
               <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between">
                 <p className="text-xs text-gray-400">
                   Our team typically responds within 1-2 business days
@@ -495,7 +483,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
                   key={q.id}
                   className="rounded-xl border border-gray-200 bg-white overflow-hidden hover:shadow-md transition-shadow duration-200"
                 >
-                  {/* Question Header */}
                   <button
                     type="button"
                     onClick={() => setExpandedQuestion(isExpanded ? null : q.id)}
@@ -534,10 +521,8 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
                     </div>
                   </button>
 
-                  {/* Expanded Content */}
                   {isExpanded && (
                     <div className="border-t border-gray-100">
-                      {/* Client's Question */}
                       <div className="px-5 py-4 bg-gray-50/50">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold">
@@ -558,7 +543,6 @@ export function AskQuestionPanel({ quoteId }: AskQuestionPanelProps) {
                         </p>
                       </div>
 
-                      {/* Advisory Team Response */}
                       {q.response ? (
                         <div className="px-5 py-4 bg-emerald-50/30 border-t border-gray-100">
                           <div className="flex items-center gap-2 mb-2">

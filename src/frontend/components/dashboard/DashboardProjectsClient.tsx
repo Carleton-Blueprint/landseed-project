@@ -17,7 +17,6 @@ import {
 } from "@/frontend/components/icons";
 
 /* ------------------------------------------------------------------ */
-/* Types                                                              */
 /* ------------------------------------------------------------------ */
 
 export interface DiscoveredGrantSummary {
@@ -57,7 +56,6 @@ export interface DashboardProjectsClientProps {
 }
 
 /* ------------------------------------------------------------------ */
-/* Status and UI Helpers                                              */
 /* ------------------------------------------------------------------ */
 
 function getStatusLabel(status: string) {
@@ -121,7 +119,6 @@ function countByScope(grants: DiscoveredGrantSummary[]): Record<string, number> 
 }
 
 /* ------------------------------------------------------------------ */
-/* Component                                                          */
 /* ------------------------------------------------------------------ */
 
 export function DashboardProjectsClient({
@@ -133,7 +130,6 @@ export function DashboardProjectsClient({
   const [activeTab, setActiveTab] = useState<"all" | "submitted" | "draft">(initialTab);
   const [showToast, setShowToast] = useState(isSubmitted);
 
-  // Auto-dismiss toast after 8 seconds
   useEffect(() => {
     if (showToast) {
       const timer = setTimeout(() => {
@@ -143,7 +139,6 @@ export function DashboardProjectsClient({
     }
   }, [showToast]);
 
-  // Tab filtering logic
   const submittedProjects = projects.filter((p) => p.status !== "draft");
   const draftProjects = projects.filter((p) => p.status === "draft");
 
@@ -156,7 +151,6 @@ export function DashboardProjectsClient({
 
   return (
     <div className="space-y-6">
-      {/* Celebration Toast Banner */}
       {showToast && (
         <div className="animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="relative overflow-hidden rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 p-5 shadow-lg shadow-emerald-500/10">
@@ -193,7 +187,6 @@ export function DashboardProjectsClient({
         </div>
       )}
 
-      {/* Tabs Bar & Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-200 pb-4">
         <nav className="flex space-x-2" aria-label="Projects Filter">
           <button
@@ -238,7 +231,6 @@ export function DashboardProjectsClient({
         )}
       </div>
 
-      {/* Projects List or Empty State */}
       {filteredProjects.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm">
           <HomeIcon size={36} className="mx-auto text-gray-300" />
@@ -273,7 +265,6 @@ export function DashboardProjectsClient({
             const { estimateSummary, eligibility } = project;
             const isNewSubmission = newProjectId === project.id;
 
-            /* Score breakdown for eligible grants */
             const eligibleGrants = eligibility
               ? eligibility.discoveredGrants.filter((g) => g.decision === "ELIGIBLE")
               : [];
@@ -294,7 +285,6 @@ export function DashboardProjectsClient({
                 }`}
                 id={`project-card-${project.id}`}
               >
-                {/* Accent bar */}
                 <div
                   className={`h-1.5 w-full ${
                     isNewSubmission
@@ -309,9 +299,7 @@ export function DashboardProjectsClient({
 
                 <div className="p-5 sm:p-6">
                   <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-                    {/* Left: Project info */}
                     <div className="min-w-0 flex-1 space-y-4">
-                      {/* Title + metadata */}
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-lg font-bold text-gray-900">{project.address}</h3>
@@ -347,7 +335,6 @@ export function DashboardProjectsClient({
                         </div>
                       </div>
 
-                      {/* Estimate summary */}
                       <div className="rounded-lg border bg-gray-50/80 p-3.5">
                         <p className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
                           <svg className="h-4 w-4 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -365,7 +352,6 @@ export function DashboardProjectsClient({
                         <div
                           className={`rounded-lg border p-3.5 ${decisionDisplay!.bg} ${decisionDisplay!.border}`}
                         >
-                          {/* Header row */}
                           <div className="flex items-start gap-2.5">
                             <span className="text-lg leading-none mt-0.5">{decisionDisplay!.icon}</span>
                             <div className="flex-1 min-w-0">
@@ -381,7 +367,6 @@ export function DashboardProjectsClient({
                                 </span>
                               </div>
 
-                              {/* Grant counts by scope */}
                               {eligibility.discoveredGrants.length > 0 ? (
                                 <div className="mt-2 flex flex-wrap gap-2">
                                   {Object.entries(scopeCounts).map(([scope, count]) => (
@@ -405,7 +390,6 @@ export function DashboardProjectsClient({
                                 </p>
                               )}
 
-                              {/* Top eligible grant preview */}
                               {eligibleGrants.length > 0 && (
                                 <p className="mt-2 text-xs text-gray-600 leading-relaxed">
                                   Top match: <span className="font-medium text-gray-800">{eligibleGrants[0].title}</span>
@@ -419,7 +403,6 @@ export function DashboardProjectsClient({
                             </div>
                           </div>
 
-                          {/* Provider & date footer */}
                           <div className="mt-2.5 flex items-center gap-3 border-t border-gray-200/60 pt-2 text-[10px] text-gray-400">
                             <span>
                               Provider: {eligibility.provider === "OPENAI" ? "InPlace AI Web Search" : "Heuristic Engine"}
@@ -433,7 +416,6 @@ export function DashboardProjectsClient({
                           </div>
                         </div>
                       ) : (
-                        /* No assessment yet — show pending state */
                         <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3.5">
                           <div className="flex items-center gap-2.5">
                             <SearchIcon size={18} className="text-gray-400" />
@@ -450,7 +432,6 @@ export function DashboardProjectsClient({
                       )}
                     </div>
 
-                    {/* Right: Action buttons */}
                     <div className="flex shrink-0 flex-col gap-2 sm:w-auto">
                       {project.status === "draft" ? (
                         <Link href="/">

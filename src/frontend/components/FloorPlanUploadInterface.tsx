@@ -49,7 +49,6 @@ export function FloorPlanUploadInterface({
   const [error, setError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  // Fetch existing floor plans when projectId is available
   useEffect(() => {
     if (!projectId) {
       setDocuments([]);
@@ -100,7 +99,6 @@ export function FloorPlanUploadInterface({
       }
 
       for (const file of files) {
-        // Double check validation before network request
         if (file.size > MAX_SIZE_BYTES) {
           setError(`"${file.name}" exceeds the maximum limit of 15MB. Please upload a smaller file.`);
           continue;
@@ -214,7 +212,6 @@ export function FloorPlanUploadInterface({
 
   return (
     <div className="space-y-4">
-      {/* Upload Dropzone */}
       <div
         {...getRootProps()}
         className={`relative rounded-2xl border-2 border-dashed p-6 text-center transition-all cursor-pointer ${
@@ -257,7 +254,6 @@ export function FloorPlanUploadInterface({
         )}
       </div>
 
-      {/* Error Banner */}
       {error && (
         <div className="flex items-center gap-2.5 rounded-xl bg-red-50 border border-red-200 p-3.5 text-xs sm:text-sm text-red-700 animate-in fade-in duration-200">
           <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
@@ -265,7 +261,6 @@ export function FloorPlanUploadInterface({
         </div>
       )}
 
-      {/* Uploaded Documents List */}
       {isLoadingDocs ? (
         <div className="flex items-center justify-center gap-2 py-4 text-xs font-medium text-gray-500">
           <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />

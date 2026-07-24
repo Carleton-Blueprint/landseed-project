@@ -8,6 +8,7 @@
 import { auth } from "@/auth";
 import { authGateResponse } from "@/backend/auth/authGateResponse";
 import { HttpError, requireMinimumRole } from "@/backend/auth/requireRole";
+import type { Session } from "next-auth";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
 import {
@@ -18,7 +19,7 @@ import {
 
 async function requireAdminForStaffNotes(
   request: Request,
-  session: Awaited<ReturnType<typeof auth>>,
+  session: Session | null,
   projectId: string,
   noteId: string
 ): Promise<Response | null> {

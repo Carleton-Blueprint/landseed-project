@@ -58,7 +58,6 @@ const intakeFieldsSchema = z.object({
     password: z.string(),
     confirmPassword: z.string(),
 
-    // Service address
     addressLine1: z.string().min(1, "Street address is required").max(200),
     addressLine2: z.string().max(50).optional().or(z.literal("")),
     city: z.string().min(1, "City is required").max(100),
@@ -72,7 +71,6 @@ const intakeFieldsSchema = z.object({
         "Postal code can only contain letters, numbers, and spaces"
       ),
 
-    // Ownership
     ownershipStatus: z.enum(["owner", "tenant", "other"], {
       message: "Please select owner, tenant, or other",
     }),
@@ -85,16 +83,13 @@ const intakeFieldsSchema = z.object({
       .optional()
       .or(z.literal("")),
 
-    // Caregiver section
     isCaregiver: z.boolean().default(false),
     seniorName: z.string().max(120).optional().or(z.literal("")),
     relationshipToSenior: z.string().max(120).optional().or(z.literal("")),
     caregiverConsentConfirmed: z.boolean().default(false),
 
-    // Consent section
     clientConsentConfirmed: z.boolean().default(false),
 
-    // Modification items
     modificationItems: z
       .array(z.string())
       .min(1, "Select at least one modification item"),
@@ -966,7 +961,6 @@ export function IntakeForm() {
         )}
       </section>
 
-      {/* Floor Plans and Layout Sketches Section (Optional) */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <h2 className="text-base font-semibold">Floor Plans & Layout Sketches</h2>

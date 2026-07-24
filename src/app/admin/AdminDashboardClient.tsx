@@ -3,6 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
+import { StaffNotesPanel } from "@/frontend/components/StaffNotesPanel";
 import {
   CheckCircleIcon,
   ClipboardIcon,
@@ -548,6 +549,9 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
           </div>
         </div>
       </div>
+
+      {/* Internal Staff Notes */}
+      <StaffNotesPanel projectId={project.id} />
     </div>
   );
 }
