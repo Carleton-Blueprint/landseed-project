@@ -149,6 +149,17 @@ export async function evaluateProjectEligibility(
     // Step 6: Trigger quote generation in background (non-blocking)
     setImmediate(async () => {
       try {
+        const existingQuote = await prisma.quote.findFirst({
+          where: { projectId: project.id },
+          select: { id: true },
+        });
+        if (existingQuote) {
+          console.log(
+            `Skipping auto-quote for project ${project.id}: quote ${existingQuote.id} already exists`
+          );
+          return;
+        }
+
         // Dynamically import to avoid circular dependencies
         const { generateQuote } = await import('@/backend/services/quote');
         await generateQuote({
