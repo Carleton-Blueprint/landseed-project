@@ -95,12 +95,12 @@ const STATUS_STYLES: Record<string, { label: string; dot: string; badge: string 
     dot: "bg-orange-500",
     badge: "border-orange-200 bg-orange-50 text-orange-700",
   },
-  accepted: {
+  estimate_accepted: {
     label: "Accepted",
     dot: "bg-emerald-500",
     badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
-  declined: {
+  estimate_declined: {
     label: "Declined",
     dot: "bg-red-400",
     badge: "border-red-200 bg-red-50 text-red-600",
@@ -127,7 +127,7 @@ const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
   FAILED: { label: "Failed", dot: "bg-red-500" },
 };
 
-type FilterStatus = "all" | "draft" | "submitted" | "estimate_ready" | "estimate_expired" | "accepted" | "declined";
+type FilterStatus = "all" | "draft" | "submitted" | "estimate_ready" | "estimate_expired" | "estimate_accepted" | "estimate_declined";
 
 type SortKey = "newest" | "oldest" | "status" | "estimate_high" | "estimate_low" | "confidence_high" | "confidence_low";
 
@@ -623,8 +623,8 @@ export function AdminDashboardClient({
     { key: "submitted", label: "Submitted" },
     { key: "estimate_ready", label: "Estimate Ready" },
     { key: "estimate_expired", label: "Estimate Expired" },
-    { key: "accepted", label: "Accepted" },
-    { key: "declined", label: "Declined" },
+    { key: "estimate_accepted", label: "Accepted" },
+    { key: "estimate_declined", label: "Declined" },
   ];
 
   return (
