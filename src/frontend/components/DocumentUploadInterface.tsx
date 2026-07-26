@@ -94,7 +94,6 @@ interface QueuedFile {
   file: File;
   documentType: string;
   label?: string;
-  informationRequestId?: string;
   progress: number;
   status: "queued" | "uploading" | "success" | "error";
   error?: string;
@@ -156,6 +155,121 @@ function getReviewBadge(status: string) {
   }
 }
 
+/* ──────────────────────────── Information Request Upload Card ──────────────────────────── */
+
+/**
+ * Self-contained upload control for a single open staff information
+ * request. Deliberately skips the document-category picker used by the
+ * general upload flow below — the client shouldn't have to classify a
+ * request-response upload into PROOF_OF_INCOME/MEDICAL_DOCUMENTATION/etc.
+ * when the request itself already says what's needed. Uploads here are
+ * always filed as documentType "OTHER" and tagged with informationRequestId
+ * so the backend resolves only this specific request.
+ */
+function InformationRequestUploadCard({
+  projectId,
+  request,
+  onResolved,
+}: {
+  projectId: string;
+  request: OpenInformationRequest;
+  onResolved: (requestId: string, document: UploadedDoc) => void;
+}) {
+  const [status, setStatus] = useState<"idle" | "uploading" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const uploadFile = useCallback(
+    async (file: File) => {
+      setStatus("uploading");
+      setError(null);
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("projectId", projectId);
+      formData.append("documentType", "OTHER");
+      formData.append("informationRequestId", request.id);
+      formData.append(
+        "label",
+        `Response to staff request: ${getInformationRequestTypeLabel(request.requestType)}`
+      );
+
+      try {
+        const res = await fetch("/api/documents/upload", { method: "POST", body: formData });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || "Upload failed");
+        }
+        const data = await res.json();
+        onResolved(request.id, data.document);
+      } catch (err) {
+        setStatus("error");
+        setError(err instanceof Error ? err.message : "Upload failed");
+      }
+    },
+    [projectId, request.id, request.requestType, onResolved]
+  );
+
+  const onDrop = useCallback(
+    (acceptedFiles: File[]) => {
+      if (acceptedFiles[0]) uploadFile(acceptedFiles[0]);
+    },
+    [uploadFile]
+  );
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "application/pdf": [".pdf"],
+      "image/jpeg": [".jpg", ".jpeg"],
+      "image/png": [".png"],
+      "image/webp": [".webp"],
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+    },
+    maxSize: 15 * 1024 * 1024,
+    maxFiles: 1,
+    disabled: status === "uploading",
+  });
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-white p-4">
+      <p className="text-sm font-semibold text-amber-900">
+        {getInformationRequestTypeLabel(request.requestType)}
+      </p>
+      <p className="text-sm text-amber-800 mb-3">{request.message}</p>
+
+      <div
+        {...getRootProps()}
+        className={`
+          rounded-lg border-2 border-dashed p-4 text-center cursor-pointer transition-colors duration-150
+          ${status === "uploading"
+            ? "border-gray-200 bg-gray-50 cursor-wait"
+            : isDragActive
+            ? "border-amber-400 bg-amber-50"
+            : "border-amber-300 bg-amber-50/40 hover:bg-amber-50"
+          }
+        `}
+      >
+        <input {...getInputProps()} />
+        {status === "uploading" ? (
+          <span className="inline-flex items-center gap-2 text-sm text-gray-500">
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Uploading...
+          </span>
+        ) : (
+          <span className="text-sm font-medium text-amber-700">
+            {isDragActive ? "Drop file here" : "Click or drag a file here to upload"}
+          </span>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+    </div>
+  );
+}
+
 /* ──────────────────────────── Component ──────────────────────────── */
 
 export function DocumentUploadInterface({
@@ -169,7 +283,6 @@ export function DocumentUploadInterface({
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [openRequests, setOpenRequests] = useState<OpenInformationRequest[]>([]);
-  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch existing documents on mount
@@ -201,11 +314,6 @@ export function DocumentUploadInterface({
             (r: OpenInformationRequest) => r.status === "PENDING" || r.status === "FOLLOW_UP_FLAGGED"
           );
           setOpenRequests(open);
-          // Auto-select when there's exactly one open request — the common case.
-          // With multiple, leave unselected so the client picks explicitly.
-          if (open.length === 1) {
-            setSelectedRequestId(open[0].id);
-          }
         }
       } catch {
         console.error("Failed to fetch information requests");
@@ -227,9 +335,6 @@ export function DocumentUploadInterface({
       formData.append("documentType", queuedFile.documentType);
       if (queuedFile.label) {
         formData.append("label", queuedFile.label);
-      }
-      if (queuedFile.informationRequestId) {
-        formData.append("informationRequestId", queuedFile.informationRequestId);
       }
 
       // Simulate progress
@@ -268,11 +373,6 @@ export function DocumentUploadInterface({
         );
 
         setUploadedDocs((prev) => [data.document, ...prev]);
-
-        if (queuedFile.informationRequestId) {
-          setOpenRequests((prev) => prev.filter((r) => r.id !== queuedFile.informationRequestId));
-          setSelectedRequestId((prev) => (prev === queuedFile.informationRequestId ? null : prev));
-        }
       } catch (err) {
         clearInterval(progressInterval);
         setQueuedFiles((prev) =>
@@ -304,7 +404,6 @@ export function DocumentUploadInterface({
       const newQueued: QueuedFile[] = acceptedFiles.map((file) => ({
         file,
         documentType: selectedCategory,
-        informationRequestId: selectedRequestId ?? undefined,
         progress: 0,
         status: "queued" as const,
       }));
@@ -317,7 +416,7 @@ export function DocumentUploadInterface({
         uploadFile(qf, startIndex + i);
       });
     },
-    [selectedCategory, selectedRequestId, queuedFiles.length, uploadFile]
+    [selectedCategory, queuedFiles.length, uploadFile]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -414,58 +513,24 @@ export function DocumentUploadInterface({
       {openRequests.length > 0 && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
           <h3 className="text-base font-semibold text-amber-900 mb-1">
-            What is this upload for?
+            Requested by our advisory team
           </h3>
           <p className="text-sm text-amber-800 mb-4">
-            Our advisory team has asked for the following. Select which request this upload
-            answers so we can match it up correctly.
+            Upload directly below to respond to each request — no need to pick a category, and
+            this disappears once it&rsquo;s uploaded.
           </p>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {openRequests.map((r) => (
-              <label
+              <InformationRequestUploadCard
                 key={r.id}
-                className={`
-                  flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors duration-150
-                  ${selectedRequestId === r.id
-                    ? "border-amber-400 bg-white shadow-sm"
-                    : "border-amber-200 bg-amber-50/50 hover:bg-white"
-                  }
-                `}
-              >
-                <input
-                  type="radio"
-                  name="information-request"
-                  className="mt-1"
-                  checked={selectedRequestId === r.id}
-                  onChange={() => setSelectedRequestId(r.id)}
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-amber-900">
-                    {getInformationRequestTypeLabel(r.requestType)}
-                  </p>
-                  <p className="text-sm text-amber-800">{r.message}</p>
-                </div>
-              </label>
-            ))}
-            <label
-              className={`
-                flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors duration-150
-                ${selectedRequestId === null
-                  ? "border-amber-400 bg-white shadow-sm"
-                  : "border-amber-200 bg-amber-50/50 hover:bg-white"
-                }
-              `}
-            >
-              <input
-                type="radio"
-                name="information-request"
-                checked={selectedRequestId === null}
-                onChange={() => setSelectedRequestId(null)}
+                projectId={projectId}
+                request={r}
+                onResolved={(requestId, document) => {
+                  setOpenRequests((prev) => prev.filter((x) => x.id !== requestId));
+                  setUploadedDocs((prev) => [document, ...prev]);
+                }}
               />
-              <span className="text-sm font-medium text-amber-900">
-                Not related to a specific request
-              </span>
-            </label>
+            ))}
           </div>
         </div>
       )}
