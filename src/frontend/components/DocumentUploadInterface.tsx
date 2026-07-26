@@ -94,10 +94,29 @@ interface QueuedFile {
   file: File;
   documentType: string;
   label?: string;
+  informationRequestId?: string;
   progress: number;
   status: "queued" | "uploading" | "success" | "error";
   error?: string;
   result?: UploadedDoc;
+}
+
+interface OpenInformationRequest {
+  id: string;
+  requestType: string;
+  message: string;
+  status: string;
+}
+
+function getInformationRequestTypeLabel(requestType: string): string {
+  switch (requestType) {
+    case "PHOTOS":
+      return "Photos requested";
+    case "DOCUMENTS":
+      return "Documents requested";
+    default:
+      return "Information requested";
+  }
 }
 
 export interface DocumentUploadInterfaceProps {
@@ -149,6 +168,8 @@ export function DocumentUploadInterface({
   const [isLoadingDocs, setIsLoadingDocs] = useState(true);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [openRequests, setOpenRequests] = useState<OpenInformationRequest[]>([]);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch existing documents on mount
@@ -169,6 +190,30 @@ export function DocumentUploadInterface({
     fetchDocs();
   }, [projectId]);
 
+  // Fetch open staff information requests so uploads can be tied to one
+  useEffect(() => {
+    async function fetchOpenRequests() {
+      try {
+        const res = await fetch(`/api/project/${projectId}/information-requests`);
+        if (res.ok) {
+          const data = await res.json();
+          const open = (data.informationRequests || []).filter(
+            (r: OpenInformationRequest) => r.status === "PENDING" || r.status === "FOLLOW_UP_FLAGGED"
+          );
+          setOpenRequests(open);
+          // Auto-select when there's exactly one open request — the common case.
+          // With multiple, leave unselected so the client picks explicitly.
+          if (open.length === 1) {
+            setSelectedRequestId(open[0].id);
+          }
+        }
+      } catch {
+        console.error("Failed to fetch information requests");
+      }
+    }
+    fetchOpenRequests();
+  }, [projectId]);
+
   // Upload a queued file
   const uploadFile = useCallback(
     async (queuedFile: QueuedFile, index: number) => {
@@ -182,6 +227,9 @@ export function DocumentUploadInterface({
       formData.append("documentType", queuedFile.documentType);
       if (queuedFile.label) {
         formData.append("label", queuedFile.label);
+      }
+      if (queuedFile.informationRequestId) {
+        formData.append("informationRequestId", queuedFile.informationRequestId);
       }
 
       // Simulate progress
@@ -220,6 +268,11 @@ export function DocumentUploadInterface({
         );
 
         setUploadedDocs((prev) => [data.document, ...prev]);
+
+        if (queuedFile.informationRequestId) {
+          setOpenRequests((prev) => prev.filter((r) => r.id !== queuedFile.informationRequestId));
+          setSelectedRequestId((prev) => (prev === queuedFile.informationRequestId ? null : prev));
+        }
       } catch (err) {
         clearInterval(progressInterval);
         setQueuedFiles((prev) =>
@@ -251,6 +304,7 @@ export function DocumentUploadInterface({
       const newQueued: QueuedFile[] = acceptedFiles.map((file) => ({
         file,
         documentType: selectedCategory,
+        informationRequestId: selectedRequestId ?? undefined,
         progress: 0,
         status: "queued" as const,
       }));
@@ -263,7 +317,7 @@ export function DocumentUploadInterface({
         uploadFile(qf, startIndex + i);
       });
     },
-    [selectedCategory, queuedFiles.length, uploadFile]
+    [selectedCategory, selectedRequestId, queuedFiles.length, uploadFile]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -355,6 +409,66 @@ export function DocumentUploadInterface({
           </div>
         </div>
       </div>
+
+      {/* ─── Open Staff Requests ─── */}
+      {openRequests.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <h3 className="text-base font-semibold text-amber-900 mb-1">
+            What is this upload for?
+          </h3>
+          <p className="text-sm text-amber-800 mb-4">
+            Our advisory team has asked for the following. Select which request this upload
+            answers so we can match it up correctly.
+          </p>
+          <div className="space-y-2">
+            {openRequests.map((r) => (
+              <label
+                key={r.id}
+                className={`
+                  flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors duration-150
+                  ${selectedRequestId === r.id
+                    ? "border-amber-400 bg-white shadow-sm"
+                    : "border-amber-200 bg-amber-50/50 hover:bg-white"
+                  }
+                `}
+              >
+                <input
+                  type="radio"
+                  name="information-request"
+                  className="mt-1"
+                  checked={selectedRequestId === r.id}
+                  onChange={() => setSelectedRequestId(r.id)}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-amber-900">
+                    {getInformationRequestTypeLabel(r.requestType)}
+                  </p>
+                  <p className="text-sm text-amber-800">{r.message}</p>
+                </div>
+              </label>
+            ))}
+            <label
+              className={`
+                flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors duration-150
+                ${selectedRequestId === null
+                  ? "border-amber-400 bg-white shadow-sm"
+                  : "border-amber-200 bg-amber-50/50 hover:bg-white"
+                }
+              `}
+            >
+              <input
+                type="radio"
+                name="information-request"
+                checked={selectedRequestId === null}
+                onChange={() => setSelectedRequestId(null)}
+              />
+              <span className="text-sm font-medium text-amber-900">
+                Not related to a specific request
+              </span>
+            </label>
+          </div>
+        </div>
+      )}
 
       {/* ─── Category Selector ─── */}
       <div>

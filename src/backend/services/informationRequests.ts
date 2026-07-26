@@ -175,17 +175,30 @@ export async function listInformationRequestsForProject(
 }
 
 /**
- * Best-effort: marks any open (PENDING or FOLLOW_UP_FLAGGED) information
- * requests on a project as RESPONDED. Called when a client uploads a photo
- * or document, since we don't track which specific request an upload
- * addresses — any client-initiated upload counts as a response.
+ * Best-effort: marks information requests on a project as RESPONDED.
+ *
+ * When `informationRequestId` is given, only that specific request is
+ * resolved (validated as open and belonging to this project) — this is the
+ * path used when an upload is explicitly tied to one request via the
+ * upload UI. If it doesn't match an open request on this project, this is
+ * a no-op rather than an error, since it's called best-effort from upload
+ * routes and shouldn't fail the upload itself.
+ *
+ * When omitted, every open (PENDING or FOLLOW_UP_FLAGGED) request on the
+ * project is marked responded — the fallback for uploads that aren't tied
+ * to a specific request (e.g. a general document upload).
  */
 export async function markInformationRequestsRespondedForProject(
   projectId: string,
-  respondedByUserId: string
+  respondedByUserId: string,
+  informationRequestId?: string
 ): Promise<number> {
   const openRequests = await prisma.informationRequest.findMany({
-    where: { projectId, status: { in: OPEN_STATUSES } },
+    where: {
+      projectId,
+      status: { in: OPEN_STATUSES },
+      ...(informationRequestId ? { id: informationRequestId } : {}),
+    },
     select: { id: true },
   });
 
@@ -207,7 +220,9 @@ export async function markInformationRequestsRespondedForProject(
     actorUserId: respondedByUserId,
     projectId,
     resourceType: "InformationRequest",
-    description: "Client upload marked open information requests as responded",
+    description: informationRequestId
+      ? "Client upload marked a specific information request as responded"
+      : "Client upload marked all open information requests as responded",
     metadata: { informationRequestIds: openRequests.map((r) => r.id) },
   });
 

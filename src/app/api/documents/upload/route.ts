@@ -65,6 +65,11 @@ export async function POST(request: NextRequest) {
     const projectId = formData.get("projectId");
     const documentType = formData.get("documentType");
     const label = formData.get("label");
+    const informationRequestIdField = formData.get("informationRequestId");
+    const informationRequestId =
+      typeof informationRequestIdField === "string" && informationRequestIdField.length > 0
+        ? informationRequestIdField
+        : undefined;
 
     if (!file || !(file instanceof File)) {
       return NextResponse.json(
@@ -203,7 +208,7 @@ export async function POST(request: NextRequest) {
     console.log(`✅ Document ${document.id} uploaded. Type: ${documentType}`);
 
     try {
-      await markInformationRequestsRespondedForProject(projectId, session.user.id);
+      await markInformationRequestsRespondedForProject(projectId, session.user.id, informationRequestId);
     } catch (markError) {
       console.warn("Failed to mark information requests as responded:", markError);
     }
