@@ -147,6 +147,27 @@ export async function evaluateProjectEligibility(
     });
 
     // Step 6: Trigger quote generation in background (non-blocking)
+    //
+    // In the normal intake flow this is a no-op: the real, catalog-priced quote
+    // (estimateGeneration.ts -> processScheduledEstimateGeneration -> generateQuote)
+    // already exists by the time eligibility evaluation runs, so `existingQuote`
+    // below is set and this returns early.
+    //
+    // It only actually creates a quote (this flat $5000 placeholder) when eligibility
+    // evaluation runs *before* that real quote exists, which happens via:
+    //   1. estimateGeneration.ts's catch block - if generateQuote() itself throws,
+    //      queueEligibilityEvaluation() still fires with no quote on record.
+    //   2. modificationOverride.ts -> triggerEvaluationAfterDraftUpdate() - fires
+    //      during the FR-4.10 admin pre-estimate override window, which is by design
+    //      *before* the delayed estimate-generation worker has run.
+    // In case 2 this also permanently blocks the real quote: processScheduledEstimateGeneration
+    // skips generation entirely once any quote exists for the project (see its
+    // `existingQuote` check), so the project gets stuck on this $5000 placeholder.
+    //
+    // Left as-is for now rather than removed: /api/admin/eligibility/assess lets an
+    // admin manually trigger evaluateProjectEligibility() for a project that never
+    // went through intake finalize (no delayed job ever queued) - this auto-quote is
+    // currently the only thing that gives such a project a quote at all.
     setImmediate(async () => {
       try {
         const existingQuote = await prisma.quote.findFirst({
@@ -166,6 +187,7 @@ export async function evaluateProjectEligibility(
           projectId: project.id,
           items: [
             // TODO: Replace placeholder pricing with BuilderTrend-derived scope item pricing.
+            
             {
               description: 'Home modifications (auto-quoted from eligibility assessment)',
               quantity: 1,
