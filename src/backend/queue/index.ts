@@ -42,6 +42,7 @@ export const emailQueue = new Queue<{
   authActionLink?: string | null;
   seniorName?: string | null;
   isCaregiverSubmission?: boolean;
+  newEmail?: string | null;
 }>("email", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
@@ -127,6 +128,7 @@ export function createEmailWorker(
       authActionLink?: string | null;
       seniorName?: string | null;
       isCaregiverSubmission?: boolean;
+      newEmail?: string | null;
     };
   }) => Promise<void>
 ) {

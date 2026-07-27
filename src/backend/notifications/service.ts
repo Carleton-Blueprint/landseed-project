@@ -41,6 +41,7 @@ export type NotificationJobPayload = {
   authActionLink?: string | null;
   seniorName?: string | null;
   isCaregiverSubmission?: boolean;
+  newEmail?: string | null;
 };
 
 export interface NotificationDeliveryMetricsInput {
@@ -158,6 +159,7 @@ export async function queueNotification(payload: NotificationJobPayload): Promis
     authActionLink: payload.authActionLink,
     seniorName: payload.seniorName,
     isCaregiverSubmission: payload.isCaregiverSubmission,
+    newEmail: payload.newEmail,
   });
 
   // Strip undefined keys so payload remains valid JSON for Prisma Json fields.
@@ -225,6 +227,7 @@ export async function processNotification(payload: NotificationJobPayload): Prom
     authActionLink: payload.authActionLink,
     seniorName: payload.seniorName,
     isCaregiverSubmission: payload.isCaregiverSubmission,
+    newEmail: payload.newEmail,
   });
 
   const finalSubject = payload.subject ?? template.subject;

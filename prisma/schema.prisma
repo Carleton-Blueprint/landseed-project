@@ -591,6 +591,8 @@ enum EligibilityDecision {
 enum AuthEmailTokenPurpose {
   EMAIL_VERIFICATION
   PASSWORD_RESET
+  EMAIL_CHANGE_OLD_CONFIRM
+  EMAIL_CHANGE_NEW_CONFIRM
 }
 
 model AuthEmailToken {
@@ -598,6 +600,7 @@ model AuthEmailToken {
   userId    String
   purpose   AuthEmailTokenPurpose
   tokenHash String
+  newEmail  String?
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime              @default(now())
@@ -617,6 +620,8 @@ enum NotificationEventType {
   FILE_MALWARE_DETECTED
   EMAIL_VERIFICATION
   PASSWORD_RESET
+  EMAIL_CHANGE_VERIFY_OLD
+  EMAIL_CHANGE_VERIFY_NEW
 }
 
 enum AccountDeletionRequestStatus {
