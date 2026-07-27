@@ -83,9 +83,9 @@ describe("buildQuoteItems", () => {
     ]);
   });
 
-  it("maps modificationItems into quote items", () => {
+  it("maps modificationItems into quote items with catalog-derived pricing and modification codes", () => {
     expect(buildQuoteItems({ modificationItems: ["Grab bars", "Ramp"] })).toEqual([
-      { description: "Grab bars", quantity: 1, unitPrice: 150 },
+      { description: "Grab bars", quantity: 1, unitPrice: 180, modificationCode: "GRAB_BARS" },
       { description: "Ramp", quantity: 1, unitPrice: 150 },
     ]);
   });
@@ -194,7 +194,9 @@ describe("processScheduledEstimateGeneration", () => {
     expect(result).toEqual({ projectId: "proj-3", status: "generated", quoteId: "quote-new" });
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-3",
-      items: [{ description: "Walk-in shower", quantity: 1, unitPrice: 150 }],
+      items: [
+        { description: "Walk-in shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
+      ],
       modificationCodes: ["WALK_IN_SHOWER"],
     });
     expect(mockedMarkEstimateReady).toHaveBeenCalledWith(

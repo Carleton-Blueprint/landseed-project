@@ -67,6 +67,44 @@ describe("generateMockRefinedEstimate", () => {
     }
   });
 
+  it("queries SerpAPI with the catalog search query when a modificationCode is present", async () => {
+    await generateMockRefinedEstimate([
+      { description: "Grab bars", quantity: 1, unitPrice: 150, modificationCode: MODIFICATION_CODES.GRAB_BARS },
+    ]);
+
+    expect(mockedGetMaterialPrice).toHaveBeenCalledWith("ADA grab bar bathroom safety rail");
+  });
+
+  it("falls back to the catalog price (not item.unitPrice) and logs a warning when SerpAPI has no price and a modificationCode is present", async () => {
+    mockedGetMaterialPrice.mockResolvedValue(emptyPriceResult);
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await generateMockRefinedEstimate([
+      { description: "Grab bars", quantity: 1, unitPrice: 999, modificationCode: MODIFICATION_CODES.GRAB_BARS },
+    ]);
+
+    expect(isTieredEstimate(result)).toBe(false);
+    if (!isTieredEstimate(result)) {
+      expect(result.lineItems[0].materialUnitCost).toBe(180);
+      expect(result.lineItems[0].modificationCode).toBe("GRAB_BARS");
+      expect(result.lineItems[0].modificationLabel).toBe("Grab Bars");
+    }
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("[PRICING:FALLBACK]"));
+    warnSpy.mockRestore();
+  });
+
+  it("tags line items with a null modificationCode/modificationLabel when none is provided", async () => {
+    const result = await generateMockRefinedEstimate([
+      { description: "Ramp", quantity: 1, unitPrice: 150 },
+    ]);
+
+    expect(isTieredEstimate(result)).toBe(false);
+    if (!isTieredEstimate(result)) {
+      expect(result.lineItems[0].modificationCode).toBeNull();
+      expect(result.lineItems[0].modificationLabel).toBeNull();
+    }
+  });
+
   it("returns a single estimate (no tiers) when no modification code supports tiering", async () => {
     const result = await generateMockRefinedEstimate(
       [{ description: "Grab bars", quantity: 2, unitPrice: 150 }],

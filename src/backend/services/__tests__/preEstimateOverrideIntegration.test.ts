@@ -170,7 +170,9 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     expect(workerResult).toEqual({ projectId: "proj-int-1", status: "generated", quoteId: "quote-int-1" });
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-int-1",
-      items: [{ description: "Walk-in shower", quantity: 1, unitPrice: 150 }],
+      items: [
+        { description: "Walk-in shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
+      ],
       modificationCodes: ["WALK_IN_SHOWER"],
     });
   });
@@ -209,7 +211,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     expect(workerResult).toEqual({ projectId: "proj-int-2", status: "generated", quoteId: "quote-int-2" });
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-int-2",
-      items: [{ description: "Grab bars", quantity: 1, unitPrice: 150 }],
+      items: [{ description: "Grab bars", quantity: 1, unitPrice: 180, modificationCode: "GRAB_BARS" }],
       modificationCodes: ["GRAB_BARS"],
     });
   });

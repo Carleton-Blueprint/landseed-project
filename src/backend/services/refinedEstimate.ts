@@ -1,5 +1,6 @@
 import { getMaterialPrice } from "@/backend/services/pricing";
 import type { ModificationCode } from "@/backend/eligibility/types";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 import {
   DEFAULT_PRICING_TIER,
   getApplicableTiers,
@@ -10,12 +11,32 @@ import {
   type TieredRefinedEstimate,
 } from "@/backend/services/pricingTiers";
 
+const REFINED_ESTIMATE_DEBUG = (process.env.PRICING_DEBUG ?? "true").toLowerCase() !== "false";
+
+function logFallbackPricingUsed(details: {
+  description: string;
+  modificationCode?: ModificationCode;
+  query: string;
+  serpStatus: string;
+  fallbackUnitPrice: number;
+}): void {
+  if (!REFINED_ESTIMATE_DEBUG) return;
+  const ts = new Date().toISOString();
+  console.warn(
+    `[PRICING:FALLBACK] ${ts} — Using fallback price for "${details.description}" ` +
+      `(modificationCode=${details.modificationCode ?? "UNSPECIFIED"}, query="${details.query}", ` +
+      `serpStatus=${details.serpStatus}) — fallbackUnitPrice=$${details.fallbackUnitPrice}`
+  );
+}
+
 export interface RefinedEstimateLineItem {
   description: string;
   quantity: number;
   pricingQuery: string;
   pricingSource?: string | null;
   pricingLink?: string | null;
+  modificationCode?: ModificationCode | null;
+  modificationLabel?: string | null;
   materialUnitCost: number;
   materialTotal: number;
   laborHours: number;
@@ -48,19 +69,27 @@ function buildLaborForItem(quantity: number, materialUnitCost: number): { laborH
   return { laborHours, laborRate };
 }
 
-function formatQuery(description: string): string {
-  return description.trim();
+function formatQuery(item: QuoteItem): string {
+  if (item.modificationCode) {
+    return MODIFICATION_COST_CATALOG[item.modificationCode].searchQuery;
+  }
+  return item.description.trim();
 }
 
 type PriceResultLike = Awaited<ReturnType<typeof getMaterialPrice>> | null;
-type QuoteItem = { description: string; quantity: number; unitPrice: number };
+export interface QuoteItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  modificationCode?: ModificationCode;
+}
 
 async function fetchPriceResults(items: QuoteItem[]): Promise<PriceResultLike[]> {
   const results: PriceResultLike[] = [];
 
   for (const item of items) {
     try {
-      results.push(await getMaterialPrice(formatQuery(item.description)));
+      results.push(await getMaterialPrice(formatQuery(item)));
     } catch {
       results.push(null);
     }
@@ -75,7 +104,21 @@ function buildLineItemForTier(
   tierAdjustment: PricingTierAdjustment
 ): RefinedEstimateLineItem {
   const usedSerpPrice = priceResult?.status === "ok" && priceResult.price !== null;
-  const baseUnitCost = roundToCents((usedSerpPrice ? priceResult!.price! : null) ?? item.unitPrice ?? 150);
+  const catalogEntry = item.modificationCode ? MODIFICATION_COST_CATALOG[item.modificationCode] : undefined;
+  const query = formatQuery(item);
+  const fallbackUnitPrice = catalogEntry?.fallbackUnitPrice ?? item.unitPrice ?? 150;
+
+  if (!usedSerpPrice) {
+    logFallbackPricingUsed({
+      description: item.description,
+      modificationCode: item.modificationCode,
+      query,
+      serpStatus: priceResult?.status ?? "no_result",
+      fallbackUnitPrice,
+    });
+  }
+
+  const baseUnitCost = roundToCents(usedSerpPrice ? priceResult!.price! : fallbackUnitPrice);
   const materialUnitCost = roundToCents(baseUnitCost * tierAdjustment.materialMultiplier);
   const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, baseUnitCost);
   const laborRate = roundToCents(baseLaborRate * tierAdjustment.laborMultiplier);
@@ -89,9 +132,11 @@ function buildLineItemForTier(
   return {
     description: item.description,
     quantity: item.quantity,
-    pricingQuery: formatQuery(item.description),
+    pricingQuery: query,
     pricingSource: usedSerpPrice ? (priceResult!.store ?? priceResult!.name) : "fallback",
     pricingLink: usedSerpPrice ? priceResult!.link : null,
+    modificationCode: item.modificationCode ?? null,
+    modificationLabel: catalogEntry?.label ?? null,
     materialUnitCost,
     materialTotal,
     laborHours,
