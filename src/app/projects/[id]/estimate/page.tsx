@@ -9,7 +9,12 @@ import { AskQuestionPanel } from "@/frontend/components/AskQuestionPanel";
 import { ProjectTimeline } from "@/frontend/components/ProjectTimeline";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getAuditContextFromHeaders } from "@/backend/audit/requestContext";
-import type { RefinedEstimate } from "@/backend/services/refinedEstimate";
+import {
+  computeModificationTotals,
+  type ModificationSubtotal,
+  type RefinedEstimate,
+  type RefinedEstimateLineItem,
+} from "@/backend/services/refinedEstimate";
 import {
   isTieredEstimate,
   PRICING_TIER_KEYS,
@@ -17,13 +22,36 @@ import {
   type AnyRefinedEstimate,
   type TieredRefinedEstimate,
 } from "@/backend/services/pricingTiers";
-import type { EstimateTierOption } from "./EstimateClientComponent";
+import type { EstimateLineItemGroup, EstimateTierOption } from "./EstimateClientComponent";
 
 function modificationItemsFromDraft(draftData: unknown): string[] {
   if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) return [];
   const raw = (draftData as Record<string, unknown>).modificationItems;
   if (!Array.isArray(raw)) return [];
   return raw.filter((x): x is string => typeof x === "string");
+}
+
+// Presentational grouping only — never persisted. modificationTotals (already computed
+// and persisted on RefinedEstimate) supplies the totals and group order; this just
+// buckets the already-tagged flat lineItems into arrays for rendering.
+function groupForDisplay(
+  lineItems: RefinedEstimateLineItem[],
+  modificationTotals: ModificationSubtotal[]
+): EstimateLineItemGroup[] {
+  const buckets = new Map<string, RefinedEstimateLineItem[]>();
+  for (const item of lineItems) {
+    const key = item.modificationCode ?? "UNSPECIFIED";
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(item);
+    buckets.set(key, bucket);
+  }
+
+  return modificationTotals.map((t) => ({
+    modificationCode: t.modificationCode,
+    modificationLabel: t.modificationLabel,
+    lineItems: buckets.get(t.modificationCode) ?? [],
+    total: t.total,
+  }));
 }
 
 export default async function EstimatePage(props: { params: Promise<{ id: string }> }) {
@@ -90,6 +118,8 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
                   markupPercentage: 0.16,
                   pricingSource: "Home Depot Retail API",
                   pricingLink: "https://homedepot.com",
+                  modificationCode: null,
+                  modificationLabel: null,
                 },
                 {
                   description: "Bathroom Safety Grab Bars (Set of 3)",
@@ -104,7 +134,13 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
                   markupPercentage: 0.28,
                   pricingSource: "Lowes Pro API",
                   pricingLink: "https://lowes.com",
+                  modificationCode: "GRAB_BARS",
+                  modificationLabel: "Grab Bars",
                 },
+              ],
+              modificationTotals: [
+                { modificationCode: "GRAB_BARS", modificationLabel: "Grab Bars", total: 450 },
+                { modificationCode: "UNSPECIFIED", modificationLabel: "Other Modifications", total: 5800 },
               ],
             },
           },
@@ -162,6 +198,10 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
           estimateMin: tier.estimateMin,
           estimateMax: tier.estimateMax,
           lineItems: tier.lineItems,
+          groupedLineItems: groupForDisplay(
+            tier.lineItems,
+            tier.modificationTotals ?? computeModificationTotals(tier.lineItems)
+          ),
         };
       })
     : undefined;
@@ -289,39 +329,52 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
         {refinedEstimate ? (
           <div className="bg-white shadow rounded-lg p-6 mb-8">
             <h3 className="text-xl font-semibold mb-4">Itemized Refined Estimate</h3>
-            <div className="space-y-4">
-              {refinedEstimate.lineItems.map((item, index) => (
-                <div key={index} className="rounded-lg border border-gray-200 p-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-semibold text-gray-900">{item.description}</p>
-                      <p className="text-sm text-gray-600">Qty: {item.quantity}</p>
-                    </div>
-                    <p className="text-right text-sm text-gray-600">Total: ${item.lineTotal.toFixed(2)}</p>
+            <div className="space-y-6">
+              {groupForDisplay(
+                refinedEstimate.lineItems,
+                refinedEstimate.modificationTotals ?? computeModificationTotals(refinedEstimate.lineItems)
+              ).map((group) => (
+                <div key={group.modificationCode}>
+                  <div className="flex justify-between items-baseline mb-2">
+                    <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-500">{group.modificationLabel}</h4>
+                    <p className="text-sm font-medium text-gray-700">Group total: ${group.total.toFixed(2)}</p>
                   </div>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    <div className="rounded bg-gray-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Material</p>
-                      <p className="text-sm text-gray-900">${item.materialTotal.toFixed(2)}</p>
-                      <p className="text-xs text-gray-500">Unit ${item.materialUnitCost.toFixed(2)}</p>
-                    </div>
-                    <div className="rounded bg-gray-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Labor</p>
-                      <p className="text-sm text-gray-900">${item.laborTotal.toFixed(2)}</p>
-                      <p className="text-xs text-gray-500">{item.laborHours} hrs @ ${item.laborRate.toFixed(2)}</p>
-                    </div>
-                    <div className="rounded bg-gray-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Markup</p>
-                      <p className="text-sm text-gray-900">${item.markupTotal.toFixed(2)}</p>
-                      <p className="text-xs text-gray-500">{Math.round(item.markupPercentage * 100)}%</p>
-                    </div>
-                    <div className="rounded bg-gray-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Price Source</p>
-                      <p className="text-sm text-gray-900">{item.pricingSource || "Mocked pricing"}</p>
-                      {item.pricingLink ? (
-                        <p className="text-xs text-blue-600"><a href={item.pricingLink} target="_blank" rel="noreferrer">View source</a></p>
-                      ) : null}
-                    </div>
+                  <div className="space-y-4">
+                    {group.lineItems.map((item, index) => (
+                      <div key={index} className="rounded-lg border border-gray-200 p-4">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-semibold text-gray-900">{item.description}</p>
+                            <p className="text-sm text-gray-600">Qty: {item.quantity}</p>
+                          </div>
+                          <p className="text-right text-sm text-gray-600">Total: ${item.lineTotal.toFixed(2)}</p>
+                        </div>
+                        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                          <div className="rounded bg-gray-50 p-3">
+                            <p className="text-xs uppercase tracking-wide text-gray-500">Material</p>
+                            <p className="text-sm text-gray-900">${item.materialTotal.toFixed(2)}</p>
+                            <p className="text-xs text-gray-500">Unit ${item.materialUnitCost.toFixed(2)}</p>
+                          </div>
+                          <div className="rounded bg-gray-50 p-3">
+                            <p className="text-xs uppercase tracking-wide text-gray-500">Labor</p>
+                            <p className="text-sm text-gray-900">${item.laborTotal.toFixed(2)}</p>
+                            <p className="text-xs text-gray-500">{item.laborHours} hrs @ ${item.laborRate.toFixed(2)}</p>
+                          </div>
+                          <div className="rounded bg-gray-50 p-3">
+                            <p className="text-xs uppercase tracking-wide text-gray-500">Markup</p>
+                            <p className="text-sm text-gray-900">${item.markupTotal.toFixed(2)}</p>
+                            <p className="text-xs text-gray-500">{Math.round(item.markupPercentage * 100)}%</p>
+                          </div>
+                          <div className="rounded bg-gray-50 p-3">
+                            <p className="text-xs uppercase tracking-wide text-gray-500">Price Source</p>
+                            <p className="text-sm text-gray-900">{item.pricingSource || "Mocked pricing"}</p>
+                            {item.pricingLink ? (
+                              <p className="text-xs text-blue-600"><a href={item.pricingLink} target="_blank" rel="noreferrer">View source</a></p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
