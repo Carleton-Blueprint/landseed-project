@@ -100,6 +100,24 @@ interface QueuedFile {
   result?: UploadedDoc;
 }
 
+interface OpenInformationRequest {
+  id: string;
+  requestType: string;
+  message: string;
+  status: string;
+}
+
+function getInformationRequestTypeLabel(requestType: string): string {
+  switch (requestType) {
+    case "PHOTOS":
+      return "Photos requested";
+    case "DOCUMENTS":
+      return "Documents requested";
+    default:
+      return "Information requested";
+  }
+}
+
 export interface DocumentUploadInterfaceProps {
   projectId: string;
   onUploadComplete?: (documents: UploadedDoc[]) => void;
@@ -137,6 +155,121 @@ function getReviewBadge(status: string) {
   }
 }
 
+/* ──────────────────────────── Information Request Upload Card ──────────────────────────── */
+
+/**
+ * Self-contained upload control for a single open staff information
+ * request. Deliberately skips the document-category picker used by the
+ * general upload flow below — the client shouldn't have to classify a
+ * request-response upload into PROOF_OF_INCOME/MEDICAL_DOCUMENTATION/etc.
+ * when the request itself already says what's needed. Uploads here are
+ * always filed as documentType "OTHER" and tagged with informationRequestId
+ * so the backend resolves only this specific request.
+ */
+function InformationRequestUploadCard({
+  projectId,
+  request,
+  onResolved,
+}: {
+  projectId: string;
+  request: OpenInformationRequest;
+  onResolved: (requestId: string, document: UploadedDoc) => void;
+}) {
+  const [status, setStatus] = useState<"idle" | "uploading" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const uploadFile = useCallback(
+    async (file: File) => {
+      setStatus("uploading");
+      setError(null);
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("projectId", projectId);
+      formData.append("documentType", "OTHER");
+      formData.append("informationRequestId", request.id);
+      formData.append(
+        "label",
+        `Response to staff request: ${getInformationRequestTypeLabel(request.requestType)}`
+      );
+
+      try {
+        const res = await fetch("/api/documents/upload", { method: "POST", body: formData });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || "Upload failed");
+        }
+        const data = await res.json();
+        onResolved(request.id, data.document);
+      } catch (err) {
+        setStatus("error");
+        setError(err instanceof Error ? err.message : "Upload failed");
+      }
+    },
+    [projectId, request.id, request.requestType, onResolved]
+  );
+
+  const onDrop = useCallback(
+    (acceptedFiles: File[]) => {
+      if (acceptedFiles[0]) uploadFile(acceptedFiles[0]);
+    },
+    [uploadFile]
+  );
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "application/pdf": [".pdf"],
+      "image/jpeg": [".jpg", ".jpeg"],
+      "image/png": [".png"],
+      "image/webp": [".webp"],
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+    },
+    maxSize: 15 * 1024 * 1024,
+    maxFiles: 1,
+    disabled: status === "uploading",
+  });
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-white p-4">
+      <p className="text-sm font-semibold text-amber-900">
+        {getInformationRequestTypeLabel(request.requestType)}
+      </p>
+      <p className="text-sm text-amber-800 mb-3">{request.message}</p>
+
+      <div
+        {...getRootProps()}
+        className={`
+          rounded-lg border-2 border-dashed p-4 text-center cursor-pointer transition-colors duration-150
+          ${status === "uploading"
+            ? "border-gray-200 bg-gray-50 cursor-wait"
+            : isDragActive
+            ? "border-amber-400 bg-amber-50"
+            : "border-amber-300 bg-amber-50/40 hover:bg-amber-50"
+          }
+        `}
+      >
+        <input {...getInputProps()} />
+        {status === "uploading" ? (
+          <span className="inline-flex items-center gap-2 text-sm text-gray-500">
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Uploading...
+          </span>
+        ) : (
+          <span className="text-sm font-medium text-amber-700">
+            {isDragActive ? "Drop file here" : "Click or drag a file here to upload"}
+          </span>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+    </div>
+  );
+}
+
 /* ──────────────────────────── Component ──────────────────────────── */
 
 export function DocumentUploadInterface({
@@ -149,6 +282,7 @@ export function DocumentUploadInterface({
   const [isLoadingDocs, setIsLoadingDocs] = useState(true);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [openRequests, setOpenRequests] = useState<OpenInformationRequest[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch existing documents on mount
@@ -167,6 +301,25 @@ export function DocumentUploadInterface({
       }
     }
     fetchDocs();
+  }, [projectId]);
+
+  // Fetch open staff information requests so uploads can be tied to one
+  useEffect(() => {
+    async function fetchOpenRequests() {
+      try {
+        const res = await fetch(`/api/project/${projectId}/information-requests`);
+        if (res.ok) {
+          const data = await res.json();
+          const open = (data.informationRequests || []).filter(
+            (r: OpenInformationRequest) => r.status === "PENDING" || r.status === "FOLLOW_UP_FLAGGED"
+          );
+          setOpenRequests(open);
+        }
+      } catch {
+        console.error("Failed to fetch information requests");
+      }
+    }
+    fetchOpenRequests();
   }, [projectId]);
 
   // Upload a queued file
@@ -355,6 +508,32 @@ export function DocumentUploadInterface({
           </div>
         </div>
       </div>
+
+      {/* ─── Open Staff Requests ─── */}
+      {openRequests.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <h3 className="text-base font-semibold text-amber-900 mb-1">
+            Requested by our advisory team
+          </h3>
+          <p className="text-sm text-amber-800 mb-4">
+            Upload directly below to respond to each request — no need to pick a category, and
+            this disappears once it&rsquo;s uploaded.
+          </p>
+          <div className="space-y-3">
+            {openRequests.map((r) => (
+              <InformationRequestUploadCard
+                key={r.id}
+                projectId={projectId}
+                request={r}
+                onResolved={(requestId, document) => {
+                  setOpenRequests((prev) => prev.filter((x) => x.id !== requestId));
+                  setUploadedDocs((prev) => [document, ...prev]);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ─── Category Selector ─── */}
       <div>
