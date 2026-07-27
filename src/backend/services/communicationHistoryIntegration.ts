@@ -30,6 +30,8 @@ export function getCategoryFromEventType(eventType: NotificationEventType): Comm
     case NotificationEventType.EMAIL_CHANGE_VERIFY_OLD:
     case NotificationEventType.EMAIL_CHANGE_VERIFY_NEW:
       return CommunicationCategory.SYSTEM_ALERT;
+    case NotificationEventType.INFORMATION_REQUEST_CREATED:
+      return CommunicationCategory.INFORMATION_REQUEST;
     default:
       return CommunicationCategory.OTHER;
   }
@@ -71,6 +73,14 @@ export function generateContentSummary(
     lines.push(`File: ${payload.fileName}`);
   }
 
+  if (payload.informationRequestType) {
+    lines.push(`Request Type: ${payload.informationRequestType}`);
+  }
+
+  if (payload.informationRequestMessage) {
+    lines.push(`Message: ${payload.informationRequestMessage}`);
+  }
+
   return lines.join("\n");
 }
 
@@ -87,6 +97,8 @@ export function getLinkedResourceType(eventType: NotificationEventType): string 
       return "QuoteQuestion";
     case NotificationEventType.FILE_MALWARE_DETECTED:
       return "Document";
+    case NotificationEventType.INFORMATION_REQUEST_CREATED:
+      return "InformationRequest";
     default:
       return undefined;
   }

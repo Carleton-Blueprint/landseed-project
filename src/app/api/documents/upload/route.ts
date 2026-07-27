@@ -14,6 +14,7 @@ import { ProjectAccessRole } from "@prisma/client";
 import { virusScanQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
+import { markInformationRequestsRespondedForProject } from "@/backend/services/informationRequests";
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 const ALLOWED_TYPES = [
@@ -200,6 +201,12 @@ export async function POST(request: NextRequest) {
     });
 
     console.log(`✅ Document ${document.id} uploaded. Type: ${documentType}`);
+
+    try {
+      await markInformationRequestsRespondedForProject(projectId, session.user.id);
+    } catch (markError) {
+      console.warn("Failed to mark information requests as responded:", markError);
+    }
 
     return NextResponse.json({
       success: true,

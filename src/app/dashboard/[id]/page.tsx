@@ -14,6 +14,7 @@ import { isLiveImageGenerationEnabled } from "lib/openai";
 import { ConsultationScheduler } from "@/frontend/components/ConsultationScheduler";
 import { getLatestGrantDocumentGenerationInfo } from "@/backend/services/grantDocument";
 import { GrantDocumentCard } from "./GrantDocumentCard";
+import { listInformationRequestsForProject } from "@/backend/services/informationRequests";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -64,6 +65,17 @@ function getEstimateSummary(project: {
     explanation:
       "We are generating your estimate using real-time external retail data.",
   };
+}
+
+function getInformationRequestTypeLabel(requestType: string): string {
+  switch (requestType) {
+    case "PHOTOS":
+      return "additional photos";
+    case "DOCUMENTS":
+      return "additional documents";
+    default:
+      return "additional information";
+  }
 }
 
 function modificationItemsFromDraft(draftData: unknown): string[] {
@@ -174,6 +186,16 @@ export default async function ProjectDetailPage({
     grantDocumentInfo = await getLatestGrantDocumentGenerationInfo(project.id);
   } catch (error) {
     console.warn("Failed to load grant document generation info:", error);
+  }
+
+  let openInformationRequests: Awaited<ReturnType<typeof listInformationRequestsForProject>> = [];
+  try {
+    const allRequests = await listInformationRequestsForProject(project.id);
+    openInformationRequests = allRequests.filter(
+      (r) => r.status === "PENDING" || r.status === "FOLLOW_UP_FLAGGED"
+    );
+  } catch (error) {
+    console.warn("Failed to load information requests:", error);
   }
 
   let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
@@ -288,6 +310,38 @@ export default async function ProjectDetailPage({
             </div>
           </div>
         </div>
+
+        {/* ═══════ Action Item: Staff Information Request ═══════ */}
+        {openInformationRequests.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <svg className="h-5 w-5 flex-shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-8.99-3h.008v.008h-.008V9z" />
+              </svg>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base font-semibold text-amber-900">
+                  Action needed{openInformationRequests.length > 1 ? `: ${openInformationRequests.length} requests` : ""}
+                </h2>
+                <ul className="mt-2 space-y-2">
+                  {openInformationRequests.map((r) => (
+                    <li key={r.id} className="text-sm text-amber-800">
+                      <span className="font-medium">
+                        Our advisory team requested {getInformationRequestTypeLabel(r.requestType)}
+                        {r.status === "FOLLOW_UP_FLAGGED" ? " (follow-up)" : ""}:
+                      </span>{" "}
+                      {r.message}
+                    </li>
+                  ))}
+                </ul>
+                <Link href={`/projects/${project.id}/documents`}>
+                  <Button variant="outline" className="mt-3 gap-1.5 text-sm border-amber-300 text-amber-800 hover:bg-amber-100">
+                    Upload now
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ═══════ Estimate Summary ═══════ */}
         <div className="rounded-xl border bg-white p-5 shadow-sm">
