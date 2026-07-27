@@ -81,6 +81,7 @@ function quoteResult(quoteId: string) {
     pricingSource: "serp_api" as const,
     refinedEstimate: {
       lineItems: [],
+      modificationTotals: [],
       subtotal: 1000,
       laborTotal: 100,
       markupTotal: 50,

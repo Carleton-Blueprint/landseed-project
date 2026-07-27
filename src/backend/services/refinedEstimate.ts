@@ -1,6 +1,9 @@
 import { getMaterialPrice } from "@/backend/services/pricing";
-import type { ModificationCode } from "@/backend/eligibility/types";
-import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
+import { MODIFICATION_CODES, type ModificationCode } from "@/backend/eligibility/types";
+import {
+  MODIFICATION_COST_CATALOG,
+  UNSPECIFIED_MODIFICATION_LABEL,
+} from "@/backend/services/modificationCostCatalog";
 import {
   DEFAULT_PRICING_TIER,
   getApplicableTiers,
@@ -47,14 +50,41 @@ export interface RefinedEstimateLineItem {
   lineTotal: number;
 }
 
+export interface ModificationSubtotal {
+  modificationCode: ModificationCode | "UNSPECIFIED";
+  modificationLabel: string;
+  total: number;
+}
+
 export interface RefinedEstimate {
   lineItems: RefinedEstimateLineItem[];
+  modificationTotals: ModificationSubtotal[];
   subtotal: number;
   laborTotal: number;
   markupTotal: number;
   total: number;
   estimateMin: number;
   estimateMax: number;
+}
+
+const MODIFICATION_GROUP_ORDER: (ModificationCode | "UNSPECIFIED")[] = [
+  ...Object.values(MODIFICATION_CODES),
+  "UNSPECIFIED",
+];
+
+export function computeModificationTotals(lineItems: RefinedEstimateLineItem[]): ModificationSubtotal[] {
+  const totals = new Map<ModificationCode | "UNSPECIFIED", number>();
+
+  for (const item of lineItems) {
+    const key = item.modificationCode ?? "UNSPECIFIED";
+    totals.set(key, (totals.get(key) ?? 0) + item.lineTotal);
+  }
+
+  return MODIFICATION_GROUP_ORDER.filter((key) => totals.has(key)).map((key) => ({
+    modificationCode: key,
+    modificationLabel: key === "UNSPECIFIED" ? UNSPECIFIED_MODIFICATION_LABEL : MODIFICATION_COST_CATALOG[key].label,
+    total: roundToCents(totals.get(key)!),
+  }));
 }
 
 function roundToCents(value: number): number {
@@ -176,6 +206,7 @@ function buildEstimateForTier(
 
   return {
     lineItems,
+    modificationTotals: computeModificationTotals(lineItems),
     subtotal,
     laborTotal,
     markupTotal,

@@ -168,6 +168,7 @@ describe("processScheduledEstimateGeneration", () => {
       pricingSource: "serp_api",
       refinedEstimate: {
         lineItems: [],
+        modificationTotals: [],
         subtotal: 2100,
         laborTotal: 600,
         markupTotal: 350,
