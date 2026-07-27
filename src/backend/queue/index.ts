@@ -46,6 +46,7 @@ export const emailQueue = new Queue<{
   linkedResourceId?: string;
   informationRequestType?: string;
   informationRequestMessage?: string;
+  newEmail?: string | null;
 }>("email", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
@@ -135,6 +136,7 @@ export function createEmailWorker(
       linkedResourceId?: string;
       informationRequestType?: string;
       informationRequestMessage?: string;
+      newEmail?: string | null;
     };
   }) => Promise<void>
 ) {

@@ -16,6 +16,7 @@ type TemplateInput = {
   isCaregiverSubmission?: boolean;
   informationRequestType?: string;
   informationRequestMessage?: string;
+  newEmail?: string | null;
 };
 
 function formatInformationRequestType(requestType?: string): string {
@@ -223,6 +224,37 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
       subject: `Action needed on your Landseed project${addressLine}`,
       html: `<p>Hi ${recipientName},</p><p>Our advisory team has requested ${requestKind}${addressLine} to keep your project moving.</p>${messageHtml}<p>Please respond within 7 days so we can continue processing your project.</p>${linkHtml}<p>If you have questions, reply to this email and our team can help.</p><p>Landseed Team</p>`,
       text: `Hi ${recipientName},\n\nOur advisory team has requested ${requestKind}${addressLine} to keep your project moving.${messageText}\nPlease respond within 7 days so we can continue processing your project.${linkText}\nIf you have questions, reply to this email and our team can help.\n\nLandseed Team`,
+    };
+  }
+
+  if (input.eventType === NotificationEventType.EMAIL_CHANGE_VERIFY_OLD) {
+    const recipientName = safeName(input.recipientName);
+    const actionLink = input.authActionLink?.trim();
+    const newEmail = input.newEmail?.trim();
+    const newEmailLine = newEmail ? ` to <strong>${newEmail}</strong>` : "";
+    const newEmailTextLine = newEmail ? ` to ${newEmail}` : "";
+    const linkHtml = actionLink ? authActionButton(actionLink, "Confirm email change") : "";
+    const linkText = actionLink ? `\nConfirm email change: ${actionLink}\n` : "";
+
+    return {
+      templateName: "email-change-verify-old-v1",
+      subject: "Confirm your Landseed email change",
+      html: `<p>Hi ${recipientName},</p><p>We received a request to change the email on your Landseed account${newEmailLine}.</p><p>This link expires in 1 hour. If you did not request this, you can ignore this email and your address will not change.</p>${linkHtml}${authSupportFooter()}`,
+      text: `Hi ${recipientName},\n\nWe received a request to change the email on your Landseed account${newEmailTextLine}.\n\nThis link expires in 1 hour. If you did not request this, you can ignore this email and your address will not change.${linkText}\nIf you need help, reply to this email or contact the Landseed advisory team.\n\nLandseed Team`,
+    };
+  }
+
+  if (input.eventType === NotificationEventType.EMAIL_CHANGE_VERIFY_NEW) {
+    const recipientName = safeName(input.recipientName);
+    const actionLink = input.authActionLink?.trim();
+    const linkHtml = actionLink ? authActionButton(actionLink, "Confirm new email") : "";
+    const linkText = actionLink ? `\nConfirm new email: ${actionLink}\n` : "";
+
+    return {
+      templateName: "email-change-verify-new-v1",
+      subject: "Confirm your new Landseed email address",
+      html: `<p>Hi ${recipientName},</p><p>Please confirm this address as the new login email for your Landseed account.</p><p>This link expires in 1 hour. If you did not request this, you can ignore this email and your address will not change.</p>${linkHtml}${authSupportFooter()}`,
+      text: `Hi ${recipientName},\n\nPlease confirm this address as the new login email for your Landseed account.\n\nThis link expires in 1 hour. If you did not request this, you can ignore this email and your address will not change.${linkText}\nIf you need help, reply to this email or contact the Landseed advisory team.\n\nLandseed Team`,
     };
   }
 

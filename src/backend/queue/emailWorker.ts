@@ -35,6 +35,7 @@ const worker = createEmailWorker(async (job) => {
     linkedResourceId: job.data.linkedResourceId,
     informationRequestType: job.data.informationRequestType,
     informationRequestMessage: job.data.informationRequestMessage,
+    newEmail: job.data.newEmail,
   });
 });
 

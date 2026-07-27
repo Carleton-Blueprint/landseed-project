@@ -85,15 +85,45 @@ export async function PUT(request: Request) {
 
     // File-based development persistence fallback
     if (process.env.NODE_ENV === "development") {
+      const currentMockProfile = readMockProfile({
+        id: session.user.id,
+        name: session.user.name || "Dev User",
+        email: session.user.email || "dev@example.com",
+      });
+
+      if (data.email !== currentMockProfile.email) {
+        return NextResponse.json(
+          {
+            error: "Email changes require verification. Use the email change endpoint instead.",
+            code: "EMAIL_CHANGE_REQUIRES_VERIFICATION",
+          },
+          { status: 409 }
+        );
+      }
+
       writeMockProfile(data);
       return NextResponse.json({ success: true, user: data });
+    }
+
+    const currentUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { email: true },
+    });
+
+    if (data.email !== currentUser?.email) {
+      return NextResponse.json(
+        {
+          error: "Email changes require verification. Use the email change endpoint instead.",
+          code: "EMAIL_CHANGE_REQUIRES_VERIFICATION",
+        },
+        { status: 409 }
+      );
     }
 
     const updated = await prisma.user.update({
       where: { id: session.user.id },
       data: {
         name: data.name,
-        email: data.email,
         phone: data.phone,
       },
     });

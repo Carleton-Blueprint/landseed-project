@@ -47,6 +47,7 @@ export type NotificationJobPayload = {
   // Staff information request details
   informationRequestType?: string;
   informationRequestMessage?: string;
+  newEmail?: string | null;
 };
 
 export interface NotificationDeliveryMetricsInput {
@@ -166,6 +167,7 @@ export async function queueNotification(payload: NotificationJobPayload): Promis
     isCaregiverSubmission: payload.isCaregiverSubmission,
     informationRequestType: payload.informationRequestType,
     informationRequestMessage: payload.informationRequestMessage,
+    newEmail: payload.newEmail,
   });
 
   // Strip undefined keys so payload remains valid JSON for Prisma Json fields.
@@ -235,6 +237,7 @@ export async function processNotification(payload: NotificationJobPayload): Prom
     isCaregiverSubmission: payload.isCaregiverSubmission,
     informationRequestType: payload.informationRequestType,
     informationRequestMessage: payload.informationRequestMessage,
+    newEmail: payload.newEmail,
   });
 
   const finalSubject = payload.subject ?? template.subject;

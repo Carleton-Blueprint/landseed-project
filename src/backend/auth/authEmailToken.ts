@@ -4,9 +4,10 @@ import { prisma } from "lib/prisma";
 
 export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 export const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
+export const EMAIL_CHANGE_TTL_MS = 60 * 60 * 1000;
 
 export type AuthEmailTokenValidationResult =
-  | { ok: true; tokenId: string; userId: string }
+  | { ok: true; tokenId: string; userId: string; newEmail: string | null }
   | { ok: false; reason: "not_found" | "expired" | "already_used" };
 
 export function hashAuthEmailToken(rawToken: string): string {
@@ -23,6 +24,9 @@ function ttlForPurpose(purpose: AuthEmailTokenPurpose): number {
       return EMAIL_VERIFICATION_TTL_MS;
     case AuthEmailTokenPurpose.PASSWORD_RESET:
       return PASSWORD_RESET_TTL_MS;
+    case AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM:
+    case AuthEmailTokenPurpose.EMAIL_CHANGE_NEW_CONFIRM:
+      return EMAIL_CHANGE_TTL_MS;
     default:
       throw new Error(`Unsupported auth email token purpose: ${purpose}`);
   }
@@ -40,6 +44,7 @@ export async function invalidateUnusedAuthEmailTokens(
 export async function createAuthEmailToken(input: {
   userId: string;
   purpose: AuthEmailTokenPurpose;
+  newEmail?: string;
 }): Promise<{ rawToken: string; tokenId: string; expiresAt: Date }> {
   await invalidateUnusedAuthEmailTokens(input.userId, input.purpose);
 
@@ -52,6 +57,7 @@ export async function createAuthEmailToken(input: {
       userId: input.userId,
       purpose: input.purpose,
       tokenHash,
+      newEmail: input.newEmail ?? null,
       expiresAt,
     },
   });
@@ -67,7 +73,7 @@ export async function findValidAuthEmailToken(
 
   const record = await prisma.authEmailToken.findFirst({
     where: { tokenHash, purpose },
-    select: { id: true, userId: true, expiresAt: true, usedAt: true },
+    select: { id: true, userId: true, expiresAt: true, usedAt: true, newEmail: true },
   });
 
   if (!record) {
@@ -82,7 +88,7 @@ export async function findValidAuthEmailToken(
     return { ok: false, reason: "expired" };
   }
 
-  return { ok: true, tokenId: record.id, userId: record.userId };
+  return { ok: true, tokenId: record.id, userId: record.userId, newEmail: record.newEmail ?? null };
 }
 
 export async function consumeAuthEmailToken(
