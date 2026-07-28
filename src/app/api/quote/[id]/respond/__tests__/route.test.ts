@@ -82,17 +82,24 @@ function buildTieredEstimate(): TieredRefinedEstimate {
   };
 }
 
-function buildQuoteRecord(refinedEstimate: unknown) {
+function buildQuoteRecord(refinedEstimate: unknown, overrides: Partial<{ subtotal: number; total: number; estimateMin: number | null; estimateMax: number | null }> = {}) {
   return {
     id: "quote-1",
     projectId: "proj-1",
     status: "PENDING",
     refinedEstimate,
+    subtotal: overrides.subtotal ?? 500,
+    total: overrides.total ?? 500,
+    estimateMin: overrides.estimateMin ?? 475,
+    estimateMax: overrides.estimateMax ?? 525,
     project: {
+      id: "proj-1",
       address: "123 Main St",
       status: "estimate_ready",
-      draftData: null,
+      draftData: { modificationItems: ["walk_in_shower"] },
       projectAccess: [{ userId: "user-1" }],
+      user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
+      photos: [{ id: "photo-1", url: "https://example.com/photo1.jpg" }],
     },
   };
 }
@@ -175,9 +182,12 @@ describe("POST /api/quote/[id]/respond", () => {
 
     const insertCall = txMock.$queryRaw.mock.calls[1][0] as { values: unknown[] };
     const payload = JSON.parse(insertCall.values[3] as string);
-    expect(payload.estimate.selectedTier).toBe("premium");
-    expect(payload.estimate.total).toBe(1700);
-    expect(payload.estimate.lineItems).toHaveLength(1);
+    expect(payload.quote.pricing.selectedTier).toBe("premium");
+    expect(payload.quote.pricing.total).toBe(1700);
+    expect(payload.quote.pricing.lineItems).toHaveLength(1);
+    expect(payload.client).toEqual({ name: "Jane Client", email: "jane@example.com", phone: "555-0100" });
+    expect(payload.modificationType).toEqual(["walk_in_shower"]);
+    expect(payload.photos).toEqual([{ id: "photo-1", url: "https://example.com/photo1.jpg" }]);
 
     expect(mockedEnqueue).toHaveBeenCalledWith("transfer-1");
   });
@@ -202,7 +212,8 @@ describe("POST /api/quote/[id]/respond", () => {
 
     const insertCall = txMock.$queryRaw.mock.calls[1][0] as { values: unknown[] };
     const payload = JSON.parse(insertCall.values[3] as string);
-    expect(payload.estimate.selectedTier).toBeUndefined();
-    expect(payload.estimate.lineItems).toBeUndefined();
+    expect(payload.quote.pricing.selectedTier).toBeNull();
+    expect(payload.quote.pricing.lineItems).toHaveLength(1);
+    expect(payload.quote.pricing.total).toBe(500);
   });
 });

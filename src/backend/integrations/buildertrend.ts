@@ -4,6 +4,7 @@ import { prisma } from "lib/prisma";
 import { builderTrendTransferQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
+import type { BuilderTrendWorkOrderPayload } from "@/backend/integrations/builderTrendPayload";
 
 type TransferRow = {
   id: string;
@@ -13,6 +14,29 @@ type TransferRow = {
   attempts: number;
   payload: unknown;
 };
+
+/**
+ * Non-PII summary of the stored transfer payload for audit metadata. The
+ * full payload (including client contact info) already lives on the
+ * BuilderTrendTransfer row referenced by resourceId, so this is deliberately
+ * a shape/field-presence summary rather than a duplicate of the payload
+ * itself.
+ */
+function summarizeBuilderTrendPayloadForAudit(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object") {
+    return { payloadPresent: false };
+  }
+
+  const typed = payload as Partial<BuilderTrendWorkOrderPayload>;
+  return {
+    payloadPresent: true,
+    schemaVersion: typed.schemaVersion ?? null,
+    hasClientContact: Boolean(typed.client?.name || typed.client?.email || typed.client?.phone),
+    modificationType: typed.modificationType ?? [],
+    lineItemCount: typed.quote?.pricing?.lineItems?.length ?? 0,
+    photoCount: typed.photos?.length ?? 0,
+  };
+}
 
 async function sendMockedBuilderTrendTransfer(): Promise<{ externalReference: string }> {
   const shouldFail = (process.env.BUILDERTREND_MOCK_FAIL ?? "false").toLowerCase() === "true";
@@ -162,6 +186,7 @@ export async function processBuilderTrendTransfer(
         attemptNumber,
         durationMs: Date.now() - startedAtMs,
         externalReference: result.externalReference,
+        ...summarizeBuilderTrendPayloadForAudit(transfer.payload),
       },
     });
   } catch (error) {
@@ -199,6 +224,7 @@ export async function processBuilderTrendTransfer(
         isFinalAttempt,
         durationMs: Date.now() - startedAtMs,
         errorMessage,
+        ...summarizeBuilderTrendPayloadForAudit(transfer.payload),
       },
     });
 

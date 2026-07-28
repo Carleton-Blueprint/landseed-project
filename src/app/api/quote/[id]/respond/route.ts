@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
+import { buildBuilderTrendWorkOrderPayload } from "@/backend/integrations/builderTrendPayload";
 import {
   isTieredEstimate,
   PRICING_TIER_KEYS,
@@ -92,6 +93,13 @@ export async function POST(
           include: {
             projectAccess: {
               where: { userId: session.user.id }
+            },
+            user: {
+              select: { name: true, email: true, phone: true }
+            },
+            photos: {
+              where: { virus_scan_status: "clean" },
+              select: { id: true, url: true }
             }
           }
         }
@@ -162,6 +170,32 @@ export async function POST(
     // Process the update
     const updatedProjectStatus = status === "ACCEPTED" ? "estimate_accepted" : "estimate_declined";
 
+    // Built outside the transaction: signs photo URLs via S3, which is
+    // network I/O that shouldn't run while holding a DB transaction open.
+    const builderTrendPayload =
+      status === "ACCEPTED"
+        ? await buildBuilderTrendWorkOrderPayload({
+            project: {
+              id: quote.project.id,
+              address: quote.project.address,
+              draftData: quote.project.draftData,
+              user: quote.project.user,
+              photos: quote.project.photos,
+            },
+            quote: {
+              id: quote.id,
+              subtotal: quote.subtotal,
+              total: quote.total,
+              estimateMin: quote.estimateMin,
+              estimateMax: quote.estimateMax,
+            },
+            approvedAt: new Date(),
+            refinedEstimate,
+            quoteIsTiered,
+            acceptedTier,
+          })
+        : null;
+
     // Update Quote status and Project status in a transaction
     const updatedQuote = await prisma.$transaction(async (tx) => {
       const updatedRows = await tx.$queryRaw<Array<{ id: string; status: string; declinedReason: string | null }>>(
@@ -211,11 +245,8 @@ export async function POST(
         });
       }
 
-      let acceptedTierEstimate: TieredRefinedEstimate["tiers"][PricingTierKey] | undefined;
-
       if (status === "ACCEPTED" && quoteIsTiered && acceptedTier) {
         const tieredEstimate = refinedEstimate as TieredRefinedEstimate;
-        acceptedTierEstimate = tieredEstimate.tiers[acceptedTier];
 
         await tx.quote.update({
           where: { id: quote.id },
@@ -235,28 +266,7 @@ export async function POST(
       } | null = null;
 
       if (status === "ACCEPTED") {
-        const payloadJson = JSON.stringify({
-          projectId: quote.projectId,
-          quoteId: quote.id,
-          projectAddress: quote.project.address,
-          scopeDetails: quote.project.draftData ?? null,
-          estimate: {
-            status,
-            approvedAt: new Date().toISOString(),
-            ...(acceptedTier && acceptedTierEstimate
-              ? {
-                  selectedTier: acceptedTier,
-                  lineItems: acceptedTierEstimate.lineItems,
-                  subtotal: acceptedTierEstimate.subtotal,
-                  laborTotal: acceptedTierEstimate.laborTotal,
-                  markupTotal: acceptedTierEstimate.markupTotal,
-                  total: acceptedTierEstimate.total,
-                  estimateMin: acceptedTierEstimate.estimateMin,
-                  estimateMax: acceptedTierEstimate.estimateMax,
-                }
-              : {}),
-          },
-        });
+        const payloadJson = JSON.stringify(builderTrendPayload);
 
         const insertedTransferRows = await tx.$queryRaw<
           Array<{ id: string; status: string }>
