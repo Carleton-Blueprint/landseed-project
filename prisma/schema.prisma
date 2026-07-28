@@ -33,36 +33,42 @@ model User {
   projectStaffNotes             ProjectStaffNote[]
   informationRequestsMade       InformationRequest[]            @relation("InformationRequestRequestedBy")
   grantSignatures               GrantSignature[]                @relation("GrantSignatureSigner")
+  manualModeSubmissions         ManualModeSubmission[]
+  createdManualQuotes           Quote[]
+  builderTrendManualSyncs       BuilderTrendTransfer[]
 }
 
 model Project {
-  id                            String                          @id @default(cuid())
-  address                       String
-  status                        String                          @default("draft")
-  userId                        String
-  createdAt                     DateTime                        @default(now())
-  updatedAt                     DateTime                        @updatedAt
-  draftData                     Json?
-  grantDocumentKey              String?
-  grantApplicationStatus        GrantApplicationStatus          @default(DRAFT)
-  user                          User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectAccess                 ProjectAccess[]
-  photos                        Photo[]
-  documents                     Document[]
-  quotes                        Quote[]
-  builderTrendTransfers         BuilderTrendTransfer[]
-  manualFallbackExports         ManualFallbackExport[]
-  eligibilityAssessments        EligibilityAssessment[]
-  grantApplicationStatusHistory GrantApplicationStatusHistory[]
-  notifications                 NotificationDelivery[]
-  auditEvents                   AuditEvent[]
-  manualReviewFlag              ProjectManualReviewFlag?
-  communicationHistory          CommunicationHistory[]
-  consultationRequest           ConsultationRequest?
-  intakeDraft                   IntakeDraft?
-  staffNotes                    ProjectStaffNote[]
-  informationRequests           InformationRequest[]
-  grantSignatures               GrantSignature[]
+  id                               String                            @id @default(cuid())
+  address                          String
+  status                           String                            @default("draft")
+  userId                           String
+  createdAt                        DateTime                          @default(now())
+  updatedAt                        DateTime                          @updatedAt
+  draftData                        Json?
+  grantDocumentKey                 String?
+  grantApplicationStatus           GrantApplicationStatus            @default(DRAFT)
+  isManualMode                     Boolean                           @default(false)
+  user                             User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectAccess                    ProjectAccess[]
+  photos                           Photo[]
+  documents                        Document[]
+  quotes                           Quote[]
+  builderTrendTransfers            BuilderTrendTransfer[]
+  builderTrendStatusCallbackEvents BuilderTrendStatusCallbackEvent[]
+  manualModeSubmission             ManualModeSubmission?
+  manualFallbackExports            ManualFallbackExport[]
+  eligibilityAssessments           EligibilityAssessment[]
+  grantApplicationStatusHistory    GrantApplicationStatusHistory[]
+  notifications                    NotificationDelivery[]
+  auditEvents                      AuditEvent[]
+  manualReviewFlag                 ProjectManualReviewFlag?
+  communicationHistory             CommunicationHistory[]
+  consultationRequest              ConsultationRequest?
+  intakeDraft                      IntakeDraft?
+  staffNotes                       ProjectStaffNote[]
+  informationRequests              InformationRequest[]
+  grantSignatures                  GrantSignature[]
 }
 
 model IntakeDraft {
@@ -256,15 +262,21 @@ model Quote {
   estimateMin             Decimal?               @db.Decimal(10, 2)
   estimateMax             Decimal?               @db.Decimal(10, 2)
   refinedEstimate         Json?
+  source                  QuoteSource            @default(AI_GENERATED)
+  createdByUserId         String?
+  manualModeSubmissionId  String?
   auditEvents             AuditEvent[]
   builderTrendTransfers   BuilderTrendTransfer?
   declineSurvey           DeclineSurveyResponse?
   eligibilityAssessment   EligibilityAssessment? @relation(fields: [eligibilityAssessmentId], references: [id])
   project                 Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdByUser           User?                  @relation(fields: [createdByUserId], references: [id])
+  manualModeSubmission    ManualModeSubmission?  @relation(fields: [manualModeSubmissionId], references: [id])
   questions               QuoteQuestion[]
 
   @@index([projectId])
   @@index([eligibilityAssessmentId])
+  @@index([manualModeSubmissionId])
 }
 
 model DeclineSurveyResponse {
@@ -283,24 +295,52 @@ model DeclineSurveyResponse {
 }
 
 model BuilderTrendTransfer {
-  id                  String                     @id @default(cuid())
-  projectId           String
-  quoteId             String                     @unique
-  status              BuilderTrendTransferStatus @default(PENDING)
-  payload             Json?
-  attempts            Int                        @default(0)
-  externalReference   String?
-  lastError           String?
-  requestedAt         DateTime                   @default(now())
-  sentAt              DateTime?
-  fallbackRequestedAt DateTime?
-  createdAt           DateTime                   @default(now())
-  updatedAt           DateTime                   @updatedAt
-  project             Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  quote               Quote                      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  id                     String                            @id @default(cuid())
+  projectId              String
+  quoteId                String                            @unique
+  status                 BuilderTrendTransferStatus        @default(PENDING)
+  payload                Json?
+  attempts               Int                               @default(0)
+  externalReference      String?
+  lastError              String?
+  requestedAt            DateTime                          @default(now())
+  sentAt                 DateTime?
+  fallbackRequestedAt    DateTime?
+  workOrderUrl           String?
+  externalStatus         String?
+  lastStatusCallbackAt   DateTime?
+  lastManualSyncAt       DateTime?
+  lastManualSyncByUserId String?
+  createdAt              DateTime                          @default(now())
+  updatedAt              DateTime                          @updatedAt
+  project                Project                           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quote                  Quote                             @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  lastManualSyncByUser   User?                             @relation(fields: [lastManualSyncByUserId], references: [id])
+  statusCallbackEvents   BuilderTrendStatusCallbackEvent[]
 
   @@index([projectId])
   @@index([status])
+}
+
+model BuilderTrendStatusCallbackEvent {
+  id                     String                @id @default(cuid())
+  projectId              String
+  builderTrendTransferId String?
+  externalReference      String?
+  previousStatus         String?
+  newStatus              String
+  previousProjectStatus  String?
+  newProjectStatus       String?
+  rawPayload             Json
+  validationError        String?               @db.Text
+  receivedAt             DateTime              @default(now())
+  processedAt            DateTime?
+  project                Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  builderTrendTransfer   BuilderTrendTransfer? @relation(fields: [builderTrendTransferId], references: [id])
+
+  @@index([projectId, receivedAt(sort: Desc)])
+  @@index([builderTrendTransferId])
+  @@index([externalReference])
 }
 
 model QuoteQuestion {
@@ -443,6 +483,27 @@ model ManualFallbackExport {
   @@index([status])
 }
 
+model ManualModeSubmission {
+  id               String                     @id @default(cuid())
+  projectId        String                     @unique
+  modificationType String
+  scope            String                     @db.Text
+  pricingItems     Json
+  subtotal         Decimal                    @db.Decimal(10, 2)
+  total            Decimal                    @db.Decimal(10, 2)
+  notes            String?                    @db.Text
+  status           ManualModeSubmissionStatus @default(DRAFT)
+  enteredByUserId  String
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  project          Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  enteredByUser    User                       @relation(fields: [enteredByUserId], references: [id])
+  quotes           Quote[]
+
+  @@index([projectId])
+  @@index([status])
+}
+
 model ProjectManualReviewFlag {
   id                                    String                        @id @default(cuid())
   projectId                             String                        @unique
@@ -561,6 +622,8 @@ enum DocumentType {
   GOVERNMENT_ID
   TAX_ASSESSMENT
   DISABILITY_CERTIFICATE
+  MANUAL_MODE_DRAWING
+  VENDOR_QUOTE
   OTHER
 }
 
@@ -581,6 +644,17 @@ enum BuilderTrendTransferStatus {
   RETRYING
   SENT
   FAILED
+}
+
+enum ManualModeSubmissionStatus {
+  DRAFT
+  READY
+  PACKAGE_GENERATED
+}
+
+enum QuoteSource {
+  AI_GENERATED
+  MANUAL
 }
 
 enum QuestionCategory {
