@@ -13,6 +13,8 @@ import { virusScanQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
 import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
+import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
+import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 
 export type ManualModeErrorCode =
   | "PROJECT_NOT_FOUND"
@@ -348,6 +350,7 @@ export interface GenerateManualOutputPackageResult {
   quoteId: string;
   grantDocumentKey: string | null;
   builderTrendTransferId: string | null;
+  clientNotified: boolean;
 }
 
 export async function generateManualOutputPackage(
@@ -387,6 +390,21 @@ export async function generateManualOutputPackage(
       manualModeSubmissionId: submission.id,
     },
   });
+
+  let clientNotified = false;
+  try {
+    const readyResult = await markEstimateReadyForReview({
+      projectId: project.id,
+      quoteId: quote.id,
+      triggerSource: ESTIMATE_READY_TRIGGER_SOURCE.MANUAL_MODE_OUTPUT_PACKAGE,
+      actorUserId: input.actorUserId,
+      ipAddress: input.ipAddress,
+      userAgent: input.userAgent,
+    });
+    clientNotified = readyResult.notified;
+  } catch (error) {
+    console.warn("Manual mode: estimate-ready notification failed", error);
+  }
 
   let grantDocumentKey: string | null = null;
   try {
@@ -437,6 +455,7 @@ export async function generateManualOutputPackage(
       quoteId: quote.id,
       grantDocumentKey,
       builderTrendTransferId,
+      clientNotified,
     },
     ipAddress: input.ipAddress ?? null,
     userAgent: input.userAgent ?? null,
@@ -447,5 +466,6 @@ export async function generateManualOutputPackage(
     quoteId: quote.id,
     grantDocumentKey,
     builderTrendTransferId,
+    clientNotified,
   };
 }

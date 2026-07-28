@@ -82,6 +82,7 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
     quoteId: string;
     grantDocumentKey: string | null;
     builderTrendTransferId: string | null;
+    clientNotified: boolean;
   } | null>(null);
 
   const [uploadDocumentType, setUploadDocumentType] = useState<"MANUAL_MODE_DRAWING" | "VENDOR_QUOTE">(
@@ -259,6 +260,9 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
             <p className="text-gray-600">
               BuilderTrend work order:{" "}
               {packageResult.builderTrendTransferId ?? "creation failed — check audit log"}
+            </p>
+            <p className={packageResult.clientNotified ? "text-gray-600" : "text-amber-600"}>
+              Client notified: {packageResult.clientNotified ? "yes" : "no — check audit log"}
             </p>
           </div>
         )}
