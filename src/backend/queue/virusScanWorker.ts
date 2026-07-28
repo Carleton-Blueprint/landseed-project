@@ -263,7 +263,10 @@ const worker = createVirusScanWorker(async (job) => {
         // scan finishes after the project is already promoted. Photos only — documents (grant
         // PDFs, etc.) aren't candidates for modification-type inference.
         const isPromoted = photo?.project.status !== "draft";
-        if (isPromoted) {
+        const isManualMode = photo?.project.isManualMode ?? false;
+        if (isManualMode) {
+          console.log(`   🛠️  Project ${photo?.project.id} is in manual mode — skipping AI photo analysis for ${photoId}`);
+        } else if (isPromoted) {
           try {
             await aiJobsQueue.add(
               "ai-jobs",
@@ -278,7 +281,7 @@ const worker = createVirusScanWorker(async (job) => {
           console.log(`   ⏳ Project not yet promoted — deferring photo analysis for ${photoId} to intake finalization`);
         }
 
-        if (isLiveImageGenerationEnabled()) {
+        if (isLiveImageGenerationEnabled() && !isManualMode) {
           try {
             const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
             await aiJobsQueue.add(`accessibility-image-generation:${photoId}`, {

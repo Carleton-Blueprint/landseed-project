@@ -80,6 +80,7 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
       id: true,
       status: true,
       draftData: true,
+      isManualMode: true,
       quotes: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -173,43 +174,45 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
     userAgent: input.userAgent,
   });
 
-  await estimateGenerationQueue.add(
-    "generate-estimate",
-    {
-      projectId: project.id,
-      actorUserId: input.actorUserId,
-    },
-    {
-      jobId: buildEstimateGenerationJobId(project.id),
-      delay: getEstimateGenerationDelayMs(),
-      removeOnComplete: { count: 100 },
-      removeOnFail: { count: 500 },
-    }
-  );
+  if (!project.isManualMode) {
+    await estimateGenerationQueue.add(
+      "generate-estimate",
+      {
+        projectId: project.id,
+        actorUserId: input.actorUserId,
+      },
+      {
+        jobId: buildEstimateGenerationJobId(project.id),
+        delay: getEstimateGenerationDelayMs(),
+        removeOnComplete: { count: 100 },
+        removeOnFail: { count: 500 },
+      }
+    );
 
-  // Sweep photos that finished virus scanning before the project was promoted — the
-  // clean-scan trigger in virusScanWorker.ts defers to this point in that case, since
-  // Project.draftData (and the client's declared modification codes) only exists now.
-  // Reuses the same jobId as the clean-scan trigger, so if a scan happens to clear right
-  // around promotion and both paths fire, BullMQ's jobId dedup makes the second a no-op.
-  const cleanUnanalyzedPhotos = await prisma.photo.findMany({
-    where: {
-      projectId: project.id,
-      virus_scan_status: "clean",
-      analysisStatus: { notIn: ["READY", "ANALYZING"] },
-    },
-    select: { id: true },
-  });
+    // Sweep photos that finished virus scanning before the project was promoted — the
+    // clean-scan trigger in virusScanWorker.ts defers to this point in that case, since
+    // Project.draftData (and the client's declared modification codes) only exists now.
+    // Reuses the same jobId as the clean-scan trigger, so if a scan happens to clear right
+    // around promotion and both paths fire, BullMQ's jobId dedup makes the second a no-op.
+    const cleanUnanalyzedPhotos = await prisma.photo.findMany({
+      where: {
+        projectId: project.id,
+        virus_scan_status: "clean",
+        analysisStatus: { notIn: ["READY", "ANALYZING"] },
+      },
+      select: { id: true },
+    });
 
-  for (const photo of cleanUnanalyzedPhotos) {
-    try {
-      await aiJobsQueue.add(
-        "ai-jobs",
-        { jobType: PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE, payload: { photoId: photo.id } },
-        { jobId: `photo-analysis-${photo.id}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
-      );
-    } catch (queueError) {
-      console.warn(`Failed to queue photo analysis for ${photo.id} at intake finalization:`, queueError);
+    for (const photo of cleanUnanalyzedPhotos) {
+      try {
+        await aiJobsQueue.add(
+          "ai-jobs",
+          { jobType: PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE, payload: { photoId: photo.id } },
+          { jobId: `photo-analysis-${photo.id}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
+        );
+      } catch (queueError) {
+        console.warn(`Failed to queue photo analysis for ${photo.id} at intake finalization:`, queueError);
+      }
     }
   }
 

@@ -228,6 +228,10 @@ export async function processAccessibilityImageGenerationJob(
     throw new Error(`Photo not found: ${payload.photoId}`);
   }
 
+  if (photo.project.isManualMode) {
+    return;
+  }
+
   await prisma.photo.update({
     where: { id: photo.id },
     data: { generationStatus: "GENERATING" },
