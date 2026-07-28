@@ -409,6 +409,11 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
                 </Button>
               </Link>
             )}
+            <Link href={`/admin/projects/${project.id}/manual-mode`} className="flex-1">
+              <Button variant="outline" className="w-full text-xs h-8">
+                Manual Mode
+              </Button>
+            </Link>
           </div>
         </div>
       </div>
