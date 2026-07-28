@@ -75,14 +75,18 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
     const linkText = estimateLink
       ? `\nView your estimate: ${estimateLink}\n`
       : "\nYour advisory specialist will provide your estimate link shortly.\n";
-    const rangeHtml =
-      input.estimateMin != null && input.estimateMax != null
-        ? `<p><strong>Estimated range:</strong> $${input.estimateMin.toFixed(2)} - $${input.estimateMax.toFixed(2)}</p>`
-        : "";
-    const rangeText =
-      input.estimateMin != null && input.estimateMax != null
-        ? `\nEstimated range: $${input.estimateMin.toFixed(2)} - $${input.estimateMax.toFixed(2)}\n`
-        : "";
+    const hasEstimate = input.estimateMin != null && input.estimateMax != null;
+    const isSingleValue = hasEstimate && input.estimateMin === input.estimateMax;
+    const rangeHtml = hasEstimate
+      ? isSingleValue
+        ? `<p><strong>Estimated cost:</strong> $${input.estimateMin!.toFixed(2)}</p>`
+        : `<p><strong>Estimated range:</strong> $${input.estimateMin!.toFixed(2)} - $${input.estimateMax!.toFixed(2)}</p>`
+      : "";
+    const rangeText = hasEstimate
+      ? isSingleValue
+        ? `\nEstimated cost: $${input.estimateMin!.toFixed(2)}\n`
+        : `\nEstimated range: $${input.estimateMin!.toFixed(2)} - $${input.estimateMax!.toFixed(2)}\n`
+      : "";
 
     return {
       templateName: "estimate-ready-v1",
