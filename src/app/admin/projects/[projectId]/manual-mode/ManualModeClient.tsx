@@ -304,6 +304,16 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
           <h2 className="text-lg font-semibold text-gray-900">Pricing</h2>
 
           <div className="space-y-2">
+            <div className="flex gap-2 items-center text-xs font-medium text-gray-500">
+              <span className="flex-1">Description</span>
+              <span className="w-24" title="Number of units of this item">
+                Qty
+              </span>
+              <span className="w-32" title="Price per single unit, before quantity is applied">
+                Unit Price ($)
+              </span>
+              <span className="w-[74px]" aria-hidden="true" />
+            </div>
             {pricingItems.map((item, index) => (
               <div key={index} className="flex gap-2 items-start">
                 <Input
@@ -321,6 +331,7 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
                   onChange={(e) => updatePricingItem(index, { quantity: Number(e.target.value) })}
                   disabled={locked}
                   placeholder="Qty"
+                  title="Number of units of this item"
                 />
                 <Input
                   type="number"
@@ -331,6 +342,7 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
                   onChange={(e) => updatePricingItem(index, { unitPrice: Number(e.target.value) })}
                   disabled={locked}
                   placeholder="Unit price"
+                  title="Price per single unit, before quantity is applied"
                 />
                 <Button
                   type="button"
@@ -344,6 +356,9 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
               </div>
             ))}
           </div>
+          <p className="text-xs text-gray-500">
+            Line total = Qty × Unit Price. The Total below is the sum of all line totals.
+          </p>
 
           {!locked && (
             <Button type="button" variant="outline" size="sm" onClick={addPricingItem}>
@@ -426,11 +441,13 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">File</label>
-                <input
-                  type="file"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
-                  className="text-sm"
-                />
+                <div className="flex h-10 items-center">
+                  <input
+                    type="file"
+                    onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+                    className="text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-input file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700 file:shadow-sm file:transition-colors hover:file:bg-gray-50"
+                  />
+                </div>
               </div>
               <Button type="button" onClick={handleUpload} disabled={uploading}>
                 {uploading ? "Uploading..." : "Upload"}
