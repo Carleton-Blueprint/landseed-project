@@ -23,7 +23,14 @@ jest.mock("@/backend/auth/requireRole", () => ({
       this.status = status;
     }
   },
-  requireMinimumRole: jest.fn<() => Promise<boolean>>(),
+}));
+
+jest.mock("@/backend/auth/requireAdminMfa", () => ({
+  MfaSetupRequiredError: class MfaSetupRequiredError extends Error {
+    status = 403;
+    code = "MFA_SETUP_REQUIRED";
+  },
+  requireAdminWithMfaEnrolled: jest.fn<() => Promise<boolean>>(),
 }));
 
 jest.mock("@/backend/audit/requestContext", () => ({
@@ -61,9 +68,11 @@ const { POST } = require("../route") as {
 };
 
 const { auth } = require("@/auth") as { auth: jest.Mock };
-const { requireMinimumRole, HttpError } = require("@/backend/auth/requireRole") as {
-  requireMinimumRole: jest.Mock;
+const { HttpError } = require("@/backend/auth/requireRole") as {
   HttpError: new (message: string, status?: number) => Error & { status: number };
+};
+const { requireAdminWithMfaEnrolled } = require("@/backend/auth/requireAdminMfa") as {
+  requireAdminWithMfaEnrolled: jest.Mock;
 };
 const { logDeniedAdminAccessAttempt } = require("@/backend/audit/adminAccess") as {
   logDeniedAdminAccessAttempt: jest.Mock;
@@ -77,7 +86,7 @@ const { sendAdminCustomEmail, AdminCustomEmailError } = require("@/backend/servi
 };
 
 const mockedAuth = auth as jest.MockedFunction<() => Promise<unknown>>;
-const mockedRequireMinimumRole = requireMinimumRole as jest.MockedFunction<() => Promise<boolean>>;
+const mockedRequireAdminWithMfaEnrolled = requireAdminWithMfaEnrolled as jest.MockedFunction<() => Promise<boolean>>;
 const mockedLogDeniedAdminAccessAttempt = logDeniedAdminAccessAttempt as jest.MockedFunction<() => Promise<void>>;
 const mockedSendAdminCustomEmail = sendAdminCustomEmail as jest.MockedFunction<typeof sendAdminCustomEmail>;
 
@@ -103,12 +112,12 @@ function buildJsonRequest(
 describe("/api/admin/projects/[projectId]/messages", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockedRequireMinimumRole.mockResolvedValue(true);
+    mockedRequireAdminWithMfaEnrolled.mockResolvedValue(true);
   });
 
   it("logs unauthenticated access attempts", async () => {
     mockedAuth.mockResolvedValue(null);
-    mockedRequireMinimumRole.mockRejectedValue(new HttpError("unauthenticated", 401));
+    mockedRequireAdminWithMfaEnrolled.mockRejectedValue(new HttpError("unauthenticated", 401));
 
     const response = await POST(
       buildJsonRequest("POST", { recipientId: "user-1", subject: "Hi", message: "Hello" }),
@@ -131,7 +140,7 @@ describe("/api/admin/projects/[projectId]/messages", () => {
 
   it("logs forbidden access for non-admin users", async () => {
     mockedAuth.mockResolvedValue({ user: { id: "user-1", email: "client@example.com" } });
-    mockedRequireMinimumRole.mockRejectedValue(new HttpError("forbidden", 403));
+    mockedRequireAdminWithMfaEnrolled.mockRejectedValue(new HttpError("forbidden", 403));
 
     const response = await POST(
       buildJsonRequest("POST", { recipientId: "user-1", subject: "Hi", message: "Hello" }),

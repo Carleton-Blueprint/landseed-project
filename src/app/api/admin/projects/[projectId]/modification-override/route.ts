@@ -8,7 +8,8 @@
 import type { Session } from "next-auth";
 import { auth } from "@/auth";
 import { authGateResponse } from "@/backend/auth/authGateResponse";
-import { HttpError, requireMinimumRole } from "@/backend/auth/requireRole";
+import { HttpError } from "@/backend/auth/requireRole";
+import { MfaSetupRequiredError, requireAdminWithMfaEnrolled } from "@/backend/auth/requireAdminMfa";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
 import {
@@ -22,10 +23,10 @@ async function requireAdminForModificationOverride(
   projectId: string
 ): Promise<Response | null> {
   try {
-    await requireMinimumRole(session, "ADMIN");
+    await requireAdminWithMfaEnrolled(session);
     return null;
   } catch (error) {
-    if (error instanceof HttpError) {
+    if (error instanceof HttpError || error instanceof MfaSetupRequiredError) {
       const auditContext = getRequestAuditContext(request);
       await logDeniedAdminAccessAttempt({
         surface: "route",
