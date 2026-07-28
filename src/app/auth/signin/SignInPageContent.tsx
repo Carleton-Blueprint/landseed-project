@@ -15,27 +15,49 @@ function PasswordSignInForm() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const attemptSignIn = async (extra: { mfaCode?: string }) => {
+    const res = await signIn("credentials", {
+      redirect: false,
+      email,
+      password,
+      callbackUrl,
+      ...extra,
+    });
+
+    if (!res?.error) {
+      router.push(callbackUrl);
+      return;
+    }
+
+    switch (res.code) {
+      case "mfa_required":
+        setMfaRequired(true);
+        setError("");
+        break;
+      case "mfa_invalid_code":
+        setError("Invalid verification code. Please try again.");
+        break;
+      case "mfa_locked":
+        setError("Too many failed verification attempts. Try again in a few minutes.");
+        setMfaRequired(false);
+        break;
+      default:
+        setError("Invalid credentials. Please try again.");
+        setMfaRequired(false);
+    }
+  };
+
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError("");
-
     try {
-      const res = await signIn("credentials", {
-        redirect: false,
-        email,
-        password,
-        callbackUrl,
-      });
-
-      if (res?.error) {
-        setError("Invalid credentials. Please try again.");
-      } else {
-        router.push(callbackUrl);
-      }
+      await attemptSignIn({});
     } catch {
       setError("An unexpected error occurred.");
     } finally {
@@ -43,8 +65,71 @@ function PasswordSignInForm() {
     }
   };
 
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError("");
+    try {
+      await attemptSignIn({ mfaCode });
+    } catch {
+      setError("An unexpected error occurred.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (mfaRequired) {
+    return (
+      <form onSubmit={handleMfaSubmit} className="space-y-5">
+        <div>
+          <label htmlFor="mfaCode" className="block text-sm font-medium text-gray-700 mb-1">
+            Enter the 6-digit code from your authenticator app
+          </label>
+          <input
+            id="mfaCode"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            required
+            autoFocus
+            value={mfaCode}
+            onChange={(e) => setMfaCode(e.target.value)}
+            className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm"
+            placeholder="123456"
+          />
+        </div>
+
+        {error && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <p className="text-sm text-red-400 text-center">{error}</p>
+          </div>
+        )}
+
+        <Button
+          type="submit"
+          disabled={isLoading || !mfaCode.trim()}
+          className="w-full py-6 mt-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 text-base"
+        >
+          {isLoading ? "Verifying..." : "Verify"}
+        </Button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setMfaRequired(false);
+            setMfaCode("");
+            setError("");
+          }}
+          className="w-full text-center text-sm text-gray-500 hover:underline"
+        >
+          Back
+        </button>
+      </form>
+    );
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handlePasswordSubmit} className="space-y-5">
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
         <input

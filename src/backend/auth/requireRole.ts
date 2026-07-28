@@ -16,6 +16,14 @@ function parseAllowedEmails(): string[] {
 }
 
 /**
+ * Standalone allowlist check, usable before a Session exists (e.g. inside
+ * NextAuth's authorize() callback, which runs pre-session).
+ */
+export function isAdvisoryTeamEmail(email: string | null | undefined): boolean {
+  return email ? parseAllowedEmails().includes(email.toLowerCase()) : false;
+}
+
+/**
  * Determine whether the session user satisfies a minimal role.
  * - USER: any authenticated user
  * - ADMIN: advisory allowlist only
@@ -23,11 +31,9 @@ function parseAllowedEmails(): string[] {
 export async function hasMinimumRole(session: Session | null | undefined, requiredRole: "USER" | "ADMIN"): Promise<boolean> {
   if (!session?.user?.id) return false;
 
-  const email = session.user.email?.toLowerCase();
-
   if (requiredRole === "USER") return true;
 
-  return email ? parseAllowedEmails().includes(email) : false;
+  return isAdvisoryTeamEmail(session.user.email);
 }
 
 export async function requireMinimumRole(session: Session | null | undefined, requiredRole: "USER" | "ADMIN") {
