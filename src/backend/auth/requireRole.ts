@@ -8,7 +8,8 @@ class HttpError extends Error {
   }
 }
 
-function parseAllowedEmails(): string[] {
+/** Exported for callers that need the full allowlist (e.g. listing admins to reset MFA for), not just a single-email check. */
+export function parseAllowedEmails(): string[] {
   return (process.env.ADVISORY_TEAM_EMAILS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
