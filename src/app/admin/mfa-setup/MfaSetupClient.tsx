@@ -78,6 +78,12 @@ export function MfaSetupClient({ initialMfaEnabled, initialEnrolledAt }: MfaSetu
         <p className="mt-2 text-sm text-gray-600">
           Lost your authenticator device? A system administrator can reset MFA on your account.
         </p>
+        {/* Plain <a> (hard navigation), not <Link>: /admin's layout is fully
+            dynamic (headers() + a DB call) — see Navigation.tsx for why a
+            client-side transition into it is avoided. */}
+        <Button asChild variant="outline" className="mt-4">
+          <a href="/admin">Back to Advisor Panel</a>
+        </Button>
       </div>
     );
   }
