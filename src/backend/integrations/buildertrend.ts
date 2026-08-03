@@ -5,6 +5,7 @@ import { builderTrendTransferQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 import type { BuilderTrendWorkOrderPayload } from "@/backend/integrations/builderTrendPayload";
+import { mapBuilderTrendStatus } from "@/backend/integrations/buildertrendStatusMapping";
 
 type TransferRow = {
   id: string;
@@ -290,4 +291,183 @@ export async function triggerManualFallbackForExhaustedTransfer(transferId: stri
       triggeredBy: "system:buildertrend-retry-exhausted",
     },
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Inbound status callbacks (P3-B1)                                    */
+/* ------------------------------------------------------------------ */
+
+export type BuilderTrendStatusCallbackErrorCode = "TRANSFER_NOT_FOUND";
+
+export class BuilderTrendStatusCallbackError extends Error {
+  code: BuilderTrendStatusCallbackErrorCode;
+
+  constructor(message: string, code: BuilderTrendStatusCallbackErrorCode) {
+    super(message);
+    this.code = code;
+  }
+}
+
+export interface BuilderTrendStatusCallbackInput {
+  externalReference: string;
+  status: string;
+  workOrderUrl?: string | null;
+  rawPayload: unknown;
+}
+
+export interface BuilderTrendStatusCallbackResult {
+  callbackEventId: string;
+  transferId: string;
+  projectId: string;
+  previousExternalStatus: string | null;
+  newExternalStatus: string;
+  previousProjectStatus: string;
+  newProjectStatus: string | null;
+  mapped: boolean;
+}
+
+/**
+ * Processes an inbound BuilderTrend work-order status callback: looks up the
+ * transfer by externalReference, maps BuilderTrend's status vocabulary to an
+ * internal Project.status, updates the transfer/project, and logs the event
+ * (both a dedicated BuilderTrendStatusCallbackEvent row and an AuditEvent) —
+ * regardless of whether the incoming status was recognized, so every
+ * callback is auditable.
+ */
+export async function processBuilderTrendStatusCallback(
+  input: BuilderTrendStatusCallbackInput
+): Promise<BuilderTrendStatusCallbackResult> {
+  const transfer = await prisma.builderTrendTransfer.findFirst({
+    where: { externalReference: input.externalReference },
+    select: {
+      id: true,
+      projectId: true,
+      externalStatus: true,
+      project: { select: { id: true, status: true } },
+    },
+  });
+
+  if (!transfer) {
+    await logAuditEventNonBlocking({
+      category: "MANUAL_CHANGE",
+      action: "BUILDERTREND_STATUS_CALLBACK_UNMATCHED",
+      outcome: "FAILURE",
+      sensitivityLevel: "RESTRICTED",
+      resourceType: "buildertrend_callback",
+      resourceId: input.externalReference,
+      description: "BuilderTrend status callback received for an unknown externalReference",
+      metadata: { externalReference: input.externalReference, status: input.status },
+    });
+
+    throw new BuilderTrendStatusCallbackError(
+      `No BuilderTrend transfer found for externalReference "${input.externalReference}"`,
+      "TRANSFER_NOT_FOUND"
+    );
+  }
+
+  const previousExternalStatus = transfer.externalStatus;
+  const previousProjectStatus = transfer.project.status;
+  const mappedStatus = mapBuilderTrendStatus(input.status);
+  const now = new Date();
+
+  await prisma.builderTrendTransfer.update({
+    where: { id: transfer.id },
+    data: {
+      externalStatus: input.status,
+      lastStatusCallbackAt: now,
+      ...(input.workOrderUrl ? { workOrderUrl: input.workOrderUrl } : {}),
+    },
+  });
+
+  if (mappedStatus && mappedStatus !== previousProjectStatus) {
+    await prisma.project.update({
+      where: { id: transfer.projectId },
+      data: { status: mappedStatus },
+    });
+  }
+
+  const callbackEvent = await prisma.builderTrendStatusCallbackEvent.create({
+    data: {
+      projectId: transfer.projectId,
+      builderTrendTransferId: transfer.id,
+      externalReference: input.externalReference,
+      previousStatus: previousExternalStatus,
+      newStatus: input.status,
+      previousProjectStatus,
+      newProjectStatus: mappedStatus,
+      rawPayload: input.rawPayload as Prisma.InputJsonValue,
+      validationError: mappedStatus ? null : `Unrecognized BuilderTrend status: "${input.status}"`,
+      processedAt: now,
+    },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "BUILDERTREND_STATUS_CALLBACK_RECEIVED",
+    outcome: mappedStatus ? "SUCCESS" : "FAILURE",
+    sensitivityLevel: "RESTRICTED",
+    projectId: transfer.projectId,
+    resourceType: "buildertrend_transfer",
+    resourceId: transfer.id,
+    description: mappedStatus
+      ? "BuilderTrend status callback processed and mapped to project status"
+      : "BuilderTrend status callback received with an unrecognized status; project status unchanged",
+    beforeState: { externalStatus: previousExternalStatus, projectStatus: previousProjectStatus },
+    afterState: { externalStatus: input.status, projectStatus: mappedStatus ?? previousProjectStatus },
+    metadata: { callbackEventId: callbackEvent.id, workOrderUrl: input.workOrderUrl ?? null },
+  });
+
+  return {
+    callbackEventId: callbackEvent.id,
+    transferId: transfer.id,
+    projectId: transfer.projectId,
+    previousExternalStatus,
+    newExternalStatus: input.status,
+    previousProjectStatus,
+    newProjectStatus: mappedStatus,
+    mapped: mappedStatus !== null,
+  };
+}
+
+/**
+ * Staff-driven fallback for when BuilderTrend doesn't support callbacks:
+ * records that a human confirmed the work order's status out-of-band, so the
+ * dashboard can show "last manually synced at <time>" instead of a live
+ * status.
+ */
+export async function recordBuilderTrendManualSync(input: {
+  transferId: string;
+  actorUserId: string;
+}): Promise<{ transferId: string; lastManualSyncAt: Date }> {
+  const transfer = await prisma.builderTrendTransfer.findUnique({
+    where: { id: input.transferId },
+    select: { id: true, projectId: true, quoteId: true },
+  });
+
+  if (!transfer) {
+    throw new BuilderTrendStatusCallbackError("BuilderTrend transfer not found", "TRANSFER_NOT_FOUND");
+  }
+
+  const now = new Date();
+
+  await prisma.builderTrendTransfer.update({
+    where: { id: transfer.id },
+    data: { lastManualSyncAt: now, lastManualSyncByUserId: input.actorUserId },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "BUILDERTREND_TRANSFER_MANUAL_SYNC",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    actorUserId: input.actorUserId,
+    projectId: transfer.projectId,
+    quoteId: transfer.quoteId,
+    resourceType: "buildertrend_transfer",
+    resourceId: transfer.id,
+    description: "Staff manually confirmed BuilderTrend work order sync",
+    metadata: { lastManualSyncAt: now.toISOString() },
+  });
+
+  return { transferId: transfer.id, lastManualSyncAt: now };
 }

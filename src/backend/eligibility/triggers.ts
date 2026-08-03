@@ -77,6 +77,10 @@ async function shouldEvaluateNow(projectId: string): Promise<boolean> {
  * Non-blocking: returns immediately, evaluation happens in background
  */
 export async function triggerEvaluationAfterProjectCreation(project: Project): Promise<void> {
+  if (project.isManualMode) {
+    return;
+  }
+
   // Schedule async evaluation in background
   setImmediate(async () => {
     try {
@@ -103,6 +107,10 @@ export async function triggerEvaluationAfterDraftUpdate(
   oldDraft: unknown,
   newDraft: unknown
 ): Promise<void> {
+  if (project.isManualMode) {
+    return;
+  }
+
   // Check if evaluation is needed
   if (!hasDraftDataChanged(oldDraft, newDraft)) {
     return; // No relevant changes
@@ -144,6 +152,10 @@ export async function queueEligibilityEvaluation(projectId: string): Promise<voi
 
       if (!project) {
         console.warn(`Project ${projectId} not found for evaluation`);
+        return;
+      }
+
+      if (project.isManualMode) {
         return;
       }
 

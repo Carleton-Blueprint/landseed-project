@@ -41,6 +41,8 @@ export default async function AdminDashboardPage() {
     type TransferRow = {
       id: string; projectId: string; status: string;
       attempts: number; lastError: string | null; sentAt: Date | null;
+      workOrderUrl: string | null; externalStatus: string | null;
+      lastStatusCallbackAt: Date | null; lastManualSyncAt: Date | null;
     };
 
     const [allDocuments, allQuotes, allAssessments] = await Promise.all([
@@ -80,7 +82,10 @@ export default async function AdminDashboardPage() {
       allTransfers = await (prisma as any).builderTrendTransfer.findMany({
         where: { projectId: { in: projectIds } },
         orderBy: { createdAt: "desc" },
-        select: { id: true, projectId: true, status: true, attempts: true, lastError: true, sentAt: true },
+        select: {
+          id: true, projectId: true, status: true, attempts: true, lastError: true, sentAt: true,
+          workOrderUrl: true, externalStatus: true, lastStatusCallbackAt: true, lastManualSyncAt: true,
+        },
       });
     } catch { /* table may not exist yet */ }
 
@@ -150,6 +155,10 @@ export default async function AdminDashboardPage() {
           id: latestTransfer.id, status: latestTransfer.status,
           attempts: latestTransfer.attempts, lastError: latestTransfer.lastError,
           sentAt: latestTransfer.sentAt?.toISOString() ?? null,
+          workOrderUrl: latestTransfer.workOrderUrl ?? null,
+          externalStatus: latestTransfer.externalStatus ?? null,
+          lastStatusCallbackAt: latestTransfer.lastStatusCallbackAt?.toISOString() ?? null,
+          lastManualSyncAt: latestTransfer.lastManualSyncAt?.toISOString() ?? null,
         } : null,
         manualFallbackExport: latestFallbackExport ? {
           id: latestFallbackExport.id, status: latestFallbackExport.status,
@@ -266,6 +275,10 @@ export default async function AdminDashboardPage() {
           attempts: 1,
           lastError: null,
           sentAt: null,
+          workOrderUrl: null,
+          externalStatus: null,
+          lastStatusCallbackAt: null,
+          lastManualSyncAt: null,
         },
       },
       {
@@ -389,6 +402,10 @@ export default async function AdminDashboardPage() {
           attempts: 1,
           lastError: null,
           sentAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
+          workOrderUrl: null,
+          externalStatus: "IN_PROGRESS",
+          lastStatusCallbackAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+          lastManualSyncAt: null,
         },
       }
     ];

@@ -11,6 +11,24 @@ const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
 function buildTier(key: EstimateTierOption["key"], total: number): EstimateTierOption {
+  const lineItem = {
+    description: "Walk-in shower",
+    quantity: 1,
+    pricingQuery: "Walk-in shower",
+    pricingSource: "Home Depot",
+    pricingLink: null,
+    modificationCode: "WALK_IN_SHOWER" as const,
+    modificationLabel: "Walk-In Shower",
+    materialUnitCost: total * 0.5,
+    materialTotal: total * 0.5,
+    laborHours: 4,
+    laborRate: total * 0.1,
+    laborTotal: total * 0.2,
+    markupPercentage: 0.15,
+    markupTotal: total * 0.15,
+    lineTotal: total,
+  };
+
   return {
     key,
     label: key[0].toUpperCase() + key.slice(1),
@@ -20,21 +38,13 @@ function buildTier(key: EstimateTierOption["key"], total: number): EstimateTierO
     total,
     estimateMin: total * 0.95,
     estimateMax: total * 1.05,
-    lineItems: [
+    lineItems: [lineItem],
+    groupedLineItems: [
       {
-        description: "Walk-in shower",
-        quantity: 1,
-        pricingQuery: "Walk-in shower",
-        pricingSource: "Home Depot",
-        pricingLink: null,
-        materialUnitCost: total * 0.5,
-        materialTotal: total * 0.5,
-        laborHours: 4,
-        laborRate: total * 0.1,
-        laborTotal: total * 0.2,
-        markupPercentage: 0.15,
-        markupTotal: total * 0.15,
-        lineTotal: total,
+        modificationCode: "WALK_IN_SHOWER",
+        modificationLabel: "Walk-In Shower",
+        lineItems: [lineItem],
+        total,
       },
     ],
   };
@@ -82,6 +92,21 @@ describe("EstimateClientComponent tier selection", () => {
 
     const standardCard = screen.getByRole("button", { name: /Standard/ });
     expect(standardCard).toHaveStyle({ border: "2px solid #4f46e5" });
+  });
+
+  it("renders the selected tier's line items grouped under their modification label", () => {
+    render(
+      <EstimateClientComponent
+        quoteId="quote-1"
+        projectId="proj-1"
+        initialStatus="PENDING"
+        initialReason={null}
+        tiers={tiers}
+      />
+    );
+
+    expect(screen.getByText("Walk-In Shower")).toBeInTheDocument();
+    expect(screen.getByText("Walk-in shower")).toBeInTheDocument();
   });
 
   it("sends the selected tier when accepting", async () => {

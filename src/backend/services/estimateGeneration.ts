@@ -7,8 +7,16 @@ import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
-import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
+import {
+  normalizeLabel,
+  normalizeModificationItems,
+  MODIFICATION_NORMALIZATION_MAP,
+} from "@/backend/eligibility/modificationNormalization";
 import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
+import type { QuoteItem } from "@/backend/services/refinedEstimate";
+
+const UNRESOLVED_MODIFICATION_FALLBACK_PRICE = 150; // legacy placeholder for free-text items with no matching ModificationCode
 
 export const ESTIMATE_GENERATION_DELAY_MINUTES_ENV = "ESTIMATE_GENERATION_DELAY_MINUTES";
 export const DEFAULT_ESTIMATE_GENERATION_DELAY_MINUTES = 15;
@@ -49,9 +57,7 @@ export function getIntakeModificationLabels(draftData: unknown): string[] {
   return modificationItems.map((item) => (typeof item === "string" ? item : String(item)));
 }
 
-export function buildQuoteItems(
-  draftData: unknown
-): Array<{ description: string; quantity: number; unitPrice: number }> {
+export function buildQuoteItems(draftData: unknown): QuoteItem[] {
   const modificationLabels = getIntakeModificationLabels(draftData);
 
   if (modificationLabels.length === 0) {
@@ -59,16 +65,22 @@ export function buildQuoteItems(
       {
         description: "Home modifications (initial intake estimate)",
         quantity: 1,
-        unitPrice: 150,
+        unitPrice: UNRESOLVED_MODIFICATION_FALLBACK_PRICE,
       },
     ];
   }
 
-  return modificationLabels.map((description) => ({
-    description,
-    quantity: 1,
-    unitPrice: 150,
-  }));
+  return modificationLabels.map((description) => {
+    const code = MODIFICATION_NORMALIZATION_MAP[normalizeLabel(description)];
+    const catalogEntry = code ? MODIFICATION_COST_CATALOG[code] : undefined;
+
+    return {
+      description,
+      quantity: 1,
+      unitPrice: catalogEntry?.fallbackUnitPrice ?? UNRESOLVED_MODIFICATION_FALLBACK_PRICE,
+      ...(code ? { modificationCode: code } : {}),
+    };
+  });
 }
 
 export interface ProcessScheduledEstimateGenerationInput {

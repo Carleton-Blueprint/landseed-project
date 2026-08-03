@@ -11,6 +11,7 @@ import type { RefinedEstimate } from "@/backend/services/refinedEstimate";
 
 const baseEstimate: RefinedEstimate = {
   lineItems: [],
+  modificationTotals: [],
   subtotal: 100,
   laborTotal: 20,
   markupTotal: 15,
