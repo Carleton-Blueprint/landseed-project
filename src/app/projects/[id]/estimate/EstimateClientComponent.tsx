@@ -16,6 +16,15 @@ import type { RefinedEstimateLineItem } from "@/backend/services/refinedEstimate
 type QuoteStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED";
 type Step = "decision" | "confirm-accept" | "survey" | "done";
 
+// View-model only — grouping is computed server-side for display and passed down as
+// plain props; it's never part of the persisted RefinedEstimate shape.
+export interface EstimateLineItemGroup {
+  modificationCode: string;
+  modificationLabel: string;
+  lineItems: RefinedEstimateLineItem[];
+  total: number;
+}
+
 export interface EstimateTierOption {
   key: PricingTierKey;
   label: string;
@@ -26,6 +35,7 @@ export interface EstimateTierOption {
   estimateMin: number;
   estimateMax: number;
   lineItems: RefinedEstimateLineItem[];
+  groupedLineItems: EstimateLineItemGroup[];
 }
 
 interface EstimateClientProps {
@@ -297,11 +307,21 @@ export function EstimateClientComponent({
                 <p style={{ fontSize: 13, fontWeight: 600, color: "#374151", margin: "0 0 10px" }}>
                   {selectedTierOption.label} tier breakdown
                 </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {selectedTierOption.lineItems.map((item, index) => (
-                    <div key={index} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#4b5563" }}>
-                      <span>{item.description}{item.quantity > 1 ? ` (x${item.quantity})` : ""}</span>
-                      <span style={{ fontWeight: 600, color: "#111827" }}>{formatCurrency(item.lineTotal)}</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {selectedTierOption.groupedLineItems.map((group) => (
+                    <div key={group.modificationCode}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#9ca3af", marginBottom: 6 }}>
+                        <span>{group.modificationLabel}</span>
+                        <span>{formatCurrency(group.total)}</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {group.lineItems.map((item, index) => (
+                          <div key={index} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#4b5563" }}>
+                            <span>{item.description}{item.quantity > 1 ? ` (x${item.quantity})` : ""}</span>
+                            <span style={{ fontWeight: 600, color: "#111827" }}>{formatCurrency(item.lineTotal)}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>

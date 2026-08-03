@@ -63,6 +63,7 @@ function buildEstimate(total: number): RefinedEstimate {
         lineTotal: total,
       },
     ],
+    modificationTotals: [],
     subtotal: total * 0.7,
     laborTotal: total * 0.2,
     markupTotal: total * 0.15,

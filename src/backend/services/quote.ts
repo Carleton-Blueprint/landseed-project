@@ -12,6 +12,7 @@ import {
 } from '@/backend/audit/pricing';
 import {
   generateMockRefinedEstimate,
+  type QuoteItem,
   type RefinedEstimate,
 } from '@/backend/services/refinedEstimate';
 import {
@@ -26,11 +27,7 @@ const prisma = new PrismaClient();
 
 interface QuoteCalculationInput {
   projectId: string;
-  items: Array<{
-    description: string;
-    quantity: number;
-    unitPrice: number;
-  }>;
+  items: QuoteItem[];
   modificationCodes?: ModificationCode[];
 }
 
