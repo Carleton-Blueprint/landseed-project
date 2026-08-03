@@ -386,6 +386,11 @@ export async function processPhotoModificationAnalysisJob(
     throw new Error(`Photo not found: ${payload.photoId}`);
   }
 
+  if (photo.project.isManualMode) {
+    debug("MAIN", `Skipping AI analysis — project ${photo.project.id} is in manual mode`);
+    return;
+  }
+
   // Cost guardrail: at most one live analysis call per photo. READY means it already
   // has a result; ANALYZING means a job is already in flight (e.g. a duplicate enqueue
   // racing the jobId-deduped one). FAILED/SKIPPED/PENDING are all safe to (re)run.

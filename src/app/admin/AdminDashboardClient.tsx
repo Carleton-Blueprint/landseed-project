@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import {
   CheckCircleIcon,
@@ -67,6 +68,10 @@ export interface SerializedProject {
     attempts: number;
     lastError: string | null;
     sentAt: string | null;
+    workOrderUrl: string | null;
+    externalStatus: string | null;
+    lastStatusCallbackAt: string | null;
+    lastManualSyncAt: string | null;
   } | null;
 }
 
@@ -234,9 +239,32 @@ function StatCard({
 /* ================================================================== */
 
 function ProjectDetailPanel({ project }: { project: SerializedProject }) {
+  const router = useRouter();
   const eligibility = project.eligibility;
   const quote = project.quote;
   const transfer = project.builderTrendTransfer;
+  const [syncing, setSyncing] = React.useState(false);
+  const [syncMessage, setSyncMessage] = React.useState<string | null>(null);
+
+  async function handleMarkSynced() {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const response = await fetch(`/api/admin/projects/${project.id}/buildertrend-transfer/manual-sync`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.error ?? "Failed to record manual sync");
+      }
+      setSyncMessage("Synced.");
+      router.refresh();
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : "Failed to record manual sync");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <div className="border-t bg-gray-50/70 px-6 py-5 space-y-5">
@@ -371,6 +399,37 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
               {transfer.sentAt && (
                 <p className="text-[10px] text-gray-400">Sent: {fmtDate(transfer.sentAt)}</p>
               )}
+              {transfer.lastStatusCallbackAt ? (
+                <p className="text-[10px] text-gray-500">
+                  Work order status: <strong>{transfer.externalStatus ?? "unknown"}</strong> (updated {fmtDate(transfer.lastStatusCallbackAt)})
+                </p>
+              ) : (
+                <p className="text-[10px] text-gray-500 italic">
+                  No live status callbacks received yet.
+                  {transfer.lastManualSyncAt && ` Last manually synced: ${fmtDate(transfer.lastManualSyncAt)}.`}
+                </p>
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                {transfer.workOrderUrl && (
+                  <a
+                    href={transfer.workOrderUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] font-medium text-blue-600 hover:underline"
+                  >
+                    View work order
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={handleMarkSynced}
+                  disabled={syncing}
+                  className="text-[10px] font-medium text-gray-600 hover:underline disabled:opacity-50"
+                >
+                  {syncing ? "Syncing..." : "Mark Manually Synced"}
+                </button>
+                {syncMessage && <span className="text-[10px] text-gray-400">{syncMessage}</span>}
+              </div>
             </div>
           ) : (
             <p className="text-xs text-gray-500 italic">No BuilderTrend transfer initiated.</p>
@@ -409,6 +468,11 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
                 </Button>
               </Link>
             )}
+            <Link href={`/admin/projects/${project.id}/manual-mode`} className="flex-1">
+              <Button variant="outline" className="w-full text-xs h-8">
+                Manual Mode
+              </Button>
+            </Link>
           </div>
         </div>
       </div>

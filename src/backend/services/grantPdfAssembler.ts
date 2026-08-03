@@ -43,6 +43,7 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
       user: { select: { name: true, email: true, phone: true } },
       quotes: { orderBy: { createdAt: 'desc' }, take: 1, select: { estimateMin: true, estimateMax: true } },
       eligibilityAssessments: { orderBy: { createdAt: 'desc' }, take: 1, select: { overallDecision: true, discoveredGrants: true } },
+      manualModeSubmission: { select: { modificationType: true } },
     },
   });
 
@@ -111,10 +112,17 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
     incompleteFields.push('property ownership status');
   }
 
-  // Modification items
-  const modificationItemsRaw = Array.isArray(draft.modificationItems)
+  // Modification items: prefer intake-declared items, falling back to a manual-mode
+  // submission's modification type when the project was completed without intake data.
+  const modificationItemsFromDraft = Array.isArray(draft.modificationItems)
     ? draft.modificationItems.map((i: unknown) => String(i))
     : [];
+  const modificationItemsRaw =
+    modificationItemsFromDraft.length > 0
+      ? modificationItemsFromDraft
+      : project.manualModeSubmission?.modificationType
+      ? [project.manualModeSubmission.modificationType]
+      : [];
   if (modificationItemsRaw.length === 0) incompleteFields.push('modification type');
 
   // Estimated cost: try latest quote
