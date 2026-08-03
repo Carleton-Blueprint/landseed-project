@@ -20,6 +20,7 @@ import {
 import { prisma } from 'lib/prisma';
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { produceManualReviewFlagJob } from './manualReviewProducer';
+import { normalizeModificationItems } from './modificationNormalization';
 
 export interface EvaluateEligibilityServiceResult {
   assessmentId: string;
@@ -146,28 +147,13 @@ export async function evaluateProjectEligibility(
       }
     });
 
-    // Step 6: Trigger quote generation in background (non-blocking)
-    //
-    // In the normal intake flow this is a no-op: the real, catalog-priced quote
-    // (estimateGeneration.ts -> processScheduledEstimateGeneration -> generateQuote)
-    // already exists by the time eligibility evaluation runs, so `existingQuote`
-    // below is set and this returns early.
-    //
-    // It only actually creates a quote (this flat $5000 placeholder) when eligibility
-    // evaluation runs *before* that real quote exists, which happens via:
-    //   1. estimateGeneration.ts's catch block - if generateQuote() itself throws,
-    //      queueEligibilityEvaluation() still fires with no quote on record.
-    //   2. modificationOverride.ts -> triggerEvaluationAfterDraftUpdate() - fires
-    //      during the FR-4.10 admin pre-estimate override window, which is by design
-    //      *before* the delayed estimate-generation worker has run.
-    // In case 2 this also permanently blocks the real quote: processScheduledEstimateGeneration
-    // skips generation entirely once any quote exists for the project (see its
-    // `existingQuote` check), so the project gets stuck on this $5000 placeholder.
-    //
-    // Left as-is for now rather than removed: /api/admin/eligibility/assess lets an
-    // admin manually trigger evaluateProjectEligibility() for a project that never
-    // went through intake finalize (no delayed job ever queued) - this auto-quote is
-    // currently the only thing that gives such a project a quote at all.
+    // Step 6: Ensure the project has a quote (non-blocking). Usually a no-op — the
+    // real quote already exists by the time eligibility evaluation runs — but also
+    // fires from estimateGeneration.ts's catch block and from the FR-4.10 admin
+    // pre-estimate override window, both of which can run before that quote exists.
+    // Uses the same pricing pipeline as the delayed worker (buildQuoteItems ->
+    // generateQuote), so this is just a second trigger into one source of truth,
+    // not a separate placeholder price.
     setImmediate(async () => {
       try {
         const existingQuote = await prisma.quote.findFirst({
@@ -181,20 +167,19 @@ export async function evaluateProjectEligibility(
           return;
         }
 
-        // Dynamically import to avoid circular dependencies
+        // Dynamically imported to avoid circular dependencies (estimateGeneration.ts
+        // and quote.ts both import back into this module).
+        const { buildQuoteItems, getIntakeModificationLabels } = await import(
+          '@/backend/services/estimateGeneration'
+        );
         const { generateQuote } = await import('@/backend/services/quote');
-        await generateQuote({
-          projectId: project.id,
-          items: [
-            // TODO: Replace placeholder pricing with BuilderTrend-derived scope item pricing.
-            
-            {
-              description: 'Home modifications (auto-quoted from eligibility assessment)',
-              quantity: 1,
-              unitPrice: 5000,
-            },
-          ],
-        });
+
+        const items = buildQuoteItems(project.draftData);
+        const modificationCodes = normalizeModificationItems(
+          getIntakeModificationLabels(project.draftData)
+        );
+
+        await generateQuote({ projectId: project.id, items, modificationCodes });
         console.log(`Auto-generated quote after eligibility assessment for project ${project.id}`);
         // Auto-generate the pre-filled grant PDF when the project is eligible.
         if (evaluation.overallDecision === 'ELIGIBLE') {
