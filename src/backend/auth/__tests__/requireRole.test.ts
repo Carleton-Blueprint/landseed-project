@@ -1,4 +1,4 @@
-import { requireMinimumRole, hasMinimumRole } from "@/backend/auth/requireRole";
+import { requireMinimumRole, hasMinimumRole, isAdvisoryTeamEmail } from "@/backend/auth/requireRole";
 import { Session } from "next-auth";
 
 describe("requireRole helper", () => {
@@ -29,6 +29,24 @@ describe("requireRole helper", () => {
     const session = { user: { id: "u3", email: "user2@example.com" } } as unknown as Session;
     await expect(hasMinimumRole(session, "USER")).resolves.toBe(true);
     await expect(requireMinimumRole(session, "USER")).resolves.toBe(true);
+  });
+
+  describe("isAdvisoryTeamEmail", () => {
+    test("matches an allowlisted email case-insensitively", () => {
+      process.env.ADVISORY_TEAM_EMAILS = "admin@example.com";
+      expect(isAdvisoryTeamEmail("ADMIN@example.com")).toBe(true);
+    });
+
+    test("rejects a non-allowlisted email", () => {
+      process.env.ADVISORY_TEAM_EMAILS = "admin@example.com";
+      expect(isAdvisoryTeamEmail("someone-else@example.com")).toBe(false);
+    });
+
+    test("rejects null/undefined", () => {
+      process.env.ADVISORY_TEAM_EMAILS = "admin@example.com";
+      expect(isAdvisoryTeamEmail(null)).toBe(false);
+      expect(isAdvisoryTeamEmail(undefined)).toBe(false);
+    });
   });
 });
 

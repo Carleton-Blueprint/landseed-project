@@ -1,0 +1,173 @@
+import type { RefinedEstimate } from "@/backend/services/refinedEstimate";
+import type { AnyRefinedEstimate, PricingTierKey, TieredRefinedEstimate } from "@/backend/services/pricingTiers";
+import { signPhotosForDisplay } from "lib/photoUrls";
+
+/**
+ * Local copy of the draftData.modificationItems extraction in
+ * estimateGeneration.ts (kept independent rather than imported: that module
+ * pulls in the eligibility-trigger/queue chain, which opens a real Redis
+ * connection at import time — unnecessary weight for a payload mapper).
+ */
+function getIntakeModificationLabels(draftData: unknown): string[] {
+  const modificationItems =
+    draftData && typeof draftData === "object" && !Array.isArray(draftData)
+      ? (draftData as { modificationItems?: unknown }).modificationItems
+      : undefined;
+
+  if (!Array.isArray(modificationItems)) {
+    return [];
+  }
+
+  return modificationItems.map((item) => (typeof item === "string" ? item : String(item)));
+}
+
+/**
+ * Internal, provisional contract for "the format required for BuilderTrend
+ * work order creation." No real BuilderTrend account/API access exists in
+ * this project yet (see IMPLEMENTATION-PLAN.md), so this shape is our own
+ * best-guess packaging rather than one sourced from BuilderTrend's docs.
+ * `buildBuilderTrendWorkOrderPayload` is the only place that maps our data
+ * onto it — when real API docs/credentials land, only this function and
+ * `BuilderTrendWorkOrderPayload` need to change, not its callers.
+ */
+export const BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION = 1 as const;
+
+export interface BuilderTrendWorkOrderPhoto {
+  id: string;
+  url: string;
+}
+
+export interface BuilderTrendWorkOrderPricingBreakdown {
+  selectedTier: PricingTierKey | null;
+  lineItems: RefinedEstimate["lineItems"];
+  subtotal: number;
+  laborTotal: number;
+  markupTotal: number;
+  total: number;
+  estimateMin: number;
+  estimateMax: number;
+}
+
+export interface BuilderTrendWorkOrderPayload {
+  schemaVersion: typeof BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION;
+  project: {
+    id: string;
+    address: string;
+  };
+  client: {
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+  };
+  modificationType: string[];
+  quote: {
+    id: string;
+    approvedAt: string;
+    pricing: BuilderTrendWorkOrderPricingBreakdown;
+  };
+  photos: BuilderTrendWorkOrderPhoto[];
+}
+
+type DecimalLike = { toString(): string } | number;
+
+function toNumber(value: DecimalLike): number {
+  return typeof value === "number" ? value : Number(value.toString());
+}
+
+/**
+ * Prefers the accepted tier's own breakdown (tiered) or the flat
+ * refinedEstimate (non-tiered) for every figure, including the header
+ * totals — Quote.subtotal/total/estimateMin/estimateMax reflect whichever
+ * tier the quote was originally generated with, not necessarily the tier
+ * the client just accepted, so they're only a fallback when no
+ * refinedEstimate breakdown is available at all.
+ */
+export function resolveBuilderTrendPricingBreakdown(input: {
+  quote: {
+    subtotal: DecimalLike;
+    total: DecimalLike;
+    estimateMin: DecimalLike | null;
+    estimateMax: DecimalLike | null;
+  };
+  refinedEstimate: AnyRefinedEstimate | null;
+  quoteIsTiered: boolean;
+  acceptedTier: PricingTierKey | null;
+}): BuilderTrendWorkOrderPricingBreakdown {
+  const { quote, refinedEstimate, quoteIsTiered, acceptedTier } = input;
+
+  const flatEstimate: RefinedEstimate | null =
+    acceptedTier && quoteIsTiered && refinedEstimate
+      ? (refinedEstimate as TieredRefinedEstimate).tiers[acceptedTier]
+      : !quoteIsTiered && refinedEstimate
+        ? (refinedEstimate as RefinedEstimate)
+        : null;
+
+  if (flatEstimate) {
+    return {
+      selectedTier: acceptedTier,
+      lineItems: flatEstimate.lineItems,
+      subtotal: flatEstimate.subtotal,
+      laborTotal: flatEstimate.laborTotal,
+      markupTotal: flatEstimate.markupTotal,
+      total: flatEstimate.total,
+      estimateMin: flatEstimate.estimateMin,
+      estimateMax: flatEstimate.estimateMax,
+    };
+  }
+
+  const subtotal = toNumber(quote.subtotal);
+  const total = toNumber(quote.total);
+
+  return {
+    selectedTier: acceptedTier,
+    lineItems: [],
+    subtotal,
+    laborTotal: 0,
+    markupTotal: 0,
+    total,
+    estimateMin: quote.estimateMin != null ? toNumber(quote.estimateMin) : subtotal,
+    estimateMax: quote.estimateMax != null ? toNumber(quote.estimateMax) : total,
+  };
+}
+
+export async function buildBuilderTrendWorkOrderPayload(input: {
+  project: {
+    id: string;
+    address: string;
+    draftData: unknown;
+    user: { name: string | null; email: string | null; phone: string | null };
+    photos: Array<{ id: string; url: string }>;
+  };
+  quote: { id: string; subtotal: DecimalLike; total: DecimalLike; estimateMin: DecimalLike | null; estimateMax: DecimalLike | null };
+  approvedAt: Date;
+  refinedEstimate: AnyRefinedEstimate | null;
+  quoteIsTiered: boolean;
+  acceptedTier: PricingTierKey | null;
+}): Promise<BuilderTrendWorkOrderPayload> {
+  const signedPhotos = await signPhotosForDisplay(input.project.photos);
+
+  return {
+    schemaVersion: BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
+    project: {
+      id: input.project.id,
+      address: input.project.address,
+    },
+    client: {
+      name: input.project.user.name,
+      email: input.project.user.email,
+      phone: input.project.user.phone,
+    },
+    modificationType: getIntakeModificationLabels(input.project.draftData),
+    quote: {
+      id: input.quote.id,
+      approvedAt: input.approvedAt.toISOString(),
+      pricing: resolveBuilderTrendPricingBreakdown({
+        quote: input.quote,
+        refinedEstimate: input.refinedEstimate,
+        quoteIsTiered: input.quoteIsTiered,
+        acceptedTier: input.acceptedTier,
+      }),
+    },
+    photos: signedPhotos.map((photo) => ({ id: photo.id, url: photo.url })),
+  };
+}

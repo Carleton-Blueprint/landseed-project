@@ -49,17 +49,27 @@ export function Navigation() {
         >
           {navLinks.map((link) => {
             const isActive = pathname === link.href;
+            const linkClassName = `rounded-lg border px-3.5 py-1.5 text-xs font-semibold tracking-wide transition-all duration-200 active:scale-95 ${
+              isActive
+                ? "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm"
+                : "border-gray-200 bg-white text-gray-600 hover:border-emerald-300 hover:bg-emerald-50/30 hover:text-emerald-700"
+            }`;
+
+            // Plain <a> (hard navigation) instead of <Link>: /admin's layout is
+            // fully dynamic (headers() + a DB call) and redirects unenrolled
+            // admins to /admin/mfa-setup. Reaching it via Next's client-side
+            // router triggers a request-storm loop against that redirect; a
+            // full page load bypasses the client router entirely and avoids it.
+            if (link.href === "/admin") {
+              return (
+                <a key={link.href} href={link.href} className={linkClassName}>
+                  {link.label}
+                </a>
+              );
+            }
 
             return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`rounded-lg border px-3.5 py-1.5 text-xs font-semibold tracking-wide transition-all duration-200 active:scale-95 ${
-                  isActive
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm"
-                    : "border-gray-200 bg-white text-gray-600 hover:border-emerald-300 hover:bg-emerald-50/30 hover:text-emerald-700"
-                }`}
-              >
+              <Link key={link.href} href={link.href} className={linkClassName}>
                 {link.label}
               </Link>
             );
