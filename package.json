@@ -29,6 +29,7 @@
     "worker:manual-fallback-export-cleanup": "tsx src/backend/queue/manualFallbackExportCleanupWorker.ts",
     "worker:account-deletion": "tsx src/backend/queue/accountDeletionWorker.ts",
     "worker:account-deletion-finalizer": "tsx src/backend/queue/accountDeletionFinalizerWorker.ts",
+    "digest:admin": "tsx scripts/send-admin-daily-digest.ts",
     "worker:estimate-generation": "tsx src/backend/queue/estimateGenerationWorker.ts",
     "worker:ai-jobs": "tsx src/backend/queue/aiJobsWorker.ts"
   },
