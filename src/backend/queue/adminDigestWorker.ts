@@ -1,7 +1,10 @@
 /**
  * Admin daily digest worker: sends a summary of the last 24h of
  * SecurityEvent rows (rate-limit hits + alert triggers) to every
- * ADVISORY_TEAM_EMAILS address once a day.
+ * ADVISORY_TEAM_EMAILS address once a day. On startup, checks whether a
+ * scheduled send was missed while the worker was down (AdminDigestRun
+ * table) and if so sends one catch-up summary covering the gap before
+ * resuming the normal schedule — see runCatchUpIfNeeded.
  *
  * Not a BullMQ queue/worker — this repo already has a precedent for
  * time-based recurring jobs that isn't BullMQ (estimateExpiryWorker.ts's
@@ -15,7 +18,7 @@
  *   npm run worker:admin-digest
  */
 import "dotenv/config";
-import { sendDailyDigest } from "@/backend/services/adminDigest";
+import { sendDailyDigest, runCatchUpIfNeeded } from "@/backend/services/adminDigest";
 
 const DIGEST_HOUR_UTC = Number(process.env.ADMIN_DIGEST_HOUR_UTC ?? 13); // default 13:00 UTC
 
@@ -59,7 +62,12 @@ function scheduleNext() {
 }
 
 console.log("Admin digest worker started", { digestHourUtc: DIGEST_HOUR_UTC });
-scheduleNext();
+void runCatchUpIfNeeded(DIGEST_HOUR_UTC).then((result) => {
+  if (result.sent) {
+    console.log("Sent catch-up digest for a missed run");
+  }
+  scheduleNext();
+});
 
 async function shutdown() {
   if (digestTimer) {

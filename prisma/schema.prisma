@@ -444,6 +444,20 @@ model AlertThresholdConfig {
   updatedAt       DateTime @updatedAt
 }
 
+// Tracks each successful admin daily-digest send (windowStart/windowEnd,
+// event count) so a restarted digest worker can tell whether a scheduled
+// send was missed while it was down and, if so, catch up with a single
+// summary covering the gap instead of silently skipping it.
+model AdminDigestRun {
+  id          String   @id @default(cuid())
+  sentAt      DateTime @default(now())
+  windowStart DateTime
+  windowEnd   DateTime
+  eventCount  Int
+
+  @@index([sentAt])
+}
+
 model EligibilityAssessment {
   id                        String              @id @default(cuid())
   projectId                 String
