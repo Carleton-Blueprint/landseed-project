@@ -2,9 +2,26 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
 import { finalizeIntake } from "@/backend/services/finalizeIntake";
+import { enforceRateLimit } from "@/backend/auth/rateLimit";
+import { getClientIp } from "@/backend/auth/authEmailResponses";
+
+const FINALIZE_SUBMISSION_LIMIT = 10;
+const FINALIZE_SUBMISSION_WINDOW_SECONDS = 60 * 60;
 
 export async function POST(request: Request) {
   try {
+    const { response: rateLimitResponse } = await enforceRateLimit({
+      scope: "intake-finalize-ip",
+      identifier: getClientIp(request),
+      limit: FINALIZE_SUBMISSION_LIMIT,
+      windowSeconds: FINALIZE_SUBMISSION_WINDOW_SECONDS,
+      route: "/api/intake/finalize",
+      message: "Too many submissions from this network. Please try again later.",
+    });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const session = await auth();
 
     if (!session?.user?.id) {

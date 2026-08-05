@@ -46,6 +46,10 @@ function PasswordSignInForm() {
         setError("Too many failed verification attempts. Try again in a few minutes.");
         setMfaRequired(false);
         break;
+      case "rate_limited":
+        setError("Too many sign-in attempts. Please wait a few minutes and try again.");
+        setMfaRequired(false);
+        break;
       default:
         setError("Invalid credentials. Please try again.");
         setMfaRequired(false);

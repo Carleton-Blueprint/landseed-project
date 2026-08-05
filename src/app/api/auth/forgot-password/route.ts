@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { AuthEmailTokenPurpose } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { enqueueAuthEmail } from "@/backend/auth/authEmailNotification";
-import { buildRateLimitKey, checkRateLimit } from "@/backend/auth/rateLimit";
+import { buildRateLimitKey, checkRateLimit, rateLimitedResponse } from "@/backend/auth/rateLimit";
 import { GENERIC_AUTH_EMAIL_RESPONSE, getClientIp } from "@/backend/auth/authEmailResponses";
+import { logSecurityEventNonBlocking } from "@/backend/security/securityEvent";
 
 const FORGOT_PASSWORD_LIMIT = 3;
 const FORGOT_PASSWORD_WINDOW_SECONDS = 60 * 60;
@@ -29,8 +30,35 @@ export async function POST(request: NextRequest) {
       FORGOT_PASSWORD_WINDOW_SECONDS
     );
 
-    if (!emailLimit.allowed || !ipLimit.allowed) {
+    if (!emailLimit.allowed) {
+      // Per-email hits stay on the generic response, not a 429: returning a
+      // different status/header for "this address gets a lot of reset
+      // requests" would itself be a signal about that specific address,
+      // which is exactly what GENERIC_AUTH_EMAIL_RESPONSE exists to avoid.
+      await logSecurityEventNonBlocking({
+        eventType: "RATE_LIMIT_HIT",
+        scope: "forgot-password-email",
+        identifier: email,
+        route: "/api/auth/forgot-password",
+        metadata: { limit: FORGOT_PASSWORD_LIMIT, windowSeconds: FORGOT_PASSWORD_WINDOW_SECONDS },
+      });
       return NextResponse.json(GENERIC_AUTH_EMAIL_RESPONSE);
+    }
+
+    if (!ipLimit.allowed) {
+      // The IP-based limit is frequency-of-requests-from-this-IP, not tied
+      // to any one account, so a real 429 here doesn't leak account
+      // existence the way an email-scoped 429 would.
+      await logSecurityEventNonBlocking({
+        eventType: "RATE_LIMIT_HIT",
+        scope: "forgot-password-ip",
+        identifier: clientIp,
+        route: "/api/auth/forgot-password",
+        metadata: { limit: FORGOT_PASSWORD_LIMIT, windowSeconds: FORGOT_PASSWORD_WINDOW_SECONDS },
+      });
+      return rateLimitedResponse(ipLimit, {
+        error: "Too many requests. Please try again later.",
+      });
     }
 
     const user = await prisma.user.findUnique({

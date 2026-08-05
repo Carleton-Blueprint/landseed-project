@@ -407,6 +407,24 @@ model AuditEvent {
   @@index([resourceType, resourceId])
 }
 
+// Rate-limit hits and monitoring/alert triggers. Deliberately separate from
+// AuditEvent's hash-chained, tamper-evident table: these are high-volume and
+// not compliance-sensitive, so chaining every entry in would add cost/noise
+// to AuditEvent's chain-verification story without a corresponding benefit.
+model SecurityEvent {
+  id         String            @id @default(cuid())
+  eventType  SecurityEventType
+  scope      String
+  identifier String
+  route      String?
+  metadata   Json?
+  createdAt  DateTime          @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([scope, createdAt])
+  @@index([createdAt])
+}
+
 model EligibilityAssessment {
   id                        String              @id @default(cuid())
   projectId                 String
@@ -693,6 +711,11 @@ enum AuditEventOutcome {
   SUCCESS
   DENIED
   FAILURE
+}
+
+enum SecurityEventType {
+  RATE_LIMIT_HIT
+  ALERT_TRIGGERED
 }
 
 enum AuditSensitivityLevel {
