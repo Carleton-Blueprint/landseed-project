@@ -39,6 +39,7 @@ model User {
   manualModeSubmissions         ManualModeSubmission[]
   createdManualQuotes           Quote[]
   builderTrendManualSyncs       BuilderTrendTransfer[]
+  alertThresholdUpdates         AlertThresholdConfig[]
 }
 
 model Project {
@@ -423,6 +424,24 @@ model SecurityEvent {
   @@index([eventType, createdAt])
   @@index([scope, createdAt])
   @@index([createdAt])
+}
+
+// Admin-editable thresholds for the critical-failure alert checks (AI job,
+// BuilderTrend transfer, email delivery, file scan). Keyed by a fixed set of
+// scope strings the alert-checking code looks up by; rows are seeded with
+// defaults and edited via /api/admin/alert-thresholds, so ops can retune
+// alert sensitivity without a code deploy.
+model AlertThresholdConfig {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  label           String
+  thresholdCount  Int
+  windowMinutes   Int
+  enabled         Boolean  @default(true)
+  updatedByUserId String?
+  updatedByUser   User?    @relation(fields: [updatedByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model EligibilityAssessment {
