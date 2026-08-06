@@ -6,7 +6,7 @@ import { GuidedIntakeForm } from "../GuidedIntakeForm";
 const mockFetch = jest.fn();
 
 beforeEach(() => {
-  jest.useFakeTimers({ advanceTimers: true });
+  jest.useFakeTimers();
   mockFetch.mockReset();
   global.fetch = mockFetch as typeof fetch;
 
@@ -53,7 +53,7 @@ afterEach(() => {
 
 describe("GuidedIntakeForm", () => {
   it("PATCHes guidedData after a field change", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(
       <IntakeDraftProvider>
         <GuidedIntakeForm />
@@ -63,11 +63,17 @@ describe("GuidedIntakeForm", () => {
     await waitFor(() =>
       expect(mockFetch.mock.calls.some((call) => call[0] === "/api/intake-draft")).toBe(true)
     );
+    // fetch() is recorded synchronously, but hydration (isHydrated) only flips
+    // after the response promise chain resolves; flush it before interacting
+    // or the field-change watcher may not be subscribed yet.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
 
     await user.click(screen.getAllByRole("radio", { name: "Yes" })[0]);
 
     await act(async () => {
-      jest.advanceTimersByTime(2500);
+      await jest.advanceTimersByTimeAsync(2500);
     });
 
     await waitFor(
