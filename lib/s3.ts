@@ -1,6 +1,6 @@
 /**
- * S3 client placeholder for photo uploads. This file exposes the bucket name and a stub for the client.
- * When ready: install @aws-sdk/client-s3, implement getS3Client(), and set AWS_S3_BUCKET + AWS_* in env.
+ * S3 client for photo/document uploads. All writes are encrypted with the
+ * account's customer-managed KMS key (see landseed-infra/terraform/s3-kms/).
  */
 import { S3Client, PutObjectCommand, ListBucketsCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -8,11 +8,11 @@ import { Readable } from "node:stream";
 
 export const S3_BUCKET = process.env.AWS_S3_BUCKET ?? "";
 const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
+const AWS_KMS_KEY_ID = process.env.AWS_KMS_KEY_ID ?? "";
 
 let s3Client: S3Client | null = null;
 
 export function getS3Client() {
-  // Placeholder: return actual S3 client instance
   if (!s3Client) {
     s3Client = new S3Client({
       region: AWS_REGION,
@@ -36,12 +36,21 @@ export async function uploadStreamToS3(
   contentType: string,
   contentLength?: number
 ): Promise<string> {
+  if (!AWS_KMS_KEY_ID) {
+    throw new Error(
+      "AWS_KMS_KEY_ID must be set to upload objects to S3 (SSE-KMS is required for all uploads)"
+    );
+  }
+
   const client = getS3Client();
   const command = new PutObjectCommand({
     Bucket: S3_BUCKET,
     Key: key,
     Body: body,
     ContentType: contentType,
+    ServerSideEncryption: "aws:kms",
+    SSEKMSKeyId: AWS_KMS_KEY_ID,
+    BucketKeyEnabled: true,
     ...(contentLength != null ? { ContentLength: contentLength } : {}),
   });
 
