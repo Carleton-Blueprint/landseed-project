@@ -4,6 +4,13 @@
  * defaults on first read so there's no separate seed-script step — this
  * repo has no seed infrastructure today (see prisma/) — and are then
  * editable via /api/admin/alert-thresholds without a code deploy.
+ * Note: the cache is per-process, not distributed — if this ever runs as
+ * multiple app/worker instances, a threshold edit in one process won't be
+ * visible in the others until their own cache expires. That's why
+ * CACHE_TTL_MS is kept short (30s): it bounds how stale a read can be
+ * rather than eliminating staleness outright (a cross-process invalidation
+ * broadcast would do that, but isn't warranted for a low-frequency admin
+ * config value).
  */
 import { prisma } from "lib/prisma";
 import type { AlertThresholdConfig } from "@prisma/client";
