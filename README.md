@@ -9,6 +9,7 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
 - **`/src/app`** – Routes and API endpoints
 - **`/prisma`** – Schema and migrations
 - **`/lib`** – Shared instances (Prisma, S3)
+- **`/docs/security`** – Security docs (see [encryption-at-rest.md](docs/security/encryption-at-rest.md) for DB/S3/KMS encryption status)
 
 ## Setup
 
