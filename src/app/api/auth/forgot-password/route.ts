@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AuthEmailTokenPurpose } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { enqueueAuthEmail } from "@/backend/auth/authEmailNotification";
-import { buildRateLimitKey, checkRateLimit, rateLimitedResponse } from "@/backend/auth/rateLimit";
+import { buildRateLimitKey, checkRateLimit, enforceRateLimit } from "@/backend/auth/rateLimit";
 import { GENERIC_AUTH_EMAIL_RESPONSE, getClientIp } from "@/backend/auth/authEmailResponses";
 import { logSecurityEventNonBlocking } from "@/backend/security/securityEvent";
 
@@ -19,16 +19,26 @@ export async function POST(request: NextRequest) {
     }
 
     const clientIp = getClientIp(request);
+
+    // Email-scoped check stays manual: denial must stay on the generic
+    // response, not a 429 (see comment below), which enforceRateLimit
+    // can't express — it always maps a denial to a 429.
     const emailLimit = await checkRateLimit(
       buildRateLimitKey("forgot-password-email", email),
       FORGOT_PASSWORD_LIMIT,
       FORGOT_PASSWORD_WINDOW_SECONDS
     );
-    const ipLimit = await checkRateLimit(
-      buildRateLimitKey("forgot-password-ip", clientIp),
-      FORGOT_PASSWORD_LIMIT,
-      FORGOT_PASSWORD_WINDOW_SECONDS
-    );
+
+    // IP-scoped check: a real 429 here is fine (see comment below), so this
+    // is exactly enforceRateLimit's standard check+log+429 behavior.
+    const { response: ipLimitResponse } = await enforceRateLimit({
+      scope: "forgot-password-ip",
+      identifier: clientIp,
+      limit: FORGOT_PASSWORD_LIMIT,
+      windowSeconds: FORGOT_PASSWORD_WINDOW_SECONDS,
+      route: "/api/auth/forgot-password",
+      message: "Too many requests. Please try again later.",
+    });
 
     if (!emailLimit.allowed) {
       // Per-email hits stay on the generic response, not a 429: returning a
@@ -45,20 +55,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(GENERIC_AUTH_EMAIL_RESPONSE);
     }
 
-    if (!ipLimit.allowed) {
+    if (ipLimitResponse) {
       // The IP-based limit is frequency-of-requests-from-this-IP, not tied
       // to any one account, so a real 429 here doesn't leak account
       // existence the way an email-scoped 429 would.
-      await logSecurityEventNonBlocking({
-        eventType: "RATE_LIMIT_HIT",
-        scope: "forgot-password-ip",
-        identifier: clientIp,
-        route: "/api/auth/forgot-password",
-        metadata: { limit: FORGOT_PASSWORD_LIMIT, windowSeconds: FORGOT_PASSWORD_WINDOW_SECONDS },
-      });
-      return rateLimitedResponse(ipLimit, {
-        error: "Too many requests. Please try again later.",
-      });
+      return ipLimitResponse;
     }
 
     const user = await prisma.user.findUnique({
