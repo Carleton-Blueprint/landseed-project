@@ -12,6 +12,7 @@ import {
   triggerManualFallbackForExhaustedTransfer,
   triggerBuilderTrendTransferForApprovedProject,
   retryBuilderTrendTransfer,
+  enqueueBuilderTrendTransfer,
 } from "../buildertrend";
 
 jest.mock("@/backend/audit/log", () => ({
@@ -89,6 +90,27 @@ const baseTransferRow = {
   payload: { schemaVersion: 2, project: { id: "project-1", address: "1 Main St" }, client: {}, modificationType: [], totalEstimate: 500 },
 };
 
+describe("enqueueBuilderTrendTransfer", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("adds a job to the BuilderTrend transfer queue keyed by transferId", async () => {
+    await enqueueBuilderTrendTransfer("transfer-1");
+
+    expect(mockedQueueAdd).toHaveBeenCalledWith(
+      "buildertrend-transfer:transfer-1",
+      { transferId: "transfer-1" },
+      expect.objectContaining({
+        jobId: "transfer-1",
+        removeOnComplete: 100,
+        removeOnFail: 500,
+        priority: 1,
+      })
+    );
+  });
+});
+
 describe("processBuilderTrendTransfer", () => {
   const originalMockFailEnv = process.env.BUILDERTREND_MOCK_FAIL;
 
@@ -103,6 +125,49 @@ describe("processBuilderTrendTransfer", () => {
 
   afterAll(() => {
     process.env.BUILDERTREND_MOCK_FAIL = originalMockFailEnv;
+  });
+
+  it("throws when the transfer is not found", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([]);
+
+    await expect(
+      processBuilderTrendTransfer("missing-transfer", { attemptsMade: 0, maxAttempts: 3 })
+    ).rejects.toThrow("BuilderTrend transfer missing-transfer not found");
+
+    expect(mockedExecuteRaw).not.toHaveBeenCalled();
+    expect(mockedAudit).not.toHaveBeenCalled();
+  });
+
+  it("includes a payload summary in the audit metadata when a payload is present", async () => {
+    process.env.BUILDERTREND_MOCK_FAIL = "false";
+    mockedQueryRaw.mockResolvedValueOnce([
+      {
+        ...baseTransferRow,
+        payload: {
+          schemaVersion: 1,
+          client: { name: "Jane Client", email: null, phone: null },
+          modificationType: ["walk_in_shower"],
+          quote: { pricing: { lineItems: [{}, {}] } },
+          photos: [{ id: "photo-1" }],
+        },
+      },
+    ]);
+
+    await processBuilderTrendTransfer("transfer-1", { attemptsMade: 0, maxAttempts: 3 });
+
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "BUILDERTREND_TRANSFER_SENT",
+        metadata: expect.objectContaining({
+          payloadPresent: true,
+          schemaVersion: 1,
+          hasClientContact: true,
+          modificationType: ["walk_in_shower"],
+          lineItemCount: 2,
+          photoCount: 1,
+        }),
+      })
+    );
   });
 
   it("returns early without re-querying status when the transfer is already SENT", async () => {
@@ -361,6 +426,17 @@ describe("triggerBuilderTrendTransferForApprovedProject", () => {
 describe("retryBuilderTrendTransfer", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("throws when the transfer is not found", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([]);
+
+    await expect(retryBuilderTrendTransfer({ transferId: "missing-transfer" })).rejects.toThrow(
+      "BuilderTrend transfer missing-transfer not found"
+    );
+
+    expect(mockedQueueGetJob).not.toHaveBeenCalled();
+    expect(mockedExecuteRaw).not.toHaveBeenCalled();
   });
 
   it("enqueues a fresh job when no job exists yet for this transfer", async () => {
