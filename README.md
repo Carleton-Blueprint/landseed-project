@@ -87,6 +87,10 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
 - `npm run test` / `npm run test:watch` – Jest + React Testing Library
 - `npm run test:e2e` – Playwright E2E
 
+## Docs
+
+- `docs/DISASTER_RECOVERY.md` – Backup/restore RTO & RPO targets and the restore procedure.
+
 ## Tech stack
 
 - **UI:** Tailwind CSS, shadcn/ui (Button, Input in `src/frontend/components/ui`)
