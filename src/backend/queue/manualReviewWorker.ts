@@ -153,6 +153,13 @@ function buildFlagDescription(
             `client-declared codes (${declared.join(', ') || 'none'})`
         : 'AI-inferred modification codes differ from the client-declared codes, or AI confidence was LOW'
     );
+  } else if (reason === 'AI_JOB_RETRIES_EXHAUSTED') {
+    const jobType = metadata?.jobType;
+    const maxAttempts = metadata?.maxAttempts;
+    parts.push(
+      `AI job${typeof jobType === 'string' ? ` (${jobType})` : ''} failed after ` +
+        `${typeof maxAttempts === 'number' ? maxAttempts : 3} retry attempts and needs manual follow-up`
+    );
   }
 
   parts.push(`AI confidence level: ${aiConfidence}`);

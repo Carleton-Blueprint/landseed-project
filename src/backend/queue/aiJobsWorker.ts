@@ -23,6 +23,7 @@ import {
   processAccessibilityImageGenerationJob,
   type AccessibilityImageGenerationJobPayload,
 } from "@/backend/services/imageGeneration";
+import { flagAiJobFailureForManualReview } from "@/backend/services/aiJobFailureEscalation";
 
 const worker = createAiJobsWorker(async (job) => {
   switch (job.data.jobType) {
@@ -54,6 +55,25 @@ worker.on("failed", (job, err) => {
     attemptsMade: job?.attemptsMade,
     message: err.message,
   });
+
+  const maxAttempts = job?.opts.attempts ?? 3;
+  const photoId = (job?.data.payload as { photoId?: string } | undefined)?.photoId;
+  if (job && photoId && job.attemptsMade >= maxAttempts) {
+    void flagAiJobFailureForManualReview({
+      jobType: job.data.jobType,
+      photoId,
+      errorMessage: err.message,
+      attemptsMade: job.attemptsMade,
+      maxAttempts,
+    }).catch((escalationError) => {
+      console.error("Failed to flag AI job for manual review after retries exhausted", {
+        jobId: job.id,
+        jobType: job.data.jobType,
+        photoId,
+        message: escalationError instanceof Error ? escalationError.message : "Unknown error",
+      });
+    });
+  }
 });
 
 worker.on("error", (err) => {
