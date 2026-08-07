@@ -29,6 +29,8 @@ import { tmpdir } from "os";
 import { Readable } from "stream";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { recordFailureAndMaybeAlert } from "@/backend/services/criticalFailureAlerts";
+import { ALERT_THRESHOLD_KEYS } from "@/backend/services/alertThresholds";
 import {
   ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
   type AccessibilityImageGenerationJobPayload,
@@ -332,6 +334,18 @@ worker.on("completed", (job) => {
 worker.on("failed", (job, err) => {
   console.error(`❌ Job "${job?.id}" failed:`, err.message);
   console.error(`   Will retry (${job?.attemptsMade}/${job?.opts.attempts} attempts)`);
+
+  const maxAttempts = job?.opts.attempts ?? 3;
+  if (job && job.attemptsMade >= maxAttempts) {
+    // Scan errors only — this event never fires for an actual infection
+    // (that branch resolves normally, it doesn't throw), so this is
+    // specifically the ClamAV/S3/etc. failure path.
+    void recordFailureAndMaybeAlert({
+      key: ALERT_THRESHOLD_KEYS.FILE_SCAN_FAILURE,
+      summary: `File scan failed after ${job.attemptsMade} attempts`,
+      details: { jobId: job.id, photoId: job.data.photoId, errorMessage: err.message },
+    });
+  }
 });
 
 worker.on("error", (err) => {

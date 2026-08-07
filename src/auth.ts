@@ -13,6 +13,8 @@ import { authorizePasswordCredentials } from "@/backend/auth/passwordCredentials
 import { isAdvisoryTeamEmail } from "@/backend/auth/requireRole";
 import { MfaRequiredError, MfaInvalidCodeError, MfaLockedError } from "@/backend/auth/mfaSignInErrors";
 import { isMfaLockedOut, logMfaLoginLockout, verifyMfaLoginCode } from "@/backend/services/mfaLogin";
+import { enforceLoginRateLimit } from "@/backend/auth/loginRateLimit";
+import { getClientIp } from "@/backend/auth/authEmailResponses";
 
 const nextAuthResult = NextAuth({
   ...authConfig,
@@ -26,11 +28,13 @@ const nextAuthResult = NextAuth({
         password: { label: "Password", type: "password" },
         mfaCode: { label: "MFA Code", type: "text" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         try {
           if (isDevAuthBypassEnabled()) {
             return authorizeLegacyCredentials(credentials ?? {});
           }
+
+          await enforceLoginRateLimit(getClientIp(request));
 
           const user = await authorizePasswordCredentials(credentials ?? {});
           if (!user) {

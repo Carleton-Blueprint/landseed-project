@@ -4,6 +4,8 @@ import {
   processBuilderTrendTransfer,
   triggerManualFallbackForExhaustedTransfer,
 } from "@/backend/integrations/buildertrend";
+import { recordFailureAndMaybeAlert } from "@/backend/services/criticalFailureAlerts";
+import { ALERT_THRESHOLD_KEYS } from "@/backend/services/alertThresholds";
 
 const worker = createBuilderTrendTransferWorker(async (job) => {
   await processBuilderTrendTransfer(job.data.transferId, {
@@ -35,6 +37,12 @@ worker.on("failed", (job, err) => {
         transferId: job.data.transferId,
         message: fallbackError instanceof Error ? fallbackError.message : "Unknown error",
       });
+    });
+
+    void recordFailureAndMaybeAlert({
+      key: ALERT_THRESHOLD_KEYS.BUILDERTREND_TRANSFER_FAILURE,
+      summary: `BuilderTrend transfer failed after ${job.attemptsMade} attempts`,
+      details: { jobId: job.id, transferId: job.data.transferId, errorMessage: err.message },
     });
   }
 });

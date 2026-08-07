@@ -23,6 +23,8 @@ import {
   processAccessibilityImageGenerationJob,
   type AccessibilityImageGenerationJobPayload,
 } from "@/backend/services/imageGeneration";
+import { recordFailureAndMaybeAlert } from "@/backend/services/criticalFailureAlerts";
+import { ALERT_THRESHOLD_KEYS } from "@/backend/services/alertThresholds";
 
 const worker = createAiJobsWorker(async (job) => {
   switch (job.data.jobType) {
@@ -54,6 +56,15 @@ worker.on("failed", (job, err) => {
     attemptsMade: job?.attemptsMade,
     message: err.message,
   });
+
+  const maxAttempts = job?.opts.attempts ?? 3;
+  if (job && job.attemptsMade >= maxAttempts) {
+    void recordFailureAndMaybeAlert({
+      key: ALERT_THRESHOLD_KEYS.AI_JOB_FAILURE,
+      summary: `AI job failed after ${job.attemptsMade} attempts (jobType: ${job.data.jobType})`,
+      details: { jobId: job.id, jobType: job.data.jobType, errorMessage: err.message },
+    });
+  }
 });
 
 worker.on("error", (err) => {

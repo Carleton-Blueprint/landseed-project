@@ -1,6 +1,7 @@
 import { POST } from "../route";
 import { auth } from "@/auth";
 import { promoteIntakeDraft } from "@/backend/services/intakeDraft";
+import { enforceRateLimit } from "@/backend/auth/rateLimit";
 
 jest.mock("@/auth", () => ({
   auth: jest.fn(),
@@ -8,6 +9,10 @@ jest.mock("@/auth", () => ({
 
 jest.mock("@/backend/services/intakeDraft", () => ({
   promoteIntakeDraft: jest.fn(),
+}));
+
+jest.mock("@/backend/auth/rateLimit", () => ({
+  enforceRateLimit: jest.fn(),
 }));
 
 jest.mock("@/backend/auth/requireVerifiedEmail", () => {
@@ -26,6 +31,20 @@ describe("POST /api/intake-draft/promote", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (requireVerifiedEmail as jest.Mock).mockResolvedValue(undefined);
+    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: null });
+  });
+
+  it("returns 429 when the rate limit is hit", async () => {
+    const limited = new Response(JSON.stringify({ error: "Too many requests." }), {
+      status: 429,
+      headers: { "Retry-After": "60" },
+    });
+    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: limited });
+
+    const res = await POST(new Request("http://localhost/api/intake-draft/promote"));
+
+    expect(res.status).toBe(429);
+    expect(auth).not.toHaveBeenCalled();
   });
 
   it("returns 401 when unsigned", async () => {
