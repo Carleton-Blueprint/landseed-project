@@ -944,6 +944,7 @@ enum ProjectManualReviewReasonCode {
   BOTH
   PHOTO_MODIFICATION_MISMATCH
   DISCOVERY_CATALOG_CONTRADICTION
+  AI_JOB_RETRIES_EXHAUSTED
 }
 
 enum CommunicationType {

@@ -26,6 +26,7 @@ import {
 } from "@/backend/services/imageGeneration";
 import { recordFailureAndMaybeAlert } from "@/backend/services/criticalFailureAlerts";
 import { ALERT_THRESHOLD_KEYS } from "@/backend/services/alertThresholds";
+import { flagAiJobFailureForManualReview } from "@/backend/services/aiJobFailureEscalation";
 
 const worker = createAiJobsWorker(async (job) => {
   switch (job.data.jobType) {
@@ -59,6 +60,7 @@ worker.on("failed", (job, err) => {
   });
 
   const maxAttempts = job?.opts.attempts ?? 3;
+  const photoId = (job?.data.payload as { photoId?: string } | undefined)?.photoId;
   if (job && job.attemptsMade >= maxAttempts) {
     void recordFailureAndMaybeAlert({
       key: ALERT_THRESHOLD_KEYS.AI_JOB_FAILURE,
@@ -69,6 +71,23 @@ worker.on("failed", (job, err) => {
     if (job.data.jobType === ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE) {
       const payload = job.data.payload as AccessibilityImageGenerationJobPayload;
       void applyAccessibilityVisualMockFallback(payload.photoId, err.message);
+    }
+
+    if (photoId) {
+      void flagAiJobFailureForManualReview({
+        jobType: job.data.jobType,
+        photoId,
+        errorMessage: err.message,
+        attemptsMade: job.attemptsMade,
+        maxAttempts,
+      }).catch((escalationError) => {
+        console.error("Failed to flag AI job for manual review after retries exhausted", {
+          jobId: job.id,
+          jobType: job.data.jobType,
+          photoId,
+          message: escalationError instanceof Error ? escalationError.message : "Unknown error",
+        });
+      });
     }
   }
 });
