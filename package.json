@@ -18,6 +18,7 @@
     "db:studio": "prisma studio",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "test:e2e": "playwright test",
     "worker:virus-scan": "tsx src/backend/queue/virusScanWorker.ts",
     "worker:email": "tsx src/backend/queue/emailWorker.ts",
