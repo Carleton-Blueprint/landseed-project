@@ -790,6 +790,7 @@ enum ProjectManualReviewReasonCode {
   HIGH_COMPLEXITY
   BOTH
   PHOTO_MODIFICATION_MISMATCH
+  AI_JOB_RETRIES_EXHAUSTED
 }
 
 enum CommunicationType {
