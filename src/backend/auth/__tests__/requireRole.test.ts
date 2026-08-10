@@ -5,7 +5,7 @@ describe("requireRole helper", () => {
   beforeEach(() => {
     jest.resetAllMocks();
     delete process.env.ADVISORY_TEAM_EMAILS;
-    process.env.NODE_ENV = "test";
+    Object.defineProperty(process.env, "NODE_ENV", { value: "test", configurable: true });
   });
 
   test("throws 401 when unauthenticated", async () => {

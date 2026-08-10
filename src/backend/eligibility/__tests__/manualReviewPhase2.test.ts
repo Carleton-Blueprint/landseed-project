@@ -87,6 +87,7 @@ function buildMetadata(overrides?: Partial<GrantDiscoveryMetadata>): GrantDiscov
     candidateCount: 10,
     returnedCount: 1,
     executedAt: new Date().toISOString(),
+    aiFailureReason: null,
     ...overrides,
   };
 }

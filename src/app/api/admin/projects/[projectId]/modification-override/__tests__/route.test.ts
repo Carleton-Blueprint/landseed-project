@@ -82,11 +82,17 @@ const { requireAdminWithMfaEnrolled } = require("@/backend/auth/requireAdminMfa"
 const { logDeniedAdminAccessAttempt } = require("@/backend/audit/adminAccess") as {
   logDeniedAdminAccessAttempt: jest.Mock;
 };
+type ModificationOverrideResult = {
+  projectId: string;
+  modificationItems: string[];
+  modificationCodes: string[];
+};
+
 const {
   overridePreEstimateModifications,
   ModificationOverrideError,
 } = require("@/backend/services/modificationOverride") as {
-  overridePreEstimateModifications: jest.Mock;
+  overridePreEstimateModifications: jest.Mock<(...args: unknown[]) => Promise<ModificationOverrideResult>>;
   ModificationOverrideError: new (
     message: string,
     statusCode: number,

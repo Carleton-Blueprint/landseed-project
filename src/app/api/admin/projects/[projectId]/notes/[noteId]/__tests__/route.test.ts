@@ -85,9 +85,18 @@ const { requireAdminWithMfaEnrolled } = require("@/backend/auth/requireAdminMfa"
 const { logDeniedAdminAccessAttempt } = require("@/backend/audit/adminAccess") as {
   logDeniedAdminAccessAttempt: jest.Mock;
 };
+type StaffNoteRecord = {
+  id: string;
+  projectId: string;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+  author: { id: string; name: string; email: string };
+};
+
 const { updateNote, deleteNote, ProjectStaffNoteError } = require("@/backend/services/projectStaffNotes") as {
-  updateNote: jest.Mock;
-  deleteNote: jest.Mock;
+  updateNote: jest.Mock<(...args: unknown[]) => Promise<StaffNoteRecord>>;
+  deleteNote: jest.Mock<(...args: unknown[]) => Promise<void>>;
   ProjectStaffNoteError: new (message: string, statusCode: number, code: string) => Error & {
     statusCode: number;
     code: string;

@@ -77,8 +77,12 @@ const { requireAdminWithMfaEnrolled } = require("@/backend/auth/requireAdminMfa"
 const { logDeniedAdminAccessAttempt } = require("@/backend/audit/adminAccess") as {
   logDeniedAdminAccessAttempt: jest.Mock;
 };
+type AdminCustomEmailResult =
+  | { communicationId: string; delivered: true; provider: string; messageId: string }
+  | { communicationId: string; delivered: false; deliveryError: string };
+
 const { sendAdminCustomEmail, AdminCustomEmailError } = require("@/backend/services/adminCustomEmail") as {
-  sendAdminCustomEmail: jest.Mock;
+  sendAdminCustomEmail: jest.Mock<(...args: unknown[]) => Promise<AdminCustomEmailResult>>;
   AdminCustomEmailError: new (message: string, statusCode: number, code: string) => Error & {
     statusCode: number;
     code: string;

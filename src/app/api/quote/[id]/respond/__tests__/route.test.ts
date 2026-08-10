@@ -44,6 +44,12 @@ const mockedEnqueue = enqueueBuilderTrendTransfer as jest.MockedFunction<typeof 
 
 const originalEnv = process.env.NODE_ENV;
 
+// Next.js's global.d.ts types process.env.NODE_ENV as readonly; defineProperty
+// bypasses that for tests without weakening the type everywhere else.
+function setNodeEnv(value: string | undefined) {
+  Object.defineProperty(process.env, "NODE_ENV", { value, configurable: true });
+}
+
 function buildEstimate(total: number): RefinedEstimate {
   return {
     lineItems: [
@@ -125,12 +131,12 @@ function buildRequest(body: unknown) {
 describe("POST /api/quote/[id]/respond", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
     mockedAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
   });
 
   afterAll(() => {
-    process.env.NODE_ENV = originalEnv;
+    setNodeEnv(originalEnv);
   });
 
   it("rejects accepting a tiered estimate without a selectedTier", async () => {

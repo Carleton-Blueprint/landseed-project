@@ -33,38 +33,61 @@ jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
 }));
 
+const assembledInput = {
+  applicantName: "Sam Applicant",
+  applicantEmail: "sam@example.com",
+  applicantPhone: "555-9999",
+  projectAddress: "123 Main St",
+  projectId: "proj-1",
+  grantProgramName: "Landseed Grant",
+  modificationItems: ["Door widening", "Lift install"],
+  estimatedCost: "$1,000 – $2,000",
+  ownershipStatus: "Owner",
+  incompleteFields: [] as string[],
+  preparedAtIso: new Date().toISOString(),
+};
+
+type ProjectRecord = {
+  id: string;
+  address: string;
+  grantDocumentKey: string | null;
+  user: { name: string; email: string; phone: string };
+};
+
+type AuditEventRecord = { createdAt: Date; metadata: Record<string, unknown> };
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { prisma } = require("lib/prisma") as {
   prisma: {
     project: {
-      findUnique: jest.Mock;
-      update: jest.Mock;
+      findUnique: jest.Mock<(...args: unknown[]) => Promise<ProjectRecord | null>>;
+      update: jest.Mock<(...args: unknown[]) => Promise<{ id: string }>>;
     };
     auditEvent: {
-      findFirst: jest.Mock;
-      findMany: jest.Mock;
+      findFirst: jest.Mock<(...args: unknown[]) => Promise<{ metadata: { contentHash?: string } } | null>>;
+      findMany: jest.Mock<(...args: unknown[]) => Promise<AuditEventRecord[]>>;
     };
   };
 };
 
 const { uploadToS3 } = require("lib/s3") as {
-  uploadToS3: jest.Mock;
+  uploadToS3: jest.Mock<(...args: unknown[]) => Promise<string>>;
 };
 
 const { generateGrantPdf } = require("@/backend/services/pdf") as {
-  generateGrantPdf: jest.Mock;
+  generateGrantPdf: jest.Mock<(...args: unknown[]) => Promise<Buffer>>;
 };
 
 const { fillGrantTemplate } = require("../grantTemplateFill") as {
-  fillGrantTemplate: jest.Mock;
+  fillGrantTemplate: jest.Mock<(...args: unknown[]) => Promise<Buffer>>;
 };
 
 const { assembleGrantPdfInput } = require("@/backend/services/grantPdfAssembler") as {
-  assembleGrantPdfInput: jest.Mock;
+  assembleGrantPdfInput: jest.Mock<(...args: unknown[]) => Promise<typeof assembledInput>>;
 };
 
 const { logAuditEventNonBlocking } = require("@/backend/audit/log") as {
-  logAuditEventNonBlocking: jest.Mock;
+  logAuditEventNonBlocking: jest.Mock<(...args: unknown[]) => Promise<void>>;
 };
 
 const {
@@ -84,20 +107,6 @@ const {
   getLatestGrantDocumentGenerationInfo: (
     projectId: string
   ) => Promise<{ generatedAt: Date; incompleteFields: string[] } | null>;
-};
-
-const assembledInput = {
-  applicantName: "Sam Applicant",
-  applicantEmail: "sam@example.com",
-  applicantPhone: "555-9999",
-  projectAddress: "123 Main St",
-  projectId: "proj-1",
-  grantProgramName: "Landseed Grant",
-  modificationItems: ["Door widening", "Lift install"],
-  estimatedCost: "$1,000 – $2,000",
-  ownershipStatus: "Owner",
-  incompleteFields: [] as string[],
-  preparedAtIso: new Date().toISOString(),
 };
 
 describe("generateAndStoreGrantDocument", () => {

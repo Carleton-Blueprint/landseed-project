@@ -4,6 +4,7 @@
  * Auth: NextAuth (admin/advisory only)
  */
 
+import type { Session } from "next-auth";
 import { auth } from "@/auth";
 import { authGateResponse } from "@/backend/auth/authGateResponse";
 import { HttpError } from "@/backend/auth/requireRole";
@@ -14,7 +15,7 @@ import { AdminCustomEmailError, sendAdminCustomEmail } from "@/backend/services/
 
 async function requireAdminForCustomEmail(
   request: Request,
-  session: Awaited<ReturnType<typeof auth>>,
+  session: Session | null,
   projectId: string
 ): Promise<Response | null> {
   try {
