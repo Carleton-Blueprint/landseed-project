@@ -212,7 +212,9 @@ export async function processNotification(payload: NotificationJobPayload): Prom
   const claimed = await prisma.notificationDelivery.updateMany({
     where: {
       idempotencyKey: payload.idempotencyKey,
-      status: { not: NotificationDeliveryStatus.SENT },
+      status: {
+        in: [NotificationDeliveryStatus.PENDING, NotificationDeliveryStatus.FAILED],
+      },
     },
     data: { status: NotificationDeliveryStatus.PROCESSING },
   });
