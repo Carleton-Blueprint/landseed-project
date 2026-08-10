@@ -290,7 +290,7 @@ export async function processNotification(payload: NotificationJobPayload): Prom
           });
         } else if (notice.noticeType === "FINAL_NOTICE") {
           await prisma.accountDeletionRequest.updateMany({
-            where: { id: notice.accountDeletionRequestId },
+            where: { id: notice.accountDeletionRequestId, status: "IN_GRACE_PERIOD" },
             data: { status: "READY_FOR_DELETION" },
           });
         }
