@@ -112,7 +112,7 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
     });
 
     worker = createManualReviewWorker(async (job) => {
-      console.log(`[Test Worker] Processing job: ${job.id}`);
+      console.log(`[Test Worker] Processing job for project: ${job.data.projectId}`);
     });
   });
 
@@ -130,9 +130,9 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
   });
 
   beforeEach(async () => {
-    await manualReviewQueue.clean(0, "active");
-    await manualReviewQueue.clean(0, "completed");
-    await manualReviewQueue.clean(0, "failed");
+    await manualReviewQueue.clean(0, 1000, "active");
+    await manualReviewQueue.clean(0, 1000, "completed");
+    await manualReviewQueue.clean(0, 1000, "failed");
   });
 
   describe("Feature Flag Gating", () => {
@@ -165,6 +165,9 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
       const result = await evaluateProjectEligibility(project);
 
       expect(result).toBeDefined();
+      if (!("assessmentId" in result)) {
+        throw new Error(`Expected a successful evaluation, got: ${JSON.stringify(result)}`);
+      }
       expect(result.overallDecision).toBeDefined();
 
       await new Promise((resolve) => setTimeout(resolve, 500));

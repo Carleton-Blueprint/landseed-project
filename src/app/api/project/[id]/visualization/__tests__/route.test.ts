@@ -1,4 +1,5 @@
 import { GET } from "../route";
+import type { NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { prisma } from "lib/prisma";
@@ -38,9 +39,11 @@ jest.mock("@/backend/services/imageGeneration", () => {
   };
 });
 
+// The handler under test never touches NextRequest-specific fields
+// (cookies, nextUrl, etc.), so a plain Request is safe to pass through.
 function makeRequest(projectId: string) {
   return {
-    request: new Request(`http://localhost/api/project/${projectId}/visualization`),
+    request: new Request(`http://localhost/api/project/${projectId}/visualization`) as unknown as NextRequest,
     params: Promise.resolve({ id: projectId }),
   };
 }

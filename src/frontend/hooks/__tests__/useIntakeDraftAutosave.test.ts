@@ -1,7 +1,29 @@
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useIntakeDraftAutosave } from "../useIntakeDraftAutosave";
+import type { IntakeData } from "@/backend/schemas/intakeDraft";
 
 const mockFetch = jest.fn();
+
+const baseIntakeData: IntakeData = {
+  name: "",
+  email: "",
+  phone: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  province: "ON",
+  postalCode: "",
+  ownershipStatus: "owner",
+  ownershipOtherDetails: "",
+  landlordName: "",
+  landlordPhone: "",
+  isCaregiver: false,
+  seniorName: "",
+  relationshipToSenior: "",
+  caregiverConsentConfirmed: false,
+  clientConsentConfirmed: false,
+  modificationItems: [],
+};
 
 const baseDraftResponse = {
   draftId: "draft-1",
@@ -105,7 +127,7 @@ describe("useIntakeDraftAutosave", () => {
     await waitFor(() => expect(result.current.isHydrated).toBe(true));
 
     act(() => {
-      result.current.setIntakeSnapshot({ name: "Jane" });
+      result.current.setIntakeSnapshot({ ...baseIntakeData, name: "Jane" });
     });
 
     await act(async () => {
@@ -117,7 +139,7 @@ describe("useIntakeDraftAutosave", () => {
     );
     expect(patchCalls.length).toBeGreaterThanOrEqual(1);
     expect(JSON.parse(patchCalls[patchCalls.length - 1][1]?.body as string)).toEqual(
-      expect.objectContaining({ intakeData: { name: "Jane" } })
+      expect.objectContaining({ intakeData: { ...baseIntakeData, name: "Jane" } })
     );
   });
 

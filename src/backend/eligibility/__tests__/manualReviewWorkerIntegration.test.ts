@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 import { prisma } from "lib/prisma";
-import { AuditEventAction, ProjectManualReviewReasonCode } from "@prisma/client";
+import { ProjectManualReviewReasonCode } from "@prisma/client";
 
 describe("FR-2.6: Manual Review Worker Integration Tests", () => {
   const testUserIds = [
@@ -283,7 +283,7 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
 
       const auditEvent = await prisma.auditEvent.create({
         data: {
-          action: "MANUAL_REVIEW_FLAG_CREATED" as AuditEventAction,
+          action: "MANUAL_REVIEW_FLAG_CREATED",
           category: "MANUAL_CHANGE",
           outcome: "SUCCESS",
           resourceType: "manual_review_flag",
@@ -326,7 +326,7 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
 
       const auditEvent = await prisma.auditEvent.create({
         data: {
-          action: "MANUAL_REVIEW_FLAG_CREATED" as AuditEventAction,
+          action: "MANUAL_REVIEW_FLAG_CREATED",
           category: "MANUAL_CHANGE",
           outcome: "SUCCESS",
           resourceType: "manual_review_flag",
@@ -374,7 +374,7 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
 
       const auditEvent = await prisma.auditEvent.create({
         data: {
-          action: "MANUAL_REVIEW_FLAG_UPDATED" as AuditEventAction,
+          action: "MANUAL_REVIEW_FLAG_UPDATED",
           category: "MANUAL_CHANGE",
           outcome: "SUCCESS",
           resourceType: "manual_review_flag",
@@ -405,7 +405,7 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
 
       const auditEvent = await prisma.auditEvent.create({
         data: {
-          action: "MANUAL_REVIEW_FLAG_PROCESSING_FAILED" as AuditEventAction,
+          action: "MANUAL_REVIEW_FLAG_PROCESSING_FAILED",
           category: "MANUAL_CHANGE",
           outcome: "FAILURE",
           resourceType: "manual_review_flag",
