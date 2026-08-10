@@ -8,11 +8,21 @@ jest.mock("lib/prisma", () => ({
   },
 }));
 
+type ProjectPdfRecord = {
+  id: string;
+  address: string | null;
+  draftData: unknown;
+  userId: string;
+  user: { name: string | null; email: string | null; phone: string | null };
+  quotes: Array<{ estimateMin: { toNumber(): number }; estimateMax: { toNumber(): number } }>;
+  eligibilityAssessments: Array<{ overallDecision: string; discoveredGrants: unknown }>;
+};
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { prisma } = require("lib/prisma") as {
   prisma: {
     project: {
-      findUnique: jest.Mock;
+      findUnique: jest.Mock<(...args: any[]) => Promise<ProjectPdfRecord | null>>;
     };
   };
 };

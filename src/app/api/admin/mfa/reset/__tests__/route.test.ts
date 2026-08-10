@@ -79,9 +79,11 @@ const { requireAdminWithMfaEnrolled } = require("@/backend/auth/requireAdminMfa"
 const { logDeniedAdminAccessAttempt } = require("@/backend/audit/adminAccess") as {
   logDeniedAdminAccessAttempt: jest.Mock;
 };
+type AdminMfaStatus = { id: string; email: string; mfaEnabled: boolean; mfaEnrolledAt: Date | null };
+
 const { listAdminsWithMfaStatus, resetAdminMfa, MfaResetError } = require("@/backend/services/mfaReset") as {
-  listAdminsWithMfaStatus: jest.Mock;
-  resetAdminMfa: jest.Mock;
+  listAdminsWithMfaStatus: jest.Mock<(...args: any[]) => Promise<AdminMfaStatus[]>>;
+  resetAdminMfa: jest.Mock<(...args: any[]) => Promise<AdminMfaStatus>>;
   MfaResetError: new (message: string, statusCode: number, code: string) => Error & {
     statusCode: number;
     code: string;

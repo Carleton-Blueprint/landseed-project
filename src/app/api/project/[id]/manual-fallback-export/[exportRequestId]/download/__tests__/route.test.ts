@@ -77,11 +77,22 @@ const { getSignedDownloadUrl } = require("lib/s3") as {
   getSignedDownloadUrl: jest.Mock;
 };
 
+type ManualFallbackExportRecord = {
+  id: string;
+  projectId: string;
+  status: string;
+  s3Key: string | null;
+  fileName: string | null;
+  expiresAt: Date | null;
+};
+
 describe("GET /api/project/[id]/manual-fallback-export/[exportRequestId]/download", () => {
   const mockedAuth = auth as jest.Mock<() => Promise<unknown>>;
-  const mockedFindUnique = prisma.manualFallbackExport.findUnique as jest.Mock;
-  const mockedHasProjectAccess = hasProjectAccess as jest.Mock;
-  const mockedGetSignedDownloadUrl = getSignedDownloadUrl as jest.Mock;
+  const mockedFindUnique = prisma.manualFallbackExport.findUnique as jest.Mock<
+    (...args: any[]) => Promise<ManualFallbackExportRecord | null>
+  >;
+  const mockedHasProjectAccess = hasProjectAccess as jest.Mock<(...args: any[]) => Promise<boolean>>;
+  const mockedGetSignedDownloadUrl = getSignedDownloadUrl as jest.Mock<(...args: any[]) => Promise<string>>;
 
   beforeEach(() => {
     jest.clearAllMocks();

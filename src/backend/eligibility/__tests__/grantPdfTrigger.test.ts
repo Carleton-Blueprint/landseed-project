@@ -9,7 +9,11 @@
  */
 
 jest.mock('lib/prisma', () => ({
-  prisma: {},
+  prisma: {
+    quote: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+  },
 }));
 
 jest.mock('../assembler', () => ({
