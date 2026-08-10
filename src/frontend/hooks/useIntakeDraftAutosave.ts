@@ -367,7 +367,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
         const data = (await res.json()) as IntakeDraftGetResponse;
         if (cancelled) return;
 
-        if (data.draft === null) {
+        if (!("draftId" in data)) {
           setIsHydrated(true);
           isHydratingRef.current = false;
           return;

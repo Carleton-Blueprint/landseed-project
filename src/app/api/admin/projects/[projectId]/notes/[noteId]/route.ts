@@ -5,6 +5,7 @@
  * Auth: NextAuth (admin/advisory only)
  */
 
+import type { Session } from "next-auth";
 import { auth } from "@/auth";
 import { authGateResponse } from "@/backend/auth/authGateResponse";
 import { HttpError } from "@/backend/auth/requireRole";
@@ -19,7 +20,7 @@ import {
 
 async function requireAdminForStaffNotes(
   request: Request,
-  session: Awaited<ReturnType<typeof auth>>,
+  session: Session | null,
   projectId: string,
   noteId: string
 ): Promise<Response | null> {
