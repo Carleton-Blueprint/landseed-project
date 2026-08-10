@@ -89,8 +89,8 @@ type StaffNoteRecord = {
 };
 
 const { listNotesForProject, createNote, ProjectStaffNoteError } = require("@/backend/services/projectStaffNotes") as {
-  listNotesForProject: jest.Mock<(...args: any[]) => Promise<StaffNoteRecord[]>>;
-  createNote: jest.Mock<(...args: any[]) => Promise<StaffNoteRecord>>;
+  listNotesForProject: jest.Mock<(...args: unknown[]) => Promise<StaffNoteRecord[]>>;
+  createNote: jest.Mock<(...args: unknown[]) => Promise<StaffNoteRecord>>;
   ProjectStaffNoteError: new (message: string, statusCode: number, code: string) => Error & {
     statusCode: number;
     code: string;

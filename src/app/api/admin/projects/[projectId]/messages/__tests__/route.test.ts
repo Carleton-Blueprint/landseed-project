@@ -82,7 +82,7 @@ type AdminCustomEmailResult =
   | { communicationId: string; delivered: false; deliveryError: string };
 
 const { sendAdminCustomEmail, AdminCustomEmailError } = require("@/backend/services/adminCustomEmail") as {
-  sendAdminCustomEmail: jest.Mock<(...args: any[]) => Promise<AdminCustomEmailResult>>;
+  sendAdminCustomEmail: jest.Mock<(...args: unknown[]) => Promise<AdminCustomEmailResult>>;
   AdminCustomEmailError: new (message: string, statusCode: number, code: string) => Error & {
     statusCode: number;
     code: string;

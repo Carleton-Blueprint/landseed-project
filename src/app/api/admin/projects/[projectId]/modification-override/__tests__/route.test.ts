@@ -92,7 +92,7 @@ const {
   overridePreEstimateModifications,
   ModificationOverrideError,
 } = require("@/backend/services/modificationOverride") as {
-  overridePreEstimateModifications: jest.Mock<(...args: any[]) => Promise<ModificationOverrideResult>>;
+  overridePreEstimateModifications: jest.Mock<(...args: unknown[]) => Promise<ModificationOverrideResult>>;
   ModificationOverrideError: new (
     message: string,
     statusCode: number,

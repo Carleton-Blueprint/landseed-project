@@ -89,10 +89,10 @@ type ManualFallbackExportRecord = {
 describe("GET /api/project/[id]/manual-fallback-export/[exportRequestId]/download", () => {
   const mockedAuth = auth as jest.Mock<() => Promise<unknown>>;
   const mockedFindUnique = prisma.manualFallbackExport.findUnique as jest.Mock<
-    (...args: any[]) => Promise<ManualFallbackExportRecord | null>
+    (...args: unknown[]) => Promise<ManualFallbackExportRecord | null>
   >;
-  const mockedHasProjectAccess = hasProjectAccess as jest.Mock<(...args: any[]) => Promise<boolean>>;
-  const mockedGetSignedDownloadUrl = getSignedDownloadUrl as jest.Mock<(...args: any[]) => Promise<string>>;
+  const mockedHasProjectAccess = hasProjectAccess as jest.Mock<(...args: unknown[]) => Promise<boolean>>;
+  const mockedGetSignedDownloadUrl = getSignedDownloadUrl as jest.Mock<(...args: unknown[]) => Promise<string>>;
 
   beforeEach(() => {
     jest.clearAllMocks();

@@ -95,8 +95,8 @@ type StaffNoteRecord = {
 };
 
 const { updateNote, deleteNote, ProjectStaffNoteError } = require("@/backend/services/projectStaffNotes") as {
-  updateNote: jest.Mock<(...args: any[]) => Promise<StaffNoteRecord>>;
-  deleteNote: jest.Mock<(...args: any[]) => Promise<void>>;
+  updateNote: jest.Mock<(...args: unknown[]) => Promise<StaffNoteRecord>>;
+  deleteNote: jest.Mock<(...args: unknown[]) => Promise<void>>;
   ProjectStaffNoteError: new (message: string, statusCode: number, code: string) => Error & {
     statusCode: number;
     code: string;

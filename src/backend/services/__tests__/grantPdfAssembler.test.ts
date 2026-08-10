@@ -22,7 +22,7 @@ type ProjectPdfRecord = {
 const { prisma } = require("lib/prisma") as {
   prisma: {
     project: {
-      findUnique: jest.Mock<(...args: any[]) => Promise<ProjectPdfRecord | null>>;
+      findUnique: jest.Mock<(...args: unknown[]) => Promise<ProjectPdfRecord | null>>;
     };
   };
 };

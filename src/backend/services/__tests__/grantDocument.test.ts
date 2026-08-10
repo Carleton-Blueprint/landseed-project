@@ -60,34 +60,34 @@ type AuditEventRecord = { createdAt: Date; metadata: Record<string, unknown> };
 const { prisma } = require("lib/prisma") as {
   prisma: {
     project: {
-      findUnique: jest.Mock<(...args: any[]) => Promise<ProjectRecord | null>>;
-      update: jest.Mock<(...args: any[]) => Promise<{ id: string }>>;
+      findUnique: jest.Mock<(...args: unknown[]) => Promise<ProjectRecord | null>>;
+      update: jest.Mock<(...args: unknown[]) => Promise<{ id: string }>>;
     };
     auditEvent: {
-      findFirst: jest.Mock<(...args: any[]) => Promise<{ metadata: { contentHash?: string } } | null>>;
-      findMany: jest.Mock<(...args: any[]) => Promise<AuditEventRecord[]>>;
+      findFirst: jest.Mock<(...args: unknown[]) => Promise<{ metadata: { contentHash?: string } } | null>>;
+      findMany: jest.Mock<(...args: unknown[]) => Promise<AuditEventRecord[]>>;
     };
   };
 };
 
 const { uploadToS3 } = require("lib/s3") as {
-  uploadToS3: jest.Mock<(...args: any[]) => Promise<string>>;
+  uploadToS3: jest.Mock<(...args: unknown[]) => Promise<string>>;
 };
 
 const { generateGrantPdf } = require("@/backend/services/pdf") as {
-  generateGrantPdf: jest.Mock<(...args: any[]) => Promise<Buffer>>;
+  generateGrantPdf: jest.Mock<(...args: unknown[]) => Promise<Buffer>>;
 };
 
 const { fillGrantTemplate } = require("../grantTemplateFill") as {
-  fillGrantTemplate: jest.Mock<(...args: any[]) => Promise<Buffer>>;
+  fillGrantTemplate: jest.Mock<(...args: unknown[]) => Promise<Buffer>>;
 };
 
 const { assembleGrantPdfInput } = require("@/backend/services/grantPdfAssembler") as {
-  assembleGrantPdfInput: jest.Mock<(...args: any[]) => Promise<typeof assembledInput>>;
+  assembleGrantPdfInput: jest.Mock<(...args: unknown[]) => Promise<typeof assembledInput>>;
 };
 
 const { logAuditEventNonBlocking } = require("@/backend/audit/log") as {
-  logAuditEventNonBlocking: jest.Mock<(...args: any[]) => Promise<void>>;
+  logAuditEventNonBlocking: jest.Mock<(...args: unknown[]) => Promise<void>>;
 };
 
 const {
