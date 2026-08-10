@@ -198,3 +198,20 @@ export function createEstimateGenerationWorker(
 ) {
   return new Worker("estimate-generation", processor, { connection });
 }
+
+// BullMQ does not close an externally-provided connection when a Queue is
+// closed, since it assumes the caller owns that connection's lifecycle.
+// Callers (e.g. test teardown) that want to fully release the shared
+// connection must close all queues first, then this.
+export async function closeQueueConnections(): Promise<void> {
+  await Promise.all([
+    virusScanQueue.close(),
+    aiJobsQueue.close(),
+    emailQueue.close(),
+    builderTrendTransferQueue.close(),
+    manualReviewQueue.close(),
+    manualFallbackExportQueue.close(),
+    estimateGenerationQueue.close(),
+  ]);
+  await connection.quit();
+}
