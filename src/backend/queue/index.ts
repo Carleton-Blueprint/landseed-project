@@ -198,3 +198,33 @@ export function createEstimateGenerationWorker(
 ) {
   return new Worker("estimate-generation", processor, { connection });
 }
+
+// Some tests (e.g. builderTrendTransferQueueConfig.test.ts) mock bullmq/ioredis
+// themselves and load this module for real to inspect constructor args, which
+// leaves virusScanQueue etc. as plain mock objects with no .close()/.quit().
+// Guard each call so closeQueueConnections is safe regardless of whether the
+// underlying bullmq/ioredis instances are real or mocked.
+async function closeIfCloseable(target: { close?: () => Promise<unknown> }): Promise<void> {
+  if (typeof target.close === "function") {
+    await target.close();
+  }
+}
+
+// BullMQ does not close an externally-provided connection when a Queue is
+// closed, since it assumes the caller owns that connection's lifecycle.
+// Callers (e.g. test teardown) that want to fully release the shared
+// connection must close all queues first, then this.
+export async function closeQueueConnections(): Promise<void> {
+  await Promise.all([
+    closeIfCloseable(virusScanQueue),
+    closeIfCloseable(aiJobsQueue),
+    closeIfCloseable(emailQueue),
+    closeIfCloseable(builderTrendTransferQueue),
+    closeIfCloseable(manualReviewQueue),
+    closeIfCloseable(manualFallbackExportQueue),
+    closeIfCloseable(estimateGenerationQueue),
+  ]);
+  if (typeof connection.quit === "function") {
+    await connection.quit();
+  }
+}

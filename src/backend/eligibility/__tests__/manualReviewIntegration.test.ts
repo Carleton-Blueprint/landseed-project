@@ -28,6 +28,25 @@ import Redis from "ioredis";
 
 jest.setTimeout(15000);
 
+// evaluateProjectEligibility() fires an unawaited background quote-generation
+// task that calls the real generateQuote(), which hits an external pricing
+// API with an 8s timeout. Left unmocked, that background work routinely
+// outlives a test's own assertions/cleanup, causing "Cannot log after tests
+// are done" once it settles past teardown and FK errors when it writes a
+// Quote for a project the test has already deleted. Mock it so that
+// background task resolves immediately instead.
+jest.mock("@/backend/services/quote", () => ({
+  generateQuote: jest.fn(async () => ({
+    quoteId: "test-quote-id",
+    subtotal: 5000,
+    total: 5000,
+    estimateMin: 5000,
+    estimateMax: 5000,
+    pricingSource: "serp_api",
+    refinedEstimate: {},
+  })),
+}));
+
 // The real discovery provider's dev mock mode (GRANT_DISCOVERY_MOCK_AI) always
 // returns the same fixed HIGH/MEDIUM/LOW grant trio regardless of project input,
 // so AI confidence never varies by scenario. Mock discovery here so this test can
