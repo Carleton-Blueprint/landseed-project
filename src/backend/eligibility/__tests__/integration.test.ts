@@ -1,190 +1,328 @@
 /**
- * FR-3.1 Integration Tests
- * 
- * End-to-end tests covering:
- * 1. Complete eligibility flow (assemble → evaluate → persist)
- * 2. API endpoints (assess, retrieve, history)
- * 3. Auto-evaluation triggers
- * 4. Re-evaluation on rule change
- * 5. Quote integration
- * 6. Audit logging
+ * @jest-environment node
+ */
+/**
+ * FR-3.1 Integration Tests — real Postgres (DATABASE_URL) and real Redis
+ * (REDIS_URL) required; no mocked Prisma client. Exercises the full
+ * assemble -> evaluate -> persist -> audit chain through evaluateProjectEligibility(),
+ * including the live-AI-failure -> heuristic-fallback path and the
+ * GRANT_DISCOVERY_MOCK_AI hardcoded-mock path, verifying each is recorded
+ * with distinct, correct provenance in the audit trail (see the AI Mock
+ * Finalization work in src/backend/audit/aiProvenance.ts).
+ *
+ * The original version of this file was entirely placeholder stubs
+ * (`expect(true).toBe(true)`), including sections describing a fixed
+ * pricing-matrix/grant-rules versioning system ("rule version activation
+ * re-evaluation", batch re-evaluation of 100 projects) that was later
+ * deliberately removed in favor of the current AI-driven, live-data
+ * approach (see prisma/migrations/20260709190000_remove_pricing_matrix_version
+ * and the reconciled TO-DO.md FR-2.7 entry) — those sections are dropped
+ * here rather than rewritten, since there's no current implementation for
+ * them to test. Rate-limiting of repeated evaluations was also never
+ * implemented in evaluateProjectEligibility, so that placeholder is dropped
+ * too rather than asserting behavior that doesn't exist.
+ *
+ * API-endpoint-level coverage (assess/retrieve/history, access control)
+ * already exists in src/app/api/admin/eligibility/assess/__tests__/route.test.ts
+ * and is not duplicated here.
  */
 
+import { prisma } from "lib/prisma";
+import { randomUUID } from "crypto";
+import { evaluateProjectEligibility, getLatestEligibilityAssessment } from "@/backend/eligibility/service";
+import type { Project } from "@prisma/client";
 
-describe('FR-3.1 Eligibility Integration Tests', () => {
-  describe('Full eligibility evaluation flow', () => {
-    it('should complete end-to-end eligibility assessment', () => {
-      // This is a placeholder for integration tests that would require:
-      // - Real database setup
-      // - NextAuth session mocking
-      // - Actual API endpoint testing
-      // 
-      // In a real test environment:
-      // 1. Create test project with draftData
-      // 2. Call evaluateProjectEligibility()
-      // 3. Verify assessment created with correct decision
-      // 4. Verify audit event created
-      // 5. Call API endpoint to retrieve assessment
-      // 6. Verify staff sees detailed reasons, client sees simplified message
-      
-      expect(true).toBe(true); // Placeholder
+jest.setTimeout(30000);
+
+// evaluateProjectEligibility() fires an unawaited background auto-quote
+// placeholder via setImmediate (see the "Step 6" comment in service.ts). Left
+// unmocked, it routinely outlives a test's own assertions/cleanup — hitting
+// the real SerpAPI pricing lookup (up to an 8s timeout) and then failing with
+// a foreign-key violation once it tries to write a Quote for a project the
+// test has already deleted. manualReviewIntegration.test.ts hit the same
+// issue and mocks it for the same reason. Tests below that specifically want
+// a real, persisted Quote import the unmocked module via requireActual and
+// call generateQuote() directly instead of relying on this background path.
+jest.mock("@/backend/services/quote", () => {
+  const actual = jest.requireActual("@/backend/services/quote");
+  return {
+    ...actual,
+    generateQuote: jest.fn(async () => ({
+      quoteId: "background-auto-quote-stub",
+      subtotal: 5000,
+      total: 5000,
+      estimateMin: 5000,
+      estimateMax: 5000,
+      pricingSource: "serp_api" as const,
+      refinedEstimate: { lineItems: [], modificationTotals: [], subtotal: 5000, laborTotal: 0, markupTotal: 0, total: 5000, estimateMin: 5000, estimateMax: 5000 },
+    })),
+  };
+});
+
+const { generateQuote, getPricingDecisionAuditTrail } = jest.requireActual(
+  "@/backend/services/quote"
+) as typeof import("@/backend/services/quote");
+
+// The same background block also auto-generates a grant PDF (real S3 upload) once
+// the mocked quote resolves, if the assessment came back ELIGIBLE — which the
+// GRANT_DISCOVERY_MOCK_AI catalog's first entry always does. Mock it out for the
+// same reason as generateQuote above: it isn't the subject of these tests, and it
+// otherwise fires a real upload against a project the test has already deleted.
+jest.mock("@/backend/services/grantDocument", () => ({
+  generateAndStoreGrantDocument: jest.fn(async () => ({ s3Key: "test-grant-doc-stub" })),
+}));
+
+async function createTestUser() {
+  return prisma.user.create({
+    data: { id: `test-eligibility-${randomUUID()}`, email: `${randomUUID()}@example.com`, name: "Test User" },
+  });
+}
+
+async function createTestProject(userId: string, draftData: Record<string, unknown> = {}): Promise<Project> {
+  return prisma.project.create({
+    data: {
+      address: "123 Integration Test St",
+      userId,
+      draftData: {
+        province: "ON",
+        ownershipStatus: "owner",
+        clientConsentConfirmed: true,
+        modificationItems: ["Grab bars"],
+        ...draftData,
+      },
+    },
+  });
+}
+
+async function cleanupProject(projectId: string) {
+  await prisma.auditEvent.deleteMany({ where: { projectId } });
+  await prisma.quote.deleteMany({ where: { projectId } });
+  await prisma.eligibilityAssessment.deleteMany({ where: { projectId } });
+  await prisma.projectManualReviewFlag.deleteMany({ where: { projectId } });
+  await prisma.project.delete({ where: { id: projectId } }).catch(() => undefined);
+}
+
+describe("FR-3.1 Eligibility Integration Tests", () => {
+  const createdUserIds: string[] = [];
+  const originalEnv = { ...process.env };
+
+  afterAll(async () => {
+    process.env = originalEnv;
+    if (createdUserIds.length > 0) {
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
+    }
+    await prisma.$disconnect();
+  });
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  describe("Full eligibility evaluation flow", () => {
+    it("assembles input, evaluates, persists an assessment, and logs an audit event", async () => {
+      const user = await createTestUser();
+      createdUserIds.push(user.id);
+      const project = await createTestProject(user.id);
+
+      try {
+        const result = await evaluateProjectEligibility(project);
+
+        if (!("assessmentId" in result)) {
+          throw new Error(`Expected a successful evaluation, got: ${JSON.stringify(result)}`);
+        }
+
+        expect(result.overallDecision).toBeDefined();
+        expect(result.projectId).toBe(project.id);
+
+        const persisted = await prisma.eligibilityAssessment.findUnique({
+          where: { id: result.assessmentId },
+        });
+        expect(persisted).not.toBeNull();
+        expect(persisted?.isLatest).toBe(true);
+        expect(persisted?.discoveryProvider).toBeTruthy();
+
+        // ELIGIBILITY_EVALUATED is only logged when performedBy is passed — call again as staff.
+        await evaluateProjectEligibility(project, user);
+        const auditEvent = await prisma.auditEvent.findFirst({
+          where: { action: "ELIGIBILITY_EVALUATED", projectId: project.id },
+          orderBy: { createdAt: "desc" },
+        });
+        expect(auditEvent).not.toBeNull();
+        expect((auditEvent?.metadata as Record<string, unknown>)?.outputSource).toBeDefined();
+        expect((auditEvent?.metadata as Record<string, unknown>)?.isFallback).toBeDefined();
+      } finally {
+        await cleanupProject(project.id);
+      }
     });
 
-    it('should auto-evaluate project on creation', () => {
-      // In real test:
-      // 1. Create new project via API
-      // 2. Trigger project creation webhook/function
-      // 3. Wait for auto-evaluation to complete
-      // 4. Verify eligibility assessment exists
-      
-      expect(true).toBe(true);
-    });
+    it("returns NEEDS_MORE_INFO-shaped results and records missing fields when draftData is empty", async () => {
+      const user = await createTestUser();
+      createdUserIds.push(user.id);
+      const project = await prisma.project.create({
+        data: { address: "1 Malformed Draft Ave", userId: user.id, draftData: {} },
+      });
 
-    it('should re-evaluate on draft data changes', () => {
-      // In real test:
-      // 1. Create project with INELIGIBLE status
-      // 2. Update draftData with new province or income
-      // 3. Trigger draft update
-      // 4. Verify new assessment created
-      // 5. Verify decision potentially changed
-      
-      expect(true).toBe(true);
+      try {
+        const result = await evaluateProjectEligibility(project);
+
+        if (!("assessmentId" in result)) {
+          throw new Error(`Expected a successful evaluation, got: ${JSON.stringify(result)}`);
+        }
+
+        expect(result.missingRequirements.length).toBeGreaterThan(0);
+        expect(result.reasonCodes).toContain("MISSING_REQUIRED_FIELDS");
+      } finally {
+        await cleanupProject(project.id);
+      }
     });
   });
 
-  describe('API integration', () => {
-    it('POST /api/admin/eligibility/assess should evaluate project', () => {
-      // In real test:
-      // 1. POST request with projectId
-      // 2. Get back assessment with decision and staff reasons
-      // 3. Verify response structure matches type
-      
-      expect(true).toBe(true);
+  describe("Live AI failure -> heuristic fallback", () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
     });
 
-    it('GET /api/eligibility/[projectId] should return decision', () => {
-      // In real test:
-      // 1. GET request as project owner
-      // 2. Verify returns ONLY simplified message
-      // 3. GET request as staff user
-      // 4. Verify returns detailed decision breakdown
-      
-      expect(true).toBe(true);
+    it("falls back to the heuristic catalog and logs GRANT_DISCOVERY_AI_FALLBACK when the live call fails", async () => {
+      process.env.OPENAI_API_KEY = "test-key";
+      process.env.GRANT_DISCOVERY_AI_ENABLED = "true";
+      process.env.GRANT_DISCOVERY_MOCK_AI = "false";
+
+      global.fetch = jest.fn(async () =>
+        new Response("upstream error", { status: 500, statusText: "Internal Server Error" })
+      ) as unknown as typeof fetch;
+
+      const user = await createTestUser();
+      createdUserIds.push(user.id);
+      const project = await createTestProject(user.id);
+
+      try {
+        const result = await evaluateProjectEligibility(project);
+
+        if (!("assessmentId" in result)) {
+          throw new Error(`Expected a successful evaluation, got: ${JSON.stringify(result)}`);
+        }
+
+        const persisted = await prisma.eligibilityAssessment.findUnique({
+          where: { id: result.assessmentId },
+        });
+        expect(persisted?.discoveryProvider).toBe("HEURISTIC");
+
+        const fallbackEvent = await prisma.auditEvent.findFirst({
+          where: { action: "GRANT_DISCOVERY_AI_FALLBACK", projectId: project.id },
+        });
+        expect(fallbackEvent).not.toBeNull();
+        expect(fallbackEvent?.outcome).toBe("FAILURE");
+        const metadata = fallbackEvent?.metadata as Record<string, unknown>;
+        expect(metadata?.outputSource).toBe("HEURISTIC");
+        expect(metadata?.isFallback).toBe(true);
+      } finally {
+        await cleanupProject(project.id);
+      }
     });
 
-    it('should enforce access control on assessment retrieval', () => {
-      // In real test:
-      // 1. Try to get assessment as user without permission
-      // 2. Verify 403 Forbidden response
-      // 3. Try as project owner or staff
-      // 4. Verify 200 with assessment
-      
-      expect(true).toBe(true);
-    });
-  });
+    it("labels GRANT_DISCOVERY_MOCK_AI output as MOCK (not OPENAI or a failure fallback)", async () => {
+      process.env.OPENAI_API_KEY = "test-key";
+      process.env.GRANT_DISCOVERY_AI_ENABLED = "true";
+      process.env.GRANT_DISCOVERY_MOCK_AI = "true";
 
-  describe('Rule version activation re-evaluation', () => {
-    it('should batch re-evaluate all projects on new rule activation', () => {
-      // In real test:
-      // 1. Create v1 rules, evaluate 5 projects
-      // 2. Create v2 rules with different thresholds
-      // 3. Activate v2
-      // 4. Wait for batch re-evaluation
-      // 5. Verify all projects have new assessments
-      // 6. Verify decision changes captured in audit
-      
-      expect(true).toBe(true);
-    });
-  });
+      const user = await createTestUser();
+      createdUserIds.push(user.id);
+      const project = await createTestProject(user.id);
 
-  describe('Quote integration', () => {
-    it('should link quote to eligibility assessment', () => {
-      // In real test:
-      // 1. Evaluate project (creates assessment)
-      // 2. Generate quote for same project
-      // 3. Verify quote response includes eligibility decision
-      // 4. Verify audit event links quote to assessment
-      
-      expect(true).toBe(true);
-    });
+      try {
+        const result = await evaluateProjectEligibility(project);
 
-    it('should create quote even without prior assessment', () => {
-      // In real test:
-      // 1. Create project without prior evaluation
-      // 2. Generate quote
-      // 3. Verify quote created successfully
-      // 4. Verify assessmentId in response is null/undefined
-      
-      expect(true).toBe(true);
-    });
-  });
+        if (!("assessmentId" in result)) {
+          throw new Error(`Expected a successful evaluation, got: ${JSON.stringify(result)}`);
+        }
 
-  describe('Audit trail completeness', () => {
-    it('should create audit events for all eligibility operations', () => {
-      // In real test:
-      // 1. Create project
-      // 2. Modify draftData
-      // 3. Manually evaluate
-      // 4. Staff reviews assessment
-      // 5. Get audit history via getEligibilityAuditHistory()
-      // 6. Verify all events present with timestamps
-      
-      expect(true).toBe(true);
+        const persisted = await prisma.eligibilityAssessment.findUnique({
+          where: { id: result.assessmentId },
+        });
+        expect(persisted?.discoveryProvider).toBe("MOCK");
+
+        const fallbackEvent = await prisma.auditEvent.findFirst({
+          where: { action: "GRANT_DISCOVERY_AI_FALLBACK", projectId: project.id },
+        });
+        expect(fallbackEvent).toBeNull();
+      } finally {
+        await cleanupProject(project.id);
+      }
     });
   });
 
-  describe('Error resilience', () => {
-    it('should handle unavailable discovery provider gracefully', () => {
-      // In real test with unavailable discovery sources/provider:
-      // 1. Attempt evaluation
-      // 2. Verify a structured service error is returned
-      // 3. Verify error message helpful for staff
-      
-      expect(true).toBe(true);
+  describe("Quote integration", () => {
+    it("links a generated quote to its eligibility assessment and records provenance in the audit trail", async () => {
+      process.env.GRANT_DISCOVERY_MOCK_AI = "true";
+
+      const user = await createTestUser();
+      createdUserIds.push(user.id);
+      const project = await createTestProject(user.id);
+
+      try {
+        const evaluation = await evaluateProjectEligibility(project);
+        if (!("assessmentId" in evaluation)) {
+          throw new Error(`Expected a successful evaluation, got: ${JSON.stringify(evaluation)}`);
+        }
+
+        const quote = await generateQuote({
+          projectId: project.id,
+          items: [{ description: "Grab bars", quantity: 1, unitPrice: 150, modificationCode: "GRAB_BARS" }],
+        });
+
+        expect(quote.eligibilityAssessmentId).toBe(evaluation.assessmentId);
+
+        const auditTrail = await getPricingDecisionAuditTrail({ quoteId: quote.quoteId });
+        expect(auditTrail.length).toBeGreaterThan(0);
+        expect(auditTrail[0].metadata?.eligibilityAssessmentId).toBe(evaluation.assessmentId);
+        expect(auditTrail[0].metadata?.outputSource).toBeDefined();
+      } finally {
+        await cleanupProject(project.id);
+      }
     });
 
-    it('should handle malformed draftData gracefully', () => {
-      // In real test:
-      // 1. Create project with invalid/missing draftData
-      // 2. Trigger evaluation
-      // 3. Verify assembler detects malformed fields
-      // 4. Verify evaluation returns NEEDS_MORE_INFO
-      
-      expect(true).toBe(true);
-    });
+    it("creates a quote even without a prior eligibility assessment", async () => {
+      const user = await createTestUser();
+      createdUserIds.push(user.id);
+      const project = await createTestProject(user.id);
 
-    it('should not block main operations on audit event failure', () => {
-      // In real test:
-      // 1. Mock auditEvent.create to fail
-      // 2. Evaluate project
-      // 3. Verify assessment still created
-      // 4. Verify warning logged, not error propagated
-      
-      expect(true).toBe(true);
+      try {
+        const quote = await generateQuote({
+          projectId: project.id,
+          items: [{ description: "Grab bars", quantity: 1, unitPrice: 150 }],
+        });
+
+        expect(quote.quoteId).toBeDefined();
+        expect(quote.eligibilityAssessmentId).toBeUndefined();
+      } finally {
+        await cleanupProject(project.id);
+      }
     });
   });
 
-  describe('Performance and limits', () => {
-    it('should rate-limit repeated evaluations of same project', () => {
-      // In real test:
-      // 1. Evaluate project
-      // 2. Immediately try to evaluate again
-      // 3. Verify second evaluation skipped (rate limited)
-      // 4. Wait 30+ seconds
-      // 5. Evaluate again - should succeed
-      
-      expect(true).toBe(true);
-    });
+  describe("Audit trail completeness", () => {
+    it("getLatestEligibilityAssessment reflects the same provenance recorded on the audit event", async () => {
+      process.env.GRANT_DISCOVERY_MOCK_AI = "true";
 
-    it('should batch process re-evaluations efficiently', () => {
-      // In real test:
-      // 1. Create 100 projects with assessments
-      // 2. Activate new rules version
-      // 3. Trigger batch re-evaluation
-      // 4. Verify all 100 completed in reasonable time
-      // 5. Verify batch logs show progress
-      
-      expect(true).toBe(true);
+      const user = await createTestUser();
+      createdUserIds.push(user.id);
+      const project = await createTestProject(user.id);
+
+      try {
+        await evaluateProjectEligibility(project, user);
+
+        const latest = await getLatestEligibilityAssessment(project.id);
+        expect(latest?.discoveryProvider).toBe("MOCK");
+
+        const auditEvent = await prisma.auditEvent.findFirst({
+          where: { action: "ELIGIBILITY_EVALUATED", projectId: project.id },
+        });
+        expect((auditEvent?.metadata as Record<string, unknown>)?.discoveryProvider).toBe("MOCK");
+      } finally {
+        await cleanupProject(project.id);
+      }
     });
   });
 });
