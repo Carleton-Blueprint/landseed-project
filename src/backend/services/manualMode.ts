@@ -377,6 +377,9 @@ export async function generateManualOutputPackage(
     );
   }
 
+  // Staff generating the output package is the formal, staff-recorded
+  // acceptance for manual mode (no separate client click-through) — so the
+  // quote is created already ACCEPTED rather than the default PENDING.
   const quote = await prisma.quote.create({
     data: {
       projectId: project.id,
@@ -386,6 +389,7 @@ export async function generateManualOutputPackage(
       estimateMax: submission.total,
       lastClientActivityAt: new Date(),
       source: "MANUAL",
+      status: "ACCEPTED",
       createdByUserId: input.actorUserId,
       manualModeSubmissionId: submission.id,
     },
@@ -456,6 +460,7 @@ export async function generateManualOutputPackage(
       grantDocumentKey,
       builderTrendTransferId,
       clientNotified,
+      acceptanceRecordedBy: "STAFF",
     },
     ipAddress: input.ipAddress ?? null,
     userAgent: input.userAgent ?? null,
