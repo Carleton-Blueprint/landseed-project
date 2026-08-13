@@ -1,4 +1,5 @@
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
+import type { AiOutputSource } from '@/backend/audit/aiProvenance';
 
 export interface PricingAuditSourceReference {
   sourceType: 'DISCOVERY_GRANT_SOURCE';
@@ -10,7 +11,7 @@ export interface PricingAuditSourceReference {
 }
 
 export interface PricingAuditAiOutput {
-  provider: 'OPENAI' | 'HEURISTIC' | 'UNKNOWN';
+  provider: 'OPENAI' | 'HEURISTIC' | 'MOCK' | 'UNKNOWN';
   overallDecision?: string;
   rationaleSummary?: string;
   resultCount?: number;
@@ -62,6 +63,8 @@ export interface PricingDecisionAuditMetadata {
   externalSourceCount: number;
   pricingSource: 'serp_api' | 'serp_api_partial' | null;
   fallbackLineItems: Array<{ description: string; query: string; fallbackUnitPrice: number }>;
+  outputSource: AiOutputSource | null;
+  isFallback: boolean;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -107,6 +110,14 @@ export function normalizePricingDecisionAuditMetadata(
     fallbackLineItems: Array.isArray(record.fallbackLineItems)
       ? (record.fallbackLineItems as PricingDecisionAuditMetadata['fallbackLineItems'])
       : [],
+    outputSource:
+      record.outputSource === 'LIVE' ||
+      record.outputSource === 'MOCK' ||
+      record.outputSource === 'HEURISTIC' ||
+      record.outputSource === 'NONE'
+        ? record.outputSource
+        : null,
+    isFallback: record.isFallback === true,
   };
 }
 
@@ -157,6 +168,8 @@ export async function logPricingDecisionAuditNonBlocking(
       externalSourceCount: externalSources.length,
       pricingSource: input.pricingSource,
       fallbackLineItems: input.fallbackLineItems ?? [],
+      outputSource: input.pricingSource === 'serp_api' ? 'LIVE' : ('MOCK' as AiOutputSource),
+      isFallback: (input.fallbackLineItems?.length ?? 0) > 0,
     },
   });
 }

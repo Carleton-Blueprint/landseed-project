@@ -13,6 +13,7 @@ import { getSignedDownloadUrlFromS3Url, uploadStreamToS3 } from "lib/s3";
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
+import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
 const DEFAULT_WIDTH = 900;
 const DEFAULT_HEIGHT = 600;
@@ -273,7 +274,9 @@ export async function processAccessibilityImageGenerationJob(
         costUsd: result.costUsd,
         durationMs: Date.now() - startedAt,
         s3Key: result.s3Key,
-      },
+        outputSource: "LIVE",
+        isFallback: false,
+      } satisfies AiProvenanceMetadata & Record<string, unknown>,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown image generation error";
@@ -298,7 +301,9 @@ export async function processAccessibilityImageGenerationJob(
       metadata: {
         errorMessage,
         durationMs: Date.now() - startedAt,
-      },
+        outputSource: "NONE",
+        isFallback: false,
+      } satisfies AiProvenanceMetadata & Record<string, unknown>,
     });
 
     throw error;
@@ -355,6 +360,8 @@ export async function applyAccessibilityVisualMockFallback(
       model: "mock-fallback",
       fallbackImageUrl,
       errorMessage,
-    },
+      outputSource: "MOCK",
+      isFallback: true,
+    } satisfies AiProvenanceMetadata & Record<string, unknown>,
   });
 }

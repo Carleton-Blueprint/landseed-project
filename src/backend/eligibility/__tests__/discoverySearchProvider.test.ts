@@ -223,7 +223,8 @@ describe('discoverAndEvaluateGrants', () => {
         malformedDraftFields: [],
       });
 
-      expect(result.discoveryMetadata.provider).toBe('OPENAI');
+      // MOCK, not OPENAI — the hardcoded mock decisions must not be mislabeled as a live call.
+      expect(result.discoveryMetadata.provider).toBe('MOCK');
       expect(result.discoveryMetadata.returnedCount).toBeGreaterThanOrEqual(3);
       expect(result.discoveredGrants.map((grant) => grant.grantId)).toEqual(
         expect.arrayContaining(['mock_hatc_canada', 'mock_on_rrap', 'mock_municipal_toronto'])

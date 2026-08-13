@@ -20,6 +20,13 @@ import {
 import { prisma } from 'lib/prisma';
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { produceManualReviewFlagJob } from './manualReviewProducer';
+import type { AiOutputSource, AiProvenanceMetadata } from '@/backend/audit/aiProvenance';
+
+function outputSourceForDiscoveryProvider(provider: GrantDiscoveryMetadata['provider']): AiOutputSource {
+  if (provider === 'OPENAI') return 'LIVE';
+  if (provider === 'MOCK') return 'MOCK';
+  return 'HEURISTIC';
+}
 
 export interface EvaluateEligibilityServiceResult {
   assessmentId: string;
@@ -99,7 +106,9 @@ export async function evaluateProjectEligibility(
           scoringVersion: evaluation.discoveryMetadata.scoringVersion,
           modelVersion: evaluation.discoveryMetadata.modelVersion,
           sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
-        },
+          outputSource: 'HEURISTIC',
+          isFallback: true,
+        } satisfies AiProvenanceMetadata & Record<string, unknown>,
       });
     }
 
@@ -125,7 +134,10 @@ export async function evaluateProjectEligibility(
           sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
           candidateCount: evaluation.discoveryMetadata.candidateCount,
           returnedCount: evaluation.discoveryMetadata.returnedCount,
-        },
+          outputSource: outputSourceForDiscoveryProvider(evaluation.discoveryMetadata.provider),
+          isFallback:
+            evaluation.discoveryMetadata.provider === 'HEURISTIC' && !!evaluation.discoveryMetadata.aiFailureReason,
+        } satisfies AiProvenanceMetadata & Record<string, unknown>,
       });
     }
 
@@ -278,7 +290,7 @@ export async function getLatestEligibilityAssessment(projectId: string) {
       discoveryMetadata:
         (assessmentWithDiscovery.discoveryMetadata as GrantDiscoveryMetadata | null) ?? null,
       discoveryProvider:
-        ((assessmentWithDiscovery.discoveryProvider as 'OPENAI' | 'HEURISTIC' | null) ?? 'HEURISTIC'),
+        ((assessmentWithDiscovery.discoveryProvider as 'OPENAI' | 'HEURISTIC' | 'MOCK' | null) ?? 'HEURISTIC'),
       discoveryEngineVersion:
         (assessmentWithDiscovery.discoveryEngineVersion as string | null) ?? 'unknown',
       discoveryPromptVersion:

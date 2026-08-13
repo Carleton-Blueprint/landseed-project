@@ -35,6 +35,8 @@ describe("logPricingDecisionAuditNonBlocking", () => {
           fallbackLineItems: [
             { description: "Grab bars", query: "grab bars", fallbackUnitPrice: 150 },
           ],
+          outputSource: "MOCK",
+          isFallback: true,
         }),
       })
     );
@@ -51,7 +53,12 @@ describe("logPricingDecisionAuditNonBlocking", () => {
 
     expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({ pricingSource: "serp_api", fallbackLineItems: [] }),
+        metadata: expect.objectContaining({
+          pricingSource: "serp_api",
+          fallbackLineItems: [],
+          outputSource: "LIVE",
+          isFallback: false,
+        }),
       })
     );
   });
@@ -78,5 +85,7 @@ describe("normalizePricingDecisionAuditMetadata", () => {
 
     expect(normalized?.pricingSource).toBeNull();
     expect(normalized?.fallbackLineItems).toEqual([]);
+    expect(normalized?.outputSource).toBeNull();
+    expect(normalized?.isFallback).toBe(false);
   });
 });

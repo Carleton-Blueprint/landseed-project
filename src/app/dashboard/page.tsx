@@ -543,7 +543,12 @@ export default async function DashboardPage() {
                             {/* Provider & date footer */}
                             <div className="mt-2.5 flex items-center gap-3 border-t border-gray-200/60 pt-2 text-[10px] text-gray-400">
                               <span>
-                                Provider: {eligibility.provider === "OPENAI" ? "AI Web Search" : "Heuristic Engine"}
+                                Provider:{" "}
+                                {eligibility.provider === "OPENAI"
+                                  ? "AI Web Search"
+                                  : eligibility.provider === "MOCK"
+                                  ? "Mock (AI disabled)"
+                                  : "Heuristic Engine"}
                               </span>
                               <span>
                                 Assessed: {new Date(eligibility.assessedAt).toLocaleDateString("en-CA", {

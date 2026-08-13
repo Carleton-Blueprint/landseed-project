@@ -9,7 +9,7 @@ import { EligibilityDecision, EligibilityInput } from './types';
 
 export type GrantDiscoveryScope = 'MUNICIPAL' | 'PROVINCIAL' | 'NATIONAL';
 
-export type GrantDiscoveryProvider = 'OPENAI' | 'HEURISTIC';
+export type GrantDiscoveryProvider = 'OPENAI' | 'HEURISTIC' | 'MOCK';
 
 export interface DiscoveredGrant {
   grantId: string;
@@ -653,6 +653,8 @@ interface OpenAiWebSearchOutcome {
    * (no API key configured, AI disabled, or mock mode) — those are not failures.
    */
   failureReason: string | null;
+  /** True when `decisions` came from the hardcoded GRANT_DISCOVERY_MOCK_AI catalog, not a live call. */
+  isMock: boolean;
 }
 
 async function tryOpenAiWebSearch(
@@ -662,13 +664,13 @@ async function tryOpenAiWebSearch(
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     debug('AI', 'OPENAI_API_KEY not set — skipping AI web search');
-    return { decisions: null, failureReason: null };
+    return { decisions: null, failureReason: null, isMock: false };
   }
 
   const enabled = (process.env.GRANT_DISCOVERY_AI_ENABLED ?? 'true').toLowerCase();
   if (enabled === 'false') {
     debug('AI', 'GRANT_DISCOVERY_AI_ENABLED=false — skipping AI web search');
-    return { decisions: null, failureReason: null };
+    return { decisions: null, failureReason: null, isMock: false };
   }
 
   // -----------------------------------------------------------
@@ -676,7 +678,7 @@ async function tryOpenAiWebSearch(
   // -----------------------------------------------------------
   if ((process.env.GRANT_DISCOVERY_MOCK_AI ?? 'false').toLowerCase() === 'true') {
     debug('AI', 'MOCK MODE — returning hardcoded decisions instead of calling OpenAI');
-    return { failureReason: null, decisions: [{
+    return { failureReason: null, isMock: true, decisions: [{
         grantId: 'mock_hatc_canada',
         title: 'Home Accessibility Tax Credit (HATC) [MOCK]',
         scope: 'NATIONAL',
@@ -781,6 +783,7 @@ async function tryOpenAiWebSearch(
     return {
       decisions: null,
       failureReason: `OpenAI API returned ${response.status} ${response.statusText}: ${errBody.slice(0, 300)}`,
+      isMock: false,
     };
   }
 
@@ -796,7 +799,7 @@ async function tryOpenAiWebSearch(
 
   if (!content) {
     debug('AI', 'No content in response');
-    return { decisions: null, failureReason: 'OpenAI response contained no output text' };
+    return { decisions: null, failureReason: 'OpenAI response contained no output text', isMock: false };
   }
 
   let parsed: { decisions?: LlmGrantDecision[] } | null = null;
@@ -805,17 +808,17 @@ async function tryOpenAiWebSearch(
     debug('AI', `JSON parsed — decisions count: ${parsed?.decisions?.length ?? 'missing'}`);
   } catch (err) {
     debug('AI', 'JSON parse error', { error: String(err), raw: content.slice(0, 500) });
-    return { decisions: null, failureReason: `Failed to parse JSON from OpenAI response: ${String(err)}` };
+    return { decisions: null, failureReason: `Failed to parse JSON from OpenAI response: ${String(err)}`, isMock: false };
   }
 
   if (!parsed) {
     debug('AI', 'JSON parse error', { contentLength: content.length, raw: content.slice(0, 500) });
-    return { decisions: null, failureReason: 'Failed to parse JSON from OpenAI response' };
+    return { decisions: null, failureReason: 'Failed to parse JSON from OpenAI response', isMock: false };
   }
 
   if (!Array.isArray(parsed.decisions)) {
     debug('AI', 'decisions is not an array', { parsed });
-    return { decisions: null, failureReason: 'OpenAI response JSON did not contain a decisions array' };
+    return { decisions: null, failureReason: 'OpenAI response JSON did not contain a decisions array', isMock: false };
   }
 
   const valid = parsed.decisions.filter(
@@ -843,10 +846,10 @@ async function tryOpenAiWebSearch(
   })));
 
   if (valid.length === 0 && dropped > 0) {
-    return { decisions: valid, failureReason: `All ${dropped} OpenAI decision(s) were malformed and dropped` };
+    return { decisions: valid, failureReason: `All ${dropped} OpenAI decision(s) were malformed and dropped`, isMock: false };
   }
 
-  return { decisions: valid, failureReason: null };
+  return { decisions: valid, failureReason: null, isMock: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -990,11 +993,11 @@ export async function discoverAndEvaluateGrants(
   try {
     // Step 3: AI web search
     debug('MAIN', 'Step 3 — attempting AI web search...');
-    const { decisions: llmDecisions, failureReason } = await tryOpenAiWebSearch(input, heuristicCandidates);
+    const { decisions: llmDecisions, failureReason, isMock } = await tryOpenAiWebSearch(input, heuristicCandidates);
     aiFailureReason = failureReason;
 
     if (llmDecisions && llmDecisions.length > 0) {
-      provider = 'OPENAI';
+      provider = isMock ? 'MOCK' : 'OPENAI';
       debug('MAIN', `AI returned ${llmDecisions.length} decisions — merging with heuristic results`);
 
       const aiCandidates: DiscoveryCandidateEvaluation[] = llmDecisions.map((llm) => ({

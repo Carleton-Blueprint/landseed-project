@@ -192,6 +192,7 @@ describe("GET /api/project/[id]/visualization", () => {
         action: "ACCESSIBILITY_IMAGE_GENERATION_MOCK_USED",
         outcome: "SUCCESS",
         resourceId: "photo-1",
+        metadata: expect.objectContaining({ outputSource: "MOCK", isFallback: false }),
       })
     );
   });

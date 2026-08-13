@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { generateMockAccessibilityVisual, modificationItemsFromDraft } from "@/backend/services/imageGeneration";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
 export async function GET(
   request: NextRequest,
@@ -86,7 +87,12 @@ export async function GET(
             resourceType: "photo",
             resourceId: photo.id,
             description: "Live image generation disabled; served mock placeholder visual.",
-            metadata: { model: "mock", mockImageUrl },
+            metadata: {
+              model: "mock",
+              mockImageUrl,
+              outputSource: "MOCK",
+              isFallback: false,
+            } satisfies AiProvenanceMetadata & Record<string, unknown>,
           });
 
           generatedImageUrl = mockImageUrl;

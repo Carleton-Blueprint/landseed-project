@@ -318,7 +318,11 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
             AI Grant Discovery
             {eligibility && (
               <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-violet-100 border border-violet-200 px-1.5 py-0.5 text-[10px] font-medium text-violet-600">
-                {eligibility.provider === "OPENAI" ? "AI Search" : "Heuristic"}
+                {eligibility.provider === "OPENAI"
+                  ? "AI Search"
+                  : eligibility.provider === "MOCK"
+                  ? "Mock"
+                  : "Heuristic"}
               </span>
             )}
           </h4>

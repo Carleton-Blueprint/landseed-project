@@ -238,7 +238,12 @@ describe("processAccessibilityImageGenerationJob", () => {
     );
 
     expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
-      expect.objectContaining({ category: "AI_GENERATION", outcome: "SUCCESS", resourceId: "photo-1" })
+      expect.objectContaining({
+        category: "AI_GENERATION",
+        outcome: "SUCCESS",
+        resourceId: "photo-1",
+        metadata: expect.objectContaining({ outputSource: "LIVE", isFallback: false }),
+      })
     );
   });
 
@@ -261,7 +266,12 @@ describe("processAccessibilityImageGenerationJob", () => {
     });
 
     expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
-      expect.objectContaining({ category: "AI_GENERATION", outcome: "FAILURE", resourceId: "photo-1" })
+      expect.objectContaining({
+        category: "AI_GENERATION",
+        outcome: "FAILURE",
+        resourceId: "photo-1",
+        metadata: expect.objectContaining({ outputSource: "NONE", isFallback: false }),
+      })
     );
   });
 });
@@ -299,6 +309,7 @@ describe("applyAccessibilityVisualMockFallback", () => {
         outcome: "FAILURE",
         resourceId: "photo-1",
         reason: "OpenAI rate limited",
+        metadata: expect.objectContaining({ outputSource: "MOCK", isFallback: true }),
       })
     );
   });
