@@ -6,6 +6,7 @@ import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import { isLiveImageGenerationEnabled } from "lib/openai";
 import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
 
 jest.mock("@/auth", () => ({
   auth: jest.fn(),
@@ -19,6 +20,9 @@ jest.mock("lib/prisma", () => ({
   prisma: {
     project: {
       findUnique: jest.fn(),
+    },
+    photo: {
+      update: jest.fn(),
     },
   },
 }));
@@ -38,6 +42,10 @@ jest.mock("@/backend/services/imageGeneration", () => {
     generateMockAccessibilityVisual: jest.fn(),
   };
 });
+
+jest.mock("@/backend/audit/log", () => ({
+  logAuditEventNonBlocking: jest.fn().mockResolvedValue(undefined),
+}));
 
 // The handler under test never touches NextRequest-specific fields
 // (cookies, nextUrl, etc.), so a plain Request is safe to pass through.
@@ -130,14 +138,37 @@ describe("GET /api/project/[id]/visualization", () => {
     expect(generateMockAccessibilityVisual).not.toHaveBeenCalled();
   });
 
-  it("falls back to the mock placeholder when live generation is disabled", async () => {
+  it("serves the worker's persisted mock fallback image when live generation failed after retries", async () => {
+    (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(true);
+    (prisma.project.findUnique as jest.Mock).mockResolvedValue({
+      id: "project-1",
+      draftData: {},
+      photos: [
+        {
+          id: "photo-1",
+          url: "https://example.com/original.png",
+          generationStatus: "FAILED",
+          generatedImageUrl: "https://placehold.co/900x600?text=Mock+AI+Visual",
+        },
+      ],
+    });
+
+    const { request, params } = makeRequest("project-1");
+    const res = await GET(request, { params });
+    const body = await res.json();
+
+    expect(body.photos[0].generatedImageUrl).toBe("https://placehold.co/900x600?text=Mock+AI+Visual");
+    expect(generateMockAccessibilityVisual).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the mock placeholder when live generation is disabled, and persists it with an audit event", async () => {
     (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(false);
     (generateMockAccessibilityVisual as jest.Mock).mockResolvedValue("https://placehold.co/900x600?text=Mock");
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
       draftData: {},
       photos: [
-        { id: "photo-1", url: "https://example.com/original.png", generationStatus: "PENDING", generatedImageUrl: null },
+        { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png", generationStatus: "PENDING", generatedImageUrl: null },
       ],
     });
 
@@ -146,5 +177,22 @@ describe("GET /api/project/[id]/visualization", () => {
     const body = await res.json();
 
     expect(body.photos[0].generatedImageUrl).toBe("https://placehold.co/900x600?text=Mock");
+    expect(prisma.photo.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "photo-1" },
+        data: expect.objectContaining({
+          generatedImageUrl: "https://placehold.co/900x600?text=Mock",
+          generationModel: "mock",
+        }),
+      })
+    );
+    expect(logAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "AI_GENERATION",
+        action: "ACCESSIBILITY_IMAGE_GENERATION_MOCK_USED",
+        outcome: "SUCCESS",
+        resourceId: "photo-1",
+      })
+    );
   });
 });

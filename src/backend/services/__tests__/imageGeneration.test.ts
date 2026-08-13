@@ -8,6 +8,7 @@ import {
   generateAccessibilityVisual,
   processAccessibilityImageGenerationJob,
   buildAccessibilityRenditionS3Key,
+  applyAccessibilityVisualMockFallback,
 } from "../imageGeneration";
 
 jest.mock("openai", () => ({
@@ -262,5 +263,52 @@ describe("processAccessibilityImageGenerationJob", () => {
     expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
       expect.objectContaining({ category: "AI_GENERATION", outcome: "FAILURE", resourceId: "photo-1" })
     );
+  });
+});
+
+describe("applyAccessibilityVisualMockFallback", () => {
+  const basePhoto = {
+    id: "photo-1",
+    projectId: "project-1",
+    url: "https://example.com/original.png",
+    project: { draftData: { modificationItems: ["GRAB_BARS"] } },
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedPrisma.photo.findUnique.mockResolvedValue(basePhoto);
+    mockedPrisma.photo.update.mockResolvedValue({});
+  });
+
+  it("persists a mock placeholder and logs a FAILURE fallback audit event", async () => {
+    await applyAccessibilityVisualMockFallback("photo-1", "OpenAI rate limited");
+
+    expect(mockedPrisma.photo.update).toHaveBeenCalledWith({
+      where: { id: "photo-1" },
+      data: expect.objectContaining({
+        generatedImageS3Key: null,
+        generationModel: "mock-fallback",
+        generatedImageUrl: expect.stringContaining("placehold.co"),
+      }),
+    });
+
+    expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "AI_GENERATION",
+        action: "ACCESSIBILITY_IMAGE_GENERATION_FALLBACK",
+        outcome: "FAILURE",
+        resourceId: "photo-1",
+        reason: "OpenAI rate limited",
+      })
+    );
+  });
+
+  it("does nothing when the photo no longer exists", async () => {
+    mockedPrisma.photo.findUnique.mockResolvedValue(null);
+
+    await applyAccessibilityVisualMockFallback("missing", "some error");
+
+    expect(mockedPrisma.photo.update).not.toHaveBeenCalled();
+    expect(mockedLogAuditEventNonBlocking).not.toHaveBeenCalled();
   });
 });

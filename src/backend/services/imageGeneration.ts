@@ -304,3 +304,57 @@ export async function processAccessibilityImageGenerationJob(
     throw error;
   }
 }
+
+/**
+ * Called once the ai-jobs worker has exhausted all retry attempts for a live
+ * generation job (see aiJobsWorker.ts's "failed" handler) — a single failed
+ * attempt is not "live unavailable," but exhausting retries is. Applies the
+ * mock placeholder so the photo has something to display, while leaving
+ * generationStatus/generationError as the worker already set them so staff
+ * can still see that the live attempt failed.
+ */
+export async function applyAccessibilityVisualMockFallback(
+  photoId: string,
+  errorMessage: string
+): Promise<void> {
+  const photo = await prisma.photo.findUnique({
+    where: { id: photoId },
+    include: { project: true },
+  });
+
+  if (!photo) {
+    return;
+  }
+
+  const modificationCodes = modificationItemsFromDraft(photo.project.draftData);
+  const fallbackImageUrl = await generateMockAccessibilityVisual(photo.url, {
+    modificationCodes,
+  });
+
+  await prisma.photo.update({
+    where: { id: photo.id },
+    data: {
+      generatedImageUrl: fallbackImageUrl,
+      generatedImageS3Key: null,
+      generationModel: "mock-fallback",
+      generatedAt: new Date(),
+    },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "AI_GENERATION",
+    action: "ACCESSIBILITY_IMAGE_GENERATION_FALLBACK",
+    outcome: "FAILURE",
+    sensitivityLevel: "INTERNAL",
+    projectId: photo.projectId,
+    resourceType: "photo",
+    resourceId: photo.id,
+    reason: errorMessage,
+    description: "Live accessibility visual generation failed after all retry attempts; served mock placeholder as fallback.",
+    metadata: {
+      model: "mock-fallback",
+      fallbackImageUrl,
+      errorMessage,
+    },
+  });
+}

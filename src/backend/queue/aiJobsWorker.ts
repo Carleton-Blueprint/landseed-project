@@ -21,6 +21,7 @@ import {
 import {
   ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
   processAccessibilityImageGenerationJob,
+  applyAccessibilityVisualMockFallback,
   type AccessibilityImageGenerationJobPayload,
 } from "@/backend/services/imageGeneration";
 import { recordFailureAndMaybeAlert } from "@/backend/services/criticalFailureAlerts";
@@ -64,6 +65,11 @@ worker.on("failed", (job, err) => {
       summary: `AI job failed after ${job.attemptsMade} attempts (jobType: ${job.data.jobType})`,
       details: { jobId: job.id, jobType: job.data.jobType, errorMessage: err.message },
     });
+
+    if (job.data.jobType === ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE) {
+      const payload = job.data.payload as AccessibilityImageGenerationJobPayload;
+      void applyAccessibilityVisualMockFallback(payload.photoId, err.message);
+    }
   }
 });
 

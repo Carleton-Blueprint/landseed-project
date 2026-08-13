@@ -40,6 +40,8 @@ export interface PricingDecisionAuditInput {
   };
   aiOutput?: PricingAuditAiOutput;
   externalSources?: PricingAuditSourceReference[];
+  pricingSource: 'serp_api' | 'serp_api_partial';
+  fallbackLineItems?: Array<{ description: string; query: string; fallbackUnitPrice: number }>;
 }
 
 export interface PricingDecisionAuditMetadata {
@@ -58,6 +60,8 @@ export interface PricingDecisionAuditMetadata {
   aiOutput: PricingAuditAiOutput | null;
   externalSources: PricingAuditSourceReference[];
   externalSourceCount: number;
+  pricingSource: 'serp_api' | 'serp_api_partial' | null;
+  fallbackLineItems: Array<{ description: string; query: string; fallbackUnitPrice: number }>;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -96,6 +100,13 @@ export function normalizePricingDecisionAuditMetadata(
       typeof record.externalSourceCount === 'number'
         ? record.externalSourceCount
         : externalSources.length,
+    pricingSource:
+      record.pricingSource === 'serp_api' || record.pricingSource === 'serp_api_partial'
+        ? record.pricingSource
+        : null,
+    fallbackLineItems: Array.isArray(record.fallbackLineItems)
+      ? (record.fallbackLineItems as PricingDecisionAuditMetadata['fallbackLineItems'])
+      : [],
   };
 }
 
@@ -144,6 +155,8 @@ export async function logPricingDecisionAuditNonBlocking(
       aiOutput: input.aiOutput ?? null,
       externalSources,
       externalSourceCount: externalSources.length,
+      pricingSource: input.pricingSource,
+      fallbackLineItems: input.fallbackLineItems ?? [],
     },
   });
 }
