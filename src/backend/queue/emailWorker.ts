@@ -2,6 +2,8 @@ import "dotenv/config";
 import { NotificationEventType } from "@prisma/client";
 import { createEmailWorker } from "@/backend/queue";
 import { processNotification } from "@/backend/notifications/service";
+import { recordFailureAndMaybeAlert } from "@/backend/services/criticalFailureAlerts";
+import { ALERT_THRESHOLD_KEYS } from "@/backend/services/alertThresholds";
 
 const worker = createEmailWorker(async (job) => {
   const eventType = job.data.eventType as NotificationEventType;
@@ -45,6 +47,15 @@ worker.on("completed", (job) => {
 
 worker.on("failed", (job, err) => {
   console.error(`Email job ${job?.id} failed:`, err.message);
+
+  const maxAttempts = job?.opts.attempts ?? 3;
+  if (job && job.attemptsMade >= maxAttempts) {
+    void recordFailureAndMaybeAlert({
+      key: ALERT_THRESHOLD_KEYS.EMAIL_DELIVERY_FAILURE,
+      summary: `Email delivery failed after ${job.attemptsMade} attempts (eventType: ${job.data.eventType})`,
+      details: { jobId: job.id, eventType: job.data.eventType, errorMessage: err.message },
+    });
+  }
 });
 
 worker.on("error", (err) => {

@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "lib/prisma";
 import { hashPassword, validatePasswordStrength } from "@/backend/auth/password";
 import { enqueueEmailVerificationIfNeeded } from "@/backend/auth/authEmailNotification";
+import { enforceRateLimit } from "@/backend/auth/rateLimit";
+import { getClientIp } from "@/backend/auth/authEmailResponses";
+
+const INTAKE_SUBMISSION_LIMIT = 10;
+const INTAKE_SUBMISSION_WINDOW_SECONDS = 60 * 60;
 
 function publicUser(user: { id: string; name: string | null; email: string | null; phone: string | null }) {
   return {
@@ -44,6 +49,18 @@ async function queueVerificationEmail(
 
 export async function POST(request: Request) {
   try {
+    const { response: rateLimitResponse } = await enforceRateLimit({
+      scope: "intake-submission-ip",
+      identifier: getClientIp(request),
+      limit: INTAKE_SUBMISSION_LIMIT,
+      windowSeconds: INTAKE_SUBMISSION_WINDOW_SECONDS,
+      route: "/api/intake",
+      message: "Too many submissions from this network. Please try again later.",
+    });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const data = await request.json();
     const { name, email, phone, password, seniorName, isCaregiver } = data;
     const normalizedName = typeof name === "string" ? name.trim() : "";

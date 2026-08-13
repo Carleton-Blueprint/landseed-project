@@ -3,9 +3,26 @@ import { AuthEmailTokenPurpose } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { consumeAuthEmailToken } from "@/backend/auth/authEmailToken";
 import { hashPassword, validatePasswordStrength } from "@/backend/auth/password";
+import { enforceRateLimit } from "@/backend/auth/rateLimit";
+import { getClientIp } from "@/backend/auth/authEmailResponses";
+
+const RESET_PASSWORD_LIMIT = 5;
+const RESET_PASSWORD_WINDOW_SECONDS = 60 * 60;
 
 export async function POST(request: NextRequest) {
   try {
+    const { response: rateLimitResponse } = await enforceRateLimit({
+      scope: "reset-password-ip",
+      identifier: getClientIp(request),
+      limit: RESET_PASSWORD_LIMIT,
+      windowSeconds: RESET_PASSWORD_WINDOW_SECONDS,
+      route: "/api/auth/reset-password",
+      message: "Too many reset attempts. Please request a new reset link and try again later.",
+    });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
+
     const body = (await request.json().catch(() => null)) as {
       token?: unknown;
       password?: unknown;

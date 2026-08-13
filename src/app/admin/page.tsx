@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient";
 import { AdminMfaPanel } from "./AdminMfaPanel";
+import { AdminAlertThresholdsPanel } from "./AdminAlertThresholdsPanel";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
 
 export const metadata: Metadata = {
@@ -414,6 +415,7 @@ export default async function AdminDashboardPage() {
   return (
     <>
       <AdminMfaPanel currentUserId={session.user.id} />
+      <AdminAlertThresholdsPanel />
       <AdminDashboardClient projects={serialized} userName={userName} />
     </>
   );
