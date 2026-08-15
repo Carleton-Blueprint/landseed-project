@@ -15,15 +15,10 @@ export function Navigation() {
   const navLinks = isAuthenticated
     ? [
         { href: "/dashboard", label: "Project Tracker" },
-        { href: "/", label: "Request Assessment" },
-        { href: "/submitted", label: "Submitted" },
-        { href: "/profile/access", label: "Share Access" },
         ...(isAdmin ? [{ href: "/admin", label: "Advisor Panel" }] : []),
       ]
     : [
         { href: "/auth/signin", label: "Client Portal" },
-        { href: "/", label: "Request Assessment" },
-        { href: "/submitted", label: "Submitted" },
       ];
 
   return (

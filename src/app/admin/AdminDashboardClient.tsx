@@ -15,6 +15,9 @@ import {
   FileIcon,
   CameraIcon,
 } from "@/frontend/components/icons";
+import { ProjectStaffNotes } from "./ProjectStaffNotes";
+import { ProjectAdminDocuments } from "./ProjectAdminDocuments";
+import { ProjectEstimateReview } from "./ProjectEstimateReview";
 
 /* ================================================================== */
 /*  Types                                                              */
@@ -46,6 +49,7 @@ export interface SerializedProject {
     openQuestions: number;
     estimateMin?: string | null;
     estimateMax?: string | null;
+    refinedEstimate?: any;
   } | null;
   eligibility: {
     id: string;
@@ -238,7 +242,7 @@ function StatCard({
 /*  Expanded Row Detail Panel                                          */
 /* ================================================================== */
 
-function ProjectDetailPanel({ project }: { project: SerializedProject }) {
+function ProjectDetailPanel({ project, userId }: { project: SerializedProject, userId: string }) {
   const router = useRouter();
   const eligibility = project.eligibility;
   const quote = project.quote;
@@ -476,6 +480,13 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
           </div>
         </div>
       </div>
+
+      <ProjectEstimateReview project={project} />
+
+      <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <ProjectAdminDocuments projectId={project.id} />
+        <ProjectStaffNotes projectId={project.id} currentUserId={userId} />
+      </div>
     </div>
   );
 }
@@ -487,9 +498,11 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
 export function AdminDashboardClient({
   projects,
   userName,
+  userId,
 }: {
   projects: SerializedProject[];
   userName: string;
+  userId: string;
 }) {
   const [activeTab, setActiveTab] = React.useState<"projects" | "analytics">("projects");
   const [search, setSearch] = React.useState("");
@@ -1412,7 +1425,7 @@ export function AdminDashboardClient({
                     </button>
 
                     {/* Expanded detail panel */}
-                    {isExpanded && <ProjectDetailPanel project={project} />}
+                    {isExpanded && <ProjectDetailPanel project={project} userId={userId} />}
                   </div>
                 );
               })}

@@ -306,6 +306,13 @@ export function SignInPageContent({ legacyMode }: { legacyMode: boolean }) {
       >
         <SignInVerificationAlert />
         <SignInForm legacyMode={legacyMode} />
+        
+        <div className="mt-6 text-center text-sm text-gray-600">
+          Don&apos;t have an account?{" "}
+          <Link href="/auth/signup" className="font-semibold text-emerald-600 hover:text-emerald-500">
+            Sign up
+          </Link>
+        </div>
       </Suspense>
     </AuthPageShell>
   );
