@@ -5,7 +5,7 @@ import { DISCOVERY_MODEL_NAME } from './discoveryModelConfig';
 import { DISCOVERY_SYSTEM_PROMPT } from './discoveryPrompt';
 import { DISCOVERY_SCORING_CONFIG } from './discoveryScoringConfig';
 import { DISCOVERY_FALLBACK_SOURCE_CATALOG, GrantDiscoverySourceEntry } from './discoverySourceCatalog';
-import { EligibilityDecision, EligibilityInput } from './types';
+import { EligibilityDecision, EligibilityInput, ModificationCode } from './types';
 
 export type GrantDiscoveryScope = 'MUNICIPAL' | 'PROVINCIAL' | 'NATIONAL';
 
@@ -891,6 +891,36 @@ function buildMessages(
       : ['We could not find a strong grant eligibility match based on current details.'];
 
   return { staff, client, reasonCodes };
+}
+
+/**
+ * Cross-checks discovered grants against our own catalog's known
+ * `eligibleModificationCodes` for the same program (matched by grantId — the
+ * AI reliably reuses catalog IDs when it recognizes a program it was given
+ * as a candidate; see docs/grant-discovery-verification-2026-08-14.md). If a
+ * grant is marked ELIGIBLE but the catalog says that program doesn't cover
+ * any of the requested modification codes (including catalog entries whose
+ * eligibleModificationCodes is deliberately empty, meaning "not a
+ * modification-specific program"), that's an internal contradiction worth
+ * flagging for manual review rather than trusting silently — this caught a
+ * real, reproducible false positive (Ontario ADP marked eligible for
+ * GRAB_BARS) during ground-truth verification.
+ */
+export function detectCatalogContradictions(
+  discoveredGrants: DiscoveredGrant[],
+  modificationCodes: ModificationCode[]
+): DiscoveredGrant[] {
+  return discoveredGrants.filter((grant) => {
+    if (grant.decision !== EligibilityDecision.ELIGIBLE) return false;
+
+    const catalogEntry = DISCOVERY_FALLBACK_SOURCE_CATALOG.find((entry) => entry.id === grant.grantId);
+    if (!catalogEntry || !catalogEntry.eligibleModificationCodes) return false;
+
+    const overlaps = catalogEntry.eligibleModificationCodes.some((code) =>
+      modificationCodes.includes(code as ModificationCode)
+    );
+    return !overlaps;
+  });
 }
 
 function buildDiscoveryResult(

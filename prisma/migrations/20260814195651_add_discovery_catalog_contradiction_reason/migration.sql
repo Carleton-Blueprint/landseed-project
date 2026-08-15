@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ProjectManualReviewReasonCode" ADD VALUE 'DISCOVERY_CATALOG_CONTRADICTION';
