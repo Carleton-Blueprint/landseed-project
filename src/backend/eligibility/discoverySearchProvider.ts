@@ -989,6 +989,38 @@ function buildDiscoveryResult(
   };
 }
 
+/**
+ * Dedupes AI-returned candidates against themselves within a single response.
+ * A single OpenAI web-search call can return the same program twice (observed
+ * live: two identical "Home and Vehicle Modification Program | ontario.ca"
+ * entries in one response) — the existing merge step only dedupes heuristic
+ * candidates against AI ones, never the AI's own decisions against each
+ * other. Matches first by grantId, then by normalized title + sourceUrl (in
+ * case the model assigns differing grantIds to what's really the same
+ * program), keeping the highest-scoring entry per match.
+ */
+export function dedupeAiCandidates(
+  candidates: DiscoveryCandidateEvaluation[]
+): DiscoveryCandidateEvaluation[] {
+  const byKey = new Map<string, DiscoveryCandidateEvaluation>();
+  const keyByTitleUrl = new Map<string, string>();
+
+  for (const candidate of candidates) {
+    const titleUrlKey = `${normalizeText(candidate.source.title)}::${candidate.source.sourceUrl.trim().toLowerCase()}`;
+    const key = byKey.has(candidate.source.id)
+      ? candidate.source.id
+      : keyByTitleUrl.get(titleUrlKey) ?? candidate.source.id;
+
+    const existing = byKey.get(key);
+    if (!existing || candidate.score > existing.score) {
+      byKey.set(key, candidate);
+    }
+    keyByTitleUrl.set(titleUrlKey, key);
+  }
+
+  return Array.from(byKey.values());
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -1042,7 +1074,7 @@ export async function discoverAndEvaluateGrants(
       provider = 'OPENAI';
       debug('MAIN', `AI returned ${llmDecisions.length} decisions — merging with heuristic results`);
 
-      const aiCandidates: DiscoveryCandidateEvaluation[] = llmDecisions.map((llm) => ({
+      const aiCandidatesRaw: DiscoveryCandidateEvaluation[] = llmDecisions.map((llm) => ({
         source: {
           id: llm.grantId,
           title: llm.title ?? llm.grantId,
@@ -1058,6 +1090,11 @@ export async function discoverAndEvaluateGrants(
         confidence: llm.confidence ?? 'MEDIUM',
         rationale: llm.rationale,
       }));
+
+      const aiCandidates = dedupeAiCandidates(aiCandidatesRaw);
+      if (aiCandidates.length < aiCandidatesRaw.length) {
+        debug('MAIN', `Deduped AI response: ${aiCandidatesRaw.length} → ${aiCandidates.length}`);
+      }
 
       const aiIds = new Set(aiCandidates.map((c) => c.source.id));
       const heuristicOnly = heuristicCandidates.filter((c) => !aiIds.has(c.source.id));

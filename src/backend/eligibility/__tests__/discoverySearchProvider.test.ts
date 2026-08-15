@@ -6,7 +6,9 @@ import {
   resolveGrantDiscoveryMetadata,
   detectCatalogContradictions,
   scoreCandidate,
+  dedupeAiCandidates,
   DiscoveredGrant,
+  GrantDiscoveryScope,
 } from '../discoverySearchProvider';
 import { GrantDiscoverySourceEntry } from '../discoverySourceCatalog';
 import { EligibilityDecision, EligibilityInput } from '../types';
@@ -825,5 +827,101 @@ describe('scoreCandidate', () => {
 
     expect(result.decision).toBe(EligibilityDecision.ELIGIBLE);
     expect(result.missingCriteria).not.toContain('no_modification_overlap');
+  });
+});
+
+describe('dedupeAiCandidates', () => {
+  function makeCandidate(overrides: Partial<{
+    grantId: string;
+    title: string;
+    sourceUrl: string;
+    score: number;
+  }> = {}) {
+    const { grantId = 'grant_a', title = 'Home and Vehicle Modification Program', sourceUrl = 'https://www.ontario.ca/page/home-and-vehicle-modification-program', score = 70 } = overrides;
+    return {
+      source: {
+        id: grantId,
+        title,
+        scope: 'PROVINCIAL' as GrantDiscoveryScope,
+        jurisdiction: 'ON',
+        sourceUrl,
+        summary: 'A grant program.',
+      },
+      score,
+      decision: EligibilityDecision.ELIGIBLE,
+      matchedCriteria: [],
+      missingCriteria: [],
+      confidence: 'HIGH' as const,
+      rationale: 'test',
+    };
+  }
+
+  it('collapses duplicate grantIds, keeping the higher-scoring entry', () => {
+    const candidates = [makeCandidate({ score: 60 }), makeCandidate({ score: 90 })];
+
+    const deduped = dedupeAiCandidates(candidates);
+
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0].score).toBe(90);
+  });
+
+  it('collapses entries with the same title and sourceUrl even under different grantIds', () => {
+    const candidates = [
+      makeCandidate({ grantId: 'on_hvmp', score: 55 }),
+      makeCandidate({ grantId: 'on_hvmp_duplicate', score: 55 }),
+    ];
+
+    const deduped = dedupeAiCandidates(candidates);
+
+    expect(deduped).toHaveLength(1);
+  });
+
+  it('keeps distinct programs separate', () => {
+    const candidates = [
+      makeCandidate({ grantId: 'on_hvmp' }),
+      makeCandidate({
+        grantId: 'hatc_canada',
+        title: 'Home Accessibility Tax Credit (HATC)',
+        sourceUrl: 'https://www.canada.ca/en/revenue-agency/hatc',
+      }),
+    ];
+
+    const deduped = dedupeAiCandidates(candidates);
+
+    expect(deduped).toHaveLength(2);
+  });
+
+  it('is reflected end-to-end when the AI returns a duplicate decision', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+
+    try {
+      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                decisions: [mockOpenAiDecision(), mockOpenAiDecision()],
+              }),
+              usage: { prompt_tokens: 1200, completion_tokens: 400 },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      const result = await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      const liveHatcEntries = result.discoveredGrants.filter((grant) => grant.grantId === 'live_hatc_canada');
+      expect(liveHatcEntries).toHaveLength(1);
+    } finally {
+      restoreDiscoveryEnv(savedEnv);
+    }
   });
 });
