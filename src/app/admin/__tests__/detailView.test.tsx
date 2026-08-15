@@ -11,6 +11,18 @@ jest.mock("next/link", () => {
   return MockLink;
 });
 
+// AdminDashboardClient renders StaffNotesPanel, which calls useSession().
+jest.mock("next-auth/react", () => ({
+  useSession: jest.fn(() => ({ data: null, status: "unauthenticated" })),
+}));
+
+// ProjectDetailPanel (rendered on row expand) calls useRouter().
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+  }),
+}));
+
 const mockProjectWithSubmission: SerializedProject = {
   id: "proj-submission-1",
   address: "100 Senior Way",
