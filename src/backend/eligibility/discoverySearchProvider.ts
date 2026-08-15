@@ -416,7 +416,7 @@ function calculateSourceSnapshotId(sources: GrantDiscoverySourceEntry[]): string
 // Heuristic scorer (used when AI is disabled / unavailable)
 // ---------------------------------------------------------------------------
 
-function scoreCandidate(
+export function scoreCandidate(
   input: EligibilityInput,
   source: GrantDiscoverySourceEntry,
   queryTokens: string[]
@@ -489,20 +489,27 @@ function scoreCandidate(
     }
   }
 
+  // A catalog entry with no overlap against the requested modification codes —
+  // including one that deliberately sets eligibleModificationCodes: [] to mark
+  // itself as not a modification-specific program (e.g. a devices/equipment
+  // program) — can never actually fund this request. That must exclude the
+  // candidate from ELIGIBLE outright, not just withhold the overlap bonus,
+  // otherwise unrelated signals (jurisdiction, text/keyword overlap, ownership,
+  // consent) can carry a mismatched program past eligibleThreshold on their own.
   const eligibleModificationCodes = uniqueStrings(source.eligibleModificationCodes ?? []);
-  if (eligibleModificationCodes.length > 0) {
-    const requestedMods = input.required.modificationCodes;
+  const requestedMods = input.required.modificationCodes;
+  let modificationScopeExcluded = false;
+
+  if (requestedMods.length > 0) {
     const overlapCount = requestedMods.filter((code) => eligibleModificationCodes.includes(code)).length;
+    const overlapRatio = eligibleModificationCodes.length > 0 ? overlapCount / requestedMods.length : 0;
 
-    if (requestedMods.length > 0) {
-      const overlapRatio = overlapCount / requestedMods.length;
+    if (overlapRatio > 0) {
       score += Math.round(overlapRatio * DISCOVERY_SCORING_CONFIG.modificationOverlapMaxPoints);
-
-      if (overlapRatio > 0) {
-        matchedCriteria.push(`modification_overlap_${Math.round(overlapRatio * 100)}pct`);
-      } else {
-        missingCriteria.push('no_modification_overlap');
-      }
+      matchedCriteria.push(`modification_overlap_${Math.round(overlapRatio * 100)}pct`);
+    } else {
+      modificationScopeExcluded = true;
+      missingCriteria.push('no_modification_overlap');
     }
   }
 
@@ -514,7 +521,10 @@ function scoreCandidate(
     missingCriteria.push('missing_required_application_fields');
   }
 
-  const cappedScore = Math.max(0, Math.min(100, score));
+  const uncappedScore = Math.max(0, Math.min(100, score));
+  const cappedScore = modificationScopeExcluded
+    ? Math.min(uncappedScore, DISCOVERY_SCORING_CONFIG.eligibleThreshold - 1)
+    : uncappedScore;
 
   let decision = EligibilityDecision.INELIGIBLE;
   let confidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
@@ -737,8 +747,10 @@ async function tryOpenAiWebSearch(
     profile,
     searchQueries: scopedQueries,
     instructions:
-      'Search the web using each query in searchQueries. For every real grant program you find, ' +
-      'evaluate it against the applicant profile and include it in the decisions array. ' +
+      'Search the web using each query in searchQueries. For every real program you find that funds ' +
+      'home accessibility renovations or modifications, evaluate it against the applicant profile and ' +
+      'include it in the decisions array. knownCandidates includes a fundsRequestedModifications flag ' +
+      'per program from our own catalog data, for context. ' +
       'Assign a unique grantId (snake_case), set scope to MUNICIPAL/PROVINCIAL/NATIONAL, ' +
       'set jurisdiction to the ISO province code (e.g. "ON") or "CA" for national programs, ' +
       'and include the live sourceUrl where the grant was found. ' +
@@ -750,6 +762,9 @@ async function tryOpenAiWebSearch(
       jurisdiction: c.source.jurisdiction,
       sourceUrl: c.source.sourceUrl,
       baselineScore: c.score,
+      fundsRequestedModifications: (c.source.eligibleModificationCodes ?? []).some((code) =>
+        input.required.modificationCodes.includes(code as ModificationCode)
+      ),
     })),
   });
 

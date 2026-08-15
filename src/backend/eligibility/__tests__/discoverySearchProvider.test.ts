@@ -5,8 +5,10 @@ import {
   discoverAndEvaluateGrants,
   resolveGrantDiscoveryMetadata,
   detectCatalogContradictions,
+  scoreCandidate,
   DiscoveredGrant,
 } from '../discoverySearchProvider';
+import { GrantDiscoverySourceEntry } from '../discoverySourceCatalog';
 import { EligibilityDecision, EligibilityInput } from '../types';
 
 const originalFetch = globalThis.fetch;
@@ -754,5 +756,74 @@ describe('detectCatalogContradictions', () => {
     const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
 
     expect(contradictions).toHaveLength(0);
+  });
+});
+
+describe('scoreCandidate', () => {
+  // Deliberately maxes out every non-modification signal (jurisdiction, text
+  // overlap, keyword overlap, owner-occupied, consent) so that, pre-fix, the
+  // combined score alone clears eligibleThreshold (75) with no modification
+  // overlap at all — reproducing the on_adp-style false positive.
+  function makeMaxSignalSource(
+    overrides: Partial<GrantDiscoverySourceEntry>
+  ): GrantDiscoverySourceEntry {
+    return {
+      id: 'test_program',
+      title: 'Test Device Program',
+      scope: 'PROVINCIAL',
+      jurisdiction: 'ON',
+      sourceUrl: 'https://example.com/test-program',
+      summary: 'A synthetic program used for testing.',
+      keywords: ['alpha', 'beta', 'gamma', 'delta'],
+      requiresOwnerOccupied: true,
+      requiresConsentConfirmed: true,
+      ...overrides,
+    };
+  }
+
+  const maxSignalQueryTokens = [
+    'test', 'device', 'program', 'synthetic', 'testing', 'alpha', 'beta', 'gamma', 'delta',
+  ];
+
+  it('caps a device-only program (empty eligibleModificationCodes) below ELIGIBLE even when every other signal maxes out', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: [] });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.score).toBeLessThan(75);
+    expect(result.decision).not.toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.missingCriteria).toContain('no_modification_overlap');
+  });
+
+  it('caps a modification-specific program with zero code overlap below ELIGIBLE even when every other signal maxes out', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: ['RAISED_TOILET'] });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.score).toBeLessThan(75);
+    expect(result.decision).not.toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.missingCriteria).toContain('no_modification_overlap');
+  });
+
+  it('still allows ELIGIBLE when the program overlaps the requested modification codes', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: ['GRAB_BARS', 'HANDRAILS'] });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.decision).toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.matchedCriteria.some((c) => c.startsWith('modification_overlap_'))).toBe(true);
+  });
+
+  it('does not exclude on modification codes when the project requests none', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: [] });
+    const input: EligibilityInput = {
+      ...baseEligibilityInput,
+      required: { ...baseEligibilityInput.required, modificationCodes: [] },
+    };
+
+    const result = scoreCandidate(input, source, maxSignalQueryTokens);
+
+    expect(result.decision).toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.missingCriteria).not.toContain('no_modification_overlap');
   });
 });
