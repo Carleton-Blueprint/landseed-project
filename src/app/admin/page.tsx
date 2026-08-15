@@ -4,6 +4,8 @@ import { redirectToSignIn } from "lib/auth-redirect";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient";
+import { AdminMfaPanel } from "./AdminMfaPanel";
+import { AdminAlertThresholdsPanel } from "./AdminAlertThresholdsPanel";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
 
 export const metadata: Metadata = {
@@ -41,6 +43,8 @@ export default async function AdminDashboardPage() {
     type TransferRow = {
       id: string; projectId: string; status: string;
       attempts: number; lastError: string | null; sentAt: Date | null;
+      workOrderUrl: string | null; externalStatus: string | null;
+      lastStatusCallbackAt: Date | null; lastManualSyncAt: Date | null;
     };
 
     const [allDocuments, allQuotes, allAssessments] = await Promise.all([
@@ -80,7 +84,10 @@ export default async function AdminDashboardPage() {
       allTransfers = await (prisma as any).builderTrendTransfer.findMany({
         where: { projectId: { in: projectIds } },
         orderBy: { createdAt: "desc" },
-        select: { id: true, projectId: true, status: true, attempts: true, lastError: true, sentAt: true },
+        select: {
+          id: true, projectId: true, status: true, attempts: true, lastError: true, sentAt: true,
+          workOrderUrl: true, externalStatus: true, lastStatusCallbackAt: true, lastManualSyncAt: true,
+        },
       });
     } catch { /* table may not exist yet */ }
 
@@ -155,6 +162,10 @@ export default async function AdminDashboardPage() {
           id: latestTransfer.id, status: latestTransfer.status,
           attempts: latestTransfer.attempts, lastError: latestTransfer.lastError,
           sentAt: latestTransfer.sentAt?.toISOString() ?? null,
+          workOrderUrl: latestTransfer.workOrderUrl ?? null,
+          externalStatus: latestTransfer.externalStatus ?? null,
+          lastStatusCallbackAt: latestTransfer.lastStatusCallbackAt?.toISOString() ?? null,
+          lastManualSyncAt: latestTransfer.lastManualSyncAt?.toISOString() ?? null,
         } : null,
         manualFallbackExport: latestFallbackExport ? {
           id: latestFallbackExport.id, status: latestFallbackExport.status,
@@ -325,6 +336,10 @@ export default async function AdminDashboardPage() {
           attempts: 1,
           lastError: null,
           sentAt: null,
+          workOrderUrl: null,
+          externalStatus: null,
+          lastStatusCallbackAt: null,
+          lastManualSyncAt: null,
         },
         submissionData: {
           name: "Arthur Pendelton",
@@ -521,6 +536,10 @@ export default async function AdminDashboardPage() {
           attempts: 1,
           lastError: null,
           sentAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
+          workOrderUrl: null,
+          externalStatus: "IN_PROGRESS",
+          lastStatusCallbackAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+          lastManualSyncAt: null,
         },
         submissionData: {
           name: "Sarah Jenkins",
@@ -551,5 +570,11 @@ export default async function AdminDashboardPage() {
     ];
   }
 
-  return <AdminDashboardClient projects={serialized} userName={userName} />;
+  return (
+    <>
+      <AdminMfaPanel currentUserId={session.user.id} />
+      <AdminAlertThresholdsPanel />
+      <AdminDashboardClient projects={serialized} userName={userName} />
+    </>
+  );
 }

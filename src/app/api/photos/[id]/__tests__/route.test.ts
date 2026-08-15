@@ -1,4 +1,5 @@
 import { DELETE } from "../route";
+import type { NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { prisma } from "lib/prisma";
@@ -25,6 +26,12 @@ jest.mock("lib/s3", () => ({
   deleteObjectFromS3: jest.fn(),
 }));
 
+// The handler under test never touches NextRequest-specific fields
+// (cookies, nextUrl, etc.), so a plain Request is safe to pass through.
+function buildRequest(url: string): NextRequest {
+  return new Request(url) as unknown as NextRequest;
+}
+
 describe("DELETE /api/photos/[id]", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -33,7 +40,7 @@ describe("DELETE /api/photos/[id]", () => {
   it("returns 401 when unsigned", async () => {
     (auth as jest.Mock).mockResolvedValue(null);
 
-    const res = await DELETE(new Request("http://localhost/api/photos/photo-1"), {
+    const res = await DELETE(buildRequest("http://localhost/api/photos/photo-1"), {
       params: Promise.resolve({ id: "photo-1" }),
     });
 
@@ -44,7 +51,7 @@ describe("DELETE /api/photos/[id]", () => {
     (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
     (prisma.photo.findUnique as jest.Mock).mockResolvedValue(null);
 
-    const res = await DELETE(new Request("http://localhost/api/photos/photo-1"), {
+    const res = await DELETE(buildRequest("http://localhost/api/photos/photo-1"), {
       params: Promise.resolve({ id: "photo-1" }),
     });
 
@@ -60,7 +67,7 @@ describe("DELETE /api/photos/[id]", () => {
       project: { status: "submitted" },
     });
 
-    const res = await DELETE(new Request("http://localhost/api/photos/photo-1"), {
+    const res = await DELETE(buildRequest("http://localhost/api/photos/photo-1"), {
       params: Promise.resolve({ id: "photo-1" }),
     });
 
@@ -79,7 +86,7 @@ describe("DELETE /api/photos/[id]", () => {
     (deleteObjectFromS3 as jest.Mock).mockResolvedValue(undefined);
     (prisma.photo.delete as jest.Mock).mockResolvedValue({ id: "photo-1" });
 
-    const res = await DELETE(new Request("http://localhost/api/photos/photo-1"), {
+    const res = await DELETE(buildRequest("http://localhost/api/photos/photo-1"), {
       params: Promise.resolve({ id: "photo-1" }),
     });
 

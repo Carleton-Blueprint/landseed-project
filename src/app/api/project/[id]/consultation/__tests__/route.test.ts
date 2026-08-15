@@ -23,14 +23,20 @@ jest.mock("@/backend/auth/projectAccess", () => ({
 
 const originalEnv = process.env.NODE_ENV;
 
+// Next.js's global.d.ts types process.env.NODE_ENV as readonly; defineProperty
+// bypasses that for tests without weakening the type everywhere else.
+function setNodeEnv(value: string | undefined) {
+  Object.defineProperty(process.env, "NODE_ENV", { value, configurable: true });
+}
+
 describe("Consultation Request API", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
   });
 
   afterAll(() => {
-    process.env.NODE_ENV = originalEnv;
+    setNodeEnv(originalEnv);
   });
 
   describe("GET", () => {

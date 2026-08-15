@@ -3,6 +3,7 @@ import { POST } from "../route";
 import { consumeAuthEmailToken } from "@/backend/auth/authEmailToken";
 import { hashPassword } from "@/backend/auth/password";
 import { prisma } from "lib/prisma";
+import { enforceRateLimit } from "@/backend/auth/rateLimit";
 
 jest.mock("@/backend/auth/authEmailToken", () => ({
   consumeAuthEmailToken: jest.fn(),
@@ -21,10 +22,33 @@ jest.mock("lib/prisma", () => ({
   },
 }));
 
+jest.mock("@/backend/auth/rateLimit", () => ({
+  enforceRateLimit: jest.fn(),
+}));
+
 describe("POST /api/auth/reset-password", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (hashPassword as jest.Mock).mockResolvedValue("new-hash");
+    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: null });
+  });
+
+  it("returns 429 when the rate limit is hit", async () => {
+    const limited = new Response(JSON.stringify({ error: "Too many reset attempts." }), {
+      status: 429,
+      headers: { "Retry-After": "3600" },
+    });
+    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: limited });
+
+    const request = new NextRequest("http://localhost:3000/api/auth/reset-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "t", password: "Password1!" }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(429);
+    expect(consumeAuthEmailToken).not.toHaveBeenCalled();
   });
 
   it("rejects invalid tokens", async () => {
@@ -54,12 +78,12 @@ describe("POST /api/auth/reset-password", () => {
     const request = new NextRequest("http://localhost:3000/api/auth/reset-password", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: "valid-token", password: "password123" }),
+      body: JSON.stringify({ token: "valid-token", password: "Password1!" }),
     });
 
     const response = await POST(request);
     expect(response.status).toBe(200);
-    expect(hashPassword).toHaveBeenCalledWith("password123");
+    expect(hashPassword).toHaveBeenCalledWith("Password1!");
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: "user-1" },
       data: { passwordHash: "new-hash" },

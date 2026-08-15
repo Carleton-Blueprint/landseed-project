@@ -1,4 +1,36 @@
 import { getMaterialPrice } from "@/backend/services/pricing";
+import { MODIFICATION_CODES, type ModificationCode } from "@/backend/eligibility/types";
+import {
+  MODIFICATION_COST_CATALOG,
+  UNSPECIFIED_MODIFICATION_LABEL,
+} from "@/backend/services/modificationCostCatalog";
+import {
+  DEFAULT_PRICING_TIER,
+  getApplicableTiers,
+  PRICING_TIER_CONFIG,
+  type AnyRefinedEstimate,
+  type PricingTierAdjustment,
+  type PricingTierKey,
+  type TieredRefinedEstimate,
+} from "@/backend/services/pricingTiers";
+
+const REFINED_ESTIMATE_DEBUG = (process.env.PRICING_DEBUG ?? "true").toLowerCase() !== "false";
+
+function logFallbackPricingUsed(details: {
+  description: string;
+  modificationCode?: ModificationCode;
+  query: string;
+  serpStatus: string;
+  fallbackUnitPrice: number;
+}): void {
+  if (!REFINED_ESTIMATE_DEBUG) return;
+  const ts = new Date().toISOString();
+  console.warn(
+    `[PRICING:FALLBACK] ${ts} — Using fallback price for "${details.description}" ` +
+      `(modificationCode=${details.modificationCode ?? "UNSPECIFIED"}, query="${details.query}", ` +
+      `serpStatus=${details.serpStatus}) — fallbackUnitPrice=$${details.fallbackUnitPrice}`
+  );
+}
 
 export interface RefinedEstimateLineItem {
   description: string;
@@ -6,6 +38,8 @@ export interface RefinedEstimateLineItem {
   pricingQuery: string;
   pricingSource?: string | null;
   pricingLink?: string | null;
+  modificationCode?: ModificationCode | null;
+  modificationLabel?: string | null;
   materialUnitCost: number;
   materialTotal: number;
   laborHours: number;
@@ -16,14 +50,41 @@ export interface RefinedEstimateLineItem {
   lineTotal: number;
 }
 
+export interface ModificationSubtotal {
+  modificationCode: ModificationCode | "UNSPECIFIED";
+  modificationLabel: string;
+  total: number;
+}
+
 export interface RefinedEstimate {
   lineItems: RefinedEstimateLineItem[];
+  modificationTotals: ModificationSubtotal[];
   subtotal: number;
   laborTotal: number;
   markupTotal: number;
   total: number;
   estimateMin: number;
   estimateMax: number;
+}
+
+const MODIFICATION_GROUP_ORDER: (ModificationCode | "UNSPECIFIED")[] = [
+  ...Object.values(MODIFICATION_CODES),
+  "UNSPECIFIED",
+];
+
+export function computeModificationTotals(lineItems: RefinedEstimateLineItem[]): ModificationSubtotal[] {
+  const totals = new Map<ModificationCode | "UNSPECIFIED", number>();
+
+  for (const item of lineItems) {
+    const key = item.modificationCode ?? "UNSPECIFIED";
+    totals.set(key, (totals.get(key) ?? 0) + item.lineTotal);
+  }
+
+  return MODIFICATION_GROUP_ORDER.filter((key) => totals.has(key)).map((key) => ({
+    modificationCode: key,
+    modificationLabel: key === "UNSPECIFIED" ? UNSPECIFIED_MODIFICATION_LABEL : MODIFICATION_COST_CATALOG[key].label,
+    total: roundToCents(totals.get(key)!),
+  }));
 }
 
 function roundToCents(value: number): number {
@@ -38,58 +99,102 @@ function buildLaborForItem(quantity: number, materialUnitCost: number): { laborH
   return { laborHours, laborRate };
 }
 
-function formatQuery(description: string): string {
-  return description.trim();
+function formatQuery(item: QuoteItem): string {
+  if (item.modificationCode) {
+    return MODIFICATION_COST_CATALOG[item.modificationCode].searchQuery;
+  }
+  return item.description.trim();
 }
 
-export async function generateMockRefinedEstimate(
-  items: Array<{ description: string; quantity: number; unitPrice: number }>
-): Promise<RefinedEstimate> {
-  const lineItems: RefinedEstimateLineItem[] = [];
+type PriceResultLike = Awaited<ReturnType<typeof getMaterialPrice>> | null;
+export interface QuoteItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  modificationCode?: ModificationCode;
+}
+
+async function fetchPriceResults(items: QuoteItem[]): Promise<PriceResultLike[]> {
+  const results: PriceResultLike[] = [];
+
+  for (const item of items) {
+    try {
+      results.push(await getMaterialPrice(formatQuery(item)));
+    } catch {
+      results.push(null);
+    }
+  }
+
+  return results;
+}
+
+function buildLineItemForTier(
+  item: QuoteItem,
+  priceResult: PriceResultLike,
+  tierAdjustment: PricingTierAdjustment
+): RefinedEstimateLineItem {
+  const usedSerpPrice = priceResult?.status === "ok" && priceResult.price !== null;
+  const catalogEntry = item.modificationCode ? MODIFICATION_COST_CATALOG[item.modificationCode] : undefined;
+  const query = formatQuery(item);
+  const fallbackUnitPrice = catalogEntry?.fallbackUnitPrice ?? item.unitPrice ?? 150;
+
+  if (!usedSerpPrice) {
+    logFallbackPricingUsed({
+      description: item.description,
+      modificationCode: item.modificationCode,
+      query,
+      serpStatus: priceResult?.status ?? "no_result",
+      fallbackUnitPrice,
+    });
+  }
+
+  const baseUnitCost = roundToCents(usedSerpPrice ? priceResult!.price! : fallbackUnitPrice);
+  const materialUnitCost = roundToCents(baseUnitCost * tierAdjustment.materialMultiplier);
+  const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, baseUnitCost);
+  const laborRate = roundToCents(baseLaborRate * tierAdjustment.laborMultiplier);
+  const materialTotal = roundToCents(materialUnitCost * item.quantity);
+  const laborTotalForLine = roundToCents(laborHours * laborRate);
+  const lineBase = materialTotal + laborTotalForLine;
+  const markupPercentage = tierAdjustment.markupPercentage;
+  const markupTotalForLine = roundToCents(lineBase * markupPercentage);
+  const lineTotal = roundToCents(lineBase + markupTotalForLine);
+
+  return {
+    description: item.description,
+    quantity: item.quantity,
+    pricingQuery: query,
+    pricingSource: usedSerpPrice ? (priceResult!.store ?? priceResult!.name) : "fallback",
+    pricingLink: usedSerpPrice ? priceResult!.link : null,
+    modificationCode: item.modificationCode ?? null,
+    modificationLabel: catalogEntry?.label ?? null,
+    materialUnitCost,
+    materialTotal,
+    laborHours,
+    laborRate,
+    laborTotal: laborTotalForLine,
+    markupPercentage,
+    markupTotal: markupTotalForLine,
+    lineTotal,
+  };
+}
+
+function buildEstimateForTier(
+  items: QuoteItem[],
+  priceResults: PriceResultLike[],
+  tierAdjustment: PricingTierAdjustment
+): RefinedEstimate {
+  const lineItems = items.map((item, index) =>
+    buildLineItemForTier(item, priceResults[index] ?? null, tierAdjustment)
+  );
+
   let subtotal = 0;
   let laborTotal = 0;
   let markupTotal = 0;
 
-  for (const item of items) {
-    const pricingQuery = formatQuery(item.description);
-    let priceResult;
-
-    try {
-      priceResult = await getMaterialPrice(pricingQuery);
-    } catch {
-      priceResult = null;
-    }
-
-    const materialUnitCost = roundToCents(
-      priceResult?.price ?? item.unitPrice ?? 150
-    );
-    const { laborHours, laborRate } = buildLaborForItem(item.quantity, materialUnitCost);
-    const materialTotal = roundToCents(materialUnitCost * item.quantity);
-    const laborTotalForLine = roundToCents(laborHours * laborRate);
-    const lineBase = materialTotal + laborTotalForLine;
-    const markupPercentage = 0.15;
-    const markupTotalForLine = roundToCents(lineBase * markupPercentage);
-    const lineTotal = roundToCents(lineBase + markupTotalForLine);
-
-    lineItems.push({
-      description: item.description,
-      quantity: item.quantity,
-      pricingQuery,
-      pricingSource: priceResult?.store ?? priceResult?.name ?? null,
-      pricingLink: priceResult?.link ?? null,
-      materialUnitCost,
-      materialTotal,
-      laborHours,
-      laborRate,
-      laborTotal: laborTotalForLine,
-      markupPercentage,
-      markupTotal: markupTotalForLine,
-      lineTotal,
-    });
-
-    subtotal += materialTotal + laborTotalForLine;
-    laborTotal += laborTotalForLine;
-    markupTotal += markupTotalForLine;
+  for (const lineItem of lineItems) {
+    subtotal += lineItem.materialTotal + lineItem.laborTotal;
+    laborTotal += lineItem.laborTotal;
+    markupTotal += lineItem.markupTotal;
   }
 
   subtotal = roundToCents(subtotal);
@@ -101,6 +206,7 @@ export async function generateMockRefinedEstimate(
 
   return {
     lineItems,
+    modificationTotals: computeModificationTotals(lineItems),
     subtotal,
     laborTotal,
     markupTotal,
@@ -108,4 +214,24 @@ export async function generateMockRefinedEstimate(
     estimateMin,
     estimateMax,
   };
+}
+
+export async function generateMockRefinedEstimate(
+  items: QuoteItem[],
+  modificationCodes: ModificationCode[] = []
+): Promise<AnyRefinedEstimate> {
+  const priceResults = await fetchPriceResults(items);
+  const applicableTiers = getApplicableTiers(modificationCodes);
+
+  if (applicableTiers.length === 0) {
+    return buildEstimateForTier(items, priceResults, PRICING_TIER_CONFIG[DEFAULT_PRICING_TIER]);
+  }
+
+  const tiers = {} as Record<PricingTierKey, RefinedEstimate>;
+  for (const tier of applicableTiers) {
+    tiers[tier] = buildEstimateForTier(items, priceResults, PRICING_TIER_CONFIG[tier]);
+  }
+
+  const tieredEstimate: TieredRefinedEstimate = { tiers };
+  return tieredEstimate;
 }

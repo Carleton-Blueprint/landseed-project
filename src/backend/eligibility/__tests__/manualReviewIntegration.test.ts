@@ -22,10 +22,82 @@ import { prisma } from "lib/prisma";
 import { evaluateProjectEligibility } from "@/backend/eligibility/service";
 import { manualReviewQueue, createManualReviewWorker } from "@/backend/queue";
 import { FeatureFlag, isFeatureFlagEnabled } from "@/backend/features/flags";
+import { EligibilityDecision, EligibilityInput } from "@/backend/eligibility/types";
 import { Worker } from "bullmq";
 import Redis from "ioredis";
 
 jest.setTimeout(15000);
+
+// evaluateProjectEligibility() fires an unawaited background quote-generation
+// task that calls the real generateQuote(), which hits an external pricing
+// API with an 8s timeout. Left unmocked, that background work routinely
+// outlives a test's own assertions/cleanup, causing "Cannot log after tests
+// are done" once it settles past teardown and FK errors when it writes a
+// Quote for a project the test has already deleted. Mock it so that
+// background task resolves immediately instead.
+jest.mock("@/backend/services/quote", () => ({
+  generateQuote: jest.fn(async () => ({
+    quoteId: "test-quote-id",
+    subtotal: 5000,
+    total: 5000,
+    estimateMin: 5000,
+    estimateMax: 5000,
+    pricingSource: "serp_api",
+    refinedEstimate: {},
+  })),
+}));
+
+// The real discovery provider's dev mock mode (GRANT_DISCOVERY_MOCK_AI) always
+// returns the same fixed HIGH/MEDIUM/LOW grant trio regardless of project input,
+// so AI confidence never varies by scenario. Mock discovery here so this test can
+// deterministically exercise both the low-confidence and high-confidence paths
+// through the real classify/enqueue pipeline.
+jest.mock("@/backend/eligibility/discoverySearchProvider", () => {
+  const actual = jest.requireActual("@/backend/eligibility/discoverySearchProvider");
+  return {
+    ...actual,
+    discoverAndEvaluateGrants: jest.fn(async (input: EligibilityInput) => {
+      const confidence = input.required.clientConsentConfirmed ? "HIGH" : "LOW";
+      return {
+        overallDecision: EligibilityDecision.NEEDS_MORE_INFO,
+        programDecisions: {},
+        reasonCodes: [],
+        staffReasonMessages: [],
+        clientReasonMessages: [],
+        missingRequirements: [],
+        discoveredGrants: [
+          {
+            grantId: "test_grant",
+            title: "Test Grant",
+            scope: "NATIONAL",
+            jurisdiction: "CA",
+            sourceUrl: null,
+            summary: "Test grant for integration test.",
+            decision: EligibilityDecision.NEEDS_MORE_INFO,
+            relevanceScore: 50,
+            confidence,
+            matchedCriteria: [],
+            missingCriteria: [],
+            rationale: "Test rationale.",
+          },
+        ],
+        discoveryMetadata: {
+          provider: "HEURISTIC",
+          engineVersion: "test",
+          promptVersion: "test",
+          scoringVersion: "test",
+          modelVersion: "test",
+          sourceSnapshotId: null,
+          query: "test",
+          searchedScopes: ["NATIONAL"],
+          candidateCount: 1,
+          returnedCount: 1,
+          executedAt: new Date().toISOString(),
+        },
+      };
+    }),
+  };
+});
 
 describe("FR-2.6: Manual Review Integration Tests", () => {
   let worker: Worker;
@@ -59,7 +131,7 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
     });
 
     worker = createManualReviewWorker(async (job) => {
-      console.log(`[Test Worker] Processing job: ${job.id}`);
+      console.log(`[Test Worker] Processing job for project: ${job.data.projectId}`);
     });
   });
 
@@ -77,9 +149,9 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
   });
 
   beforeEach(async () => {
-    await manualReviewQueue.clean(0, "active");
-    await manualReviewQueue.clean(0, "completed");
-    await manualReviewQueue.clean(0, "failed");
+    await manualReviewQueue.clean(0, 1000, "active");
+    await manualReviewQueue.clean(0, 1000, "completed");
+    await manualReviewQueue.clean(0, 1000, "failed");
   });
 
   describe("Feature Flag Gating", () => {
@@ -112,17 +184,26 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
       const result = await evaluateProjectEligibility(project);
 
       expect(result).toBeDefined();
+      if (!("assessmentId" in result)) {
+        throw new Error(`Expected a successful evaluation, got: ${JSON.stringify(result)}`);
+      }
       expect(result.overallDecision).toBeDefined();
 
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      const jobCount = await manualReviewQueue.count();
+      // The worker created in beforeAll processes jobs immediately, so by the
+      // time we check, the job may already be "completed" rather than still
+      // waiting/active — manualReviewQueue.count() only counts those states.
+      // Look up the job by its deterministic ID instead, which returns it
+      // regardless of state.
+      const jobId = `manual-review-${project.id}-${result.assessmentId}`;
+      const job = await manualReviewQueue.getJob(jobId);
       const isEnabled = isFeatureFlagEnabled(FeatureFlag.MANUAL_REVIEW_AUTO_FLAG);
 
       if (isEnabled) {
-        expect(jobCount).toBeGreaterThan(0);
+        expect(job).toBeDefined();
       } else {
-        expect(jobCount).toBe(0);
+        expect(job).toBeUndefined();
       }
 
       await prisma.project.delete({ where: { id: project.id } });

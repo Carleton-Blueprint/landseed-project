@@ -79,6 +79,30 @@ export async function evaluateProjectEligibility(
       };
     }
 
+    // Step 3.5: Audit log the AI fallback if the live discovery call was attempted but failed
+    // (as opposed to being intentionally disabled/unconfigured, which is not a failure).
+    if (evaluation.discoveryMetadata.provider === 'HEURISTIC' && evaluation.discoveryMetadata.aiFailureReason) {
+      await logAuditEventNonBlocking({
+        category: 'AI_GENERATION',
+        action: 'GRANT_DISCOVERY_AI_FALLBACK',
+        outcome: 'FAILURE',
+        resourceType: 'EligibilityAssessment',
+        resourceId: assessment.id,
+        projectId: project.id,
+        actorUserId: performedBy?.id ?? null,
+        reason: evaluation.discoveryMetadata.aiFailureReason,
+        description: 'Live AI grant discovery failed; fell back to heuristic catalog scoring.',
+        metadata: {
+          failureReason: evaluation.discoveryMetadata.aiFailureReason,
+          engineVersion: evaluation.discoveryMetadata.engineVersion,
+          promptVersion: evaluation.discoveryMetadata.promptVersion,
+          scoringVersion: evaluation.discoveryMetadata.scoringVersion,
+          modelVersion: evaluation.discoveryMetadata.modelVersion,
+          sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
+        },
+      });
+    }
+
     // Step 4: Audit log (if audit event creation is available)
     if (performedBy) {
       await logAuditEventNonBlocking({
@@ -123,14 +147,47 @@ export async function evaluateProjectEligibility(
     });
 
     // Step 6: Trigger quote generation in background (non-blocking)
+    //
+    // In the normal intake flow this is a no-op: the real, catalog-priced quote
+    // (estimateGeneration.ts -> processScheduledEstimateGeneration -> generateQuote)
+    // already exists by the time eligibility evaluation runs, so `existingQuote`
+    // below is set and this returns early.
+    //
+    // It only actually creates a quote (this flat $5000 placeholder) when eligibility
+    // evaluation runs *before* that real quote exists, which happens via:
+    //   1. estimateGeneration.ts's catch block - if generateQuote() itself throws,
+    //      queueEligibilityEvaluation() still fires with no quote on record.
+    //   2. modificationOverride.ts -> triggerEvaluationAfterDraftUpdate() - fires
+    //      during the FR-4.10 admin pre-estimate override window, which is by design
+    //      *before* the delayed estimate-generation worker has run.
+    // In case 2 this also permanently blocks the real quote: processScheduledEstimateGeneration
+    // skips generation entirely once any quote exists for the project (see its
+    // `existingQuote` check), so the project gets stuck on this $5000 placeholder.
+    //
+    // Left as-is for now rather than removed: /api/admin/eligibility/assess lets an
+    // admin manually trigger evaluateProjectEligibility() for a project that never
+    // went through intake finalize (no delayed job ever queued) - this auto-quote is
+    // currently the only thing that gives such a project a quote at all.
     setImmediate(async () => {
       try {
+        const existingQuote = await prisma.quote.findFirst({
+          where: { projectId: project.id },
+          select: { id: true },
+        });
+        if (existingQuote) {
+          console.log(
+            `Skipping auto-quote for project ${project.id}: quote ${existingQuote.id} already exists`
+          );
+          return;
+        }
+
         // Dynamically import to avoid circular dependencies
         const { generateQuote } = await import('@/backend/services/quote');
         await generateQuote({
           projectId: project.id,
           items: [
             // TODO: Replace placeholder pricing with BuilderTrend-derived scope item pricing.
+            
             {
               description: 'Home modifications (auto-quoted from eligibility assessment)',
               quantity: 1,
@@ -139,6 +196,19 @@ export async function evaluateProjectEligibility(
           ],
         });
         console.log(`Auto-generated quote after eligibility assessment for project ${project.id}`);
+        // Auto-generate the pre-filled grant PDF when the project is eligible.
+        if (evaluation.overallDecision === 'ELIGIBLE') {
+          import('@/backend/services/grantDocument')
+            .then(({ generateAndStoreGrantDocument }) =>
+              generateAndStoreGrantDocument({
+                projectId: project.id,
+                actorUserId: performedBy?.id ?? project.userId,
+              })
+            )
+            .catch((err) => {
+              console.warn('Auto grant document generation failed for project', project.id, err);
+            });
+        }
       } catch (error) {
         console.warn(`Failed to auto-generate quote after eligibility assessment:`, error);
         // Non-blocking: eligibility assessment success is not affected by quote generation failure

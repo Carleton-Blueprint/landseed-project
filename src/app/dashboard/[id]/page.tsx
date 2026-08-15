@@ -10,7 +10,11 @@ import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
 import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
 import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
+import { isLiveImageGenerationEnabled } from "lib/openai";
 import { ConsultationScheduler } from "@/frontend/components/ConsultationScheduler";
+import { getLatestGrantDocumentGenerationInfo } from "@/backend/services/grantDocument";
+import { GrantDocumentCard } from "./GrantDocumentCard";
+import { listInformationRequestsForProject } from "@/backend/services/informationRequests";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -61,6 +65,17 @@ function getEstimateSummary(project: {
     explanation:
       "We are generating your estimate using real-time external retail data.",
   };
+}
+
+function getInformationRequestTypeLabel(requestType: string): string {
+  switch (requestType) {
+    case "PHOTOS":
+      return "additional photos";
+    case "DOCUMENTS":
+      return "additional documents";
+    default:
+      return "additional information";
+  }
 }
 
 function modificationItemsFromDraft(draftData: unknown): string[] {
@@ -128,6 +143,18 @@ export default async function ProjectDetailPage({
             generatedAt: true,
           },
         },
+        builderTrendTransfers: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            workOrderUrl: true,
+            externalStatus: true,
+            lastStatusCallbackAt: true,
+            lastManualSyncAt: true,
+          },
+        },
         projectAccess: {
           where: { userId: session.user.id },
           select: { userId: true },
@@ -165,7 +192,24 @@ export default async function ProjectDetailPage({
 
   const modificationItems = modificationItemsFromDraft(project.draftData);
 
-  const estimateSummary = getEstimateSummary(project);
+  const estimateSummary = getEstimateSummary({ status: project.status, quotes: project.quotes });
+
+  let grantDocumentInfo: { generatedAt: Date; incompleteFields: string[] } | null = null;
+  try {
+    grantDocumentInfo = await getLatestGrantDocumentGenerationInfo(project.id);
+  } catch (error) {
+    console.warn("Failed to load grant document generation info:", error);
+  }
+
+  let openInformationRequests: Awaited<ReturnType<typeof listInformationRequestsForProject>> = [];
+  try {
+    const allRequests = await listInformationRequestsForProject(project.id);
+    openInformationRequests = allRequests.filter(
+      (r) => r.status === "PENDING" || r.status === "FOLLOW_UP_FLAGGED"
+    );
+  } catch (error) {
+    console.warn("Failed to load information requests:", error);
+  }
 
   let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
   try {
@@ -180,16 +224,22 @@ export default async function ProjectDetailPage({
           ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
           : null;
 
+        // A real rendition already exists — show it regardless of the live-generation
+        // flag. Otherwise, only fall back to the mock placeholder when live generation
+        // is disabled; when it's enabled, leave this null so the gallery shows its
+        // built-in pending state while the queued job (or a retry) is in flight.
         const generatedImageUrl = existingGeneratedImageUrl ??
-          (await generateMockAccessibilityVisual(photo.url, {
-            modificationCodes: modificationItems,
-          }));
+          (isLiveImageGenerationEnabled()
+            ? null
+            : await generateMockAccessibilityVisual(photo.url, {
+                modificationCodes: modificationItems,
+              }));
 
-        const signedImageUrl = imageUrl?.startsWith("https://s3.")
+        const signedImageUrl = imageUrl?.includes(".amazonaws.com")
           ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
           : imageUrl;
 
-        const signedGeneratedImageUrl = generatedImageUrl?.startsWith("https://s3.")
+        const signedGeneratedImageUrl = generatedImageUrl?.includes(".amazonaws.com")
           ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
           : generatedImageUrl;
 
@@ -279,6 +329,38 @@ export default async function ProjectDetailPage({
           </div>
         </div>
 
+        {/* ═══════ Action Item: Staff Information Request ═══════ */}
+        {openInformationRequests.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <svg className="h-5 w-5 flex-shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-8.99-3h.008v.008h-.008V9z" />
+              </svg>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base font-semibold text-amber-900">
+                  Action needed{openInformationRequests.length > 1 ? `: ${openInformationRequests.length} requests` : ""}
+                </h2>
+                <ul className="mt-2 space-y-2">
+                  {openInformationRequests.map((r) => (
+                    <li key={r.id} className="text-sm text-amber-800">
+                      <span className="font-medium">
+                        Our advisory team requested {getInformationRequestTypeLabel(r.requestType)}
+                        {r.status === "FOLLOW_UP_FLAGGED" ? " (follow-up)" : ""}:
+                      </span>{" "}
+                      {r.message}
+                    </li>
+                  ))}
+                </ul>
+                <Link href={`/projects/${project.id}/documents`}>
+                  <Button variant="outline" className="mt-3 gap-1.5 text-sm border-amber-300 text-amber-800 hover:bg-amber-100">
+                    Upload now
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ═══════ Estimate Summary ═══════ */}
         <div className="rounded-xl border bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-3">
@@ -290,6 +372,56 @@ export default async function ProjectDetailPage({
           <p className="text-xl font-bold text-gray-800">{estimateSummary.value}</p>
           <p className="mt-2 text-sm text-gray-500">{estimateSummary.explanation}</p>
         </div>
+
+        {/* ═══════ Work Order (BuilderTrend) ═══════ */}
+        {project.builderTrendTransfers?.[0] && (
+          <div className="rounded-xl border bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-3">
+              <svg className="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+              </svg>
+              Work Order
+            </h2>
+            {(() => {
+              const transfer = project.builderTrendTransfers[0];
+              if (transfer.lastStatusCallbackAt) {
+                return (
+                  <>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {getStatusLabel(transfer.externalStatus ?? transfer.status)}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Last updated: {new Date(transfer.lastStatusCallbackAt).toLocaleString()}
+                    </p>
+                  </>
+                );
+              }
+
+              return (
+                <>
+                  <p className="text-sm text-gray-600">
+                    Live status updates aren&apos;t available for this work order yet.
+                  </p>
+                  {transfer.lastManualSyncAt && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Last manually synced: {new Date(transfer.lastManualSyncAt).toLocaleString()}
+                    </p>
+                  )}
+                </>
+              );
+            })()}
+            {project.builderTrendTransfers[0].workOrderUrl && (
+              <a
+                href={project.builderTrendTransfers[0].workOrderUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
+              >
+                View work order &rarr;
+              </a>
+            )}
+          </div>
+        )}
 
         {/* ═══════ Modification Items ═══════ */}
         {modificationItems.length > 0 && (
@@ -333,38 +465,12 @@ export default async function ProjectDetailPage({
         <SupportingDocumentsSection grantApplicationId={project.id} />
 
         {/* ═══════ Grant PDF Download Card ═══════ */}
-        <div className="rounded-xl border bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-3">
-            <svg className="h-5 w-5 text-rose-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-            </svg>
-            Grant Assessment Document
-          </h2>
-          {project.grantDocumentKey ? (
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <p className="text-sm text-gray-600">
-                  Your personalized grant assessment PDF is ready for download.
-                </p>
-              </div>
-              <Link href={`/api/documents/${project.id}/download`}>
-                <Button variant="default" className="gap-2">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                  </svg>
-                  Download PDF
-                </Button>
-              </Link>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4">
-              <div className="h-5 w-5 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
-              <p className="text-sm text-gray-500">
-                Your grant assessment PDF is being generated. It will be available here shortly.
-              </p>
-            </div>
-          )}
-        </div>
+        <GrantDocumentCard
+          projectId={project.id}
+          hasDocument={Boolean(project.grantDocumentKey)}
+          lastGeneratedAt={grantDocumentInfo?.generatedAt.toISOString() ?? null}
+          incompleteFields={grantDocumentInfo?.incompleteFields ?? []}
+        />
       </div>
     </main>
   );

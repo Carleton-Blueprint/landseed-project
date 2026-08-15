@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { verifyAuditChain } from "@/backend/audit/verify";
 import { auth } from "@/auth";
-import { requireMinimumRole, HttpError } from "@/backend/auth/requireRole";
+import { HttpError } from "@/backend/auth/requireRole";
+import { MfaSetupRequiredError, requireAdminWithMfaEnrolled } from "@/backend/auth/requireAdminMfa";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
 
@@ -9,10 +10,10 @@ export async function GET(request: Request) {
   try {
     const session = await auth();
     try {
-      // Require ADMIN to run the audit verify
-      await requireMinimumRole(session, "ADMIN");
+      // Require ADMIN (with MFA enrolled) to run the audit verify
+      await requireAdminWithMfaEnrolled(session);
     } catch (err) {
-      if (err instanceof HttpError) {
+      if (err instanceof HttpError || err instanceof MfaSetupRequiredError) {
         const auditContext = getRequestAuditContext(request);
         await logDeniedAdminAccessAttempt({
           surface: "route",
@@ -30,7 +31,13 @@ export async function GET(request: Request) {
           },
         });
 
-        return new NextResponse(JSON.stringify({ error: err.message }), { status: err.status });
+        return new NextResponse(
+          JSON.stringify({
+            error: err.message,
+            ...(err instanceof MfaSetupRequiredError ? { code: err.code } : {}),
+          }),
+          { status: err.status }
+        );
       }
       return new NextResponse(JSON.stringify({ error: "forbidden" }), { status: 403 });
     }

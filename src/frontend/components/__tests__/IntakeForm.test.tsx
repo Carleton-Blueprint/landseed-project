@@ -21,6 +21,7 @@ jest.mock("@/frontend/lib/intakeAccount", () => ({
   hasAuthenticatedSession: () => false,
   isLegacyAuthBypassClient: () => false,
   registerIntakeAccount: jest.fn(async () => null),
+  isLegacyAuthBypassClient: () => false,
 }));
 
 const mockFetch = jest.fn();
@@ -130,8 +131,8 @@ describe("IntakeForm", () => {
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
 
     await user.type(screen.getByLabelText(/^name$/i), "Jane Doe");
-    await user.type(screen.getByLabelText(/^password$/i), "password123");
-    await user.type(screen.getByLabelText(/confirm password/i), "password123");
+    await user.type(screen.getByLabelText(/^password$/i), "Password1!");
+    await user.type(screen.getByLabelText(/confirm password/i), "Password1!");
     await user.click(screen.getByRole("button", { name: /save as draft/i }));
 
     await waitFor(() => {

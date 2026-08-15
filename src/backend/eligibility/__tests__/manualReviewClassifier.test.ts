@@ -271,7 +271,7 @@ describe('FR-2.6: Manual Review Classifier', () => {
             'WIDENED_DOORWAY',
           ] as ModificationCode[],
         },
-        missingRequiredFields: ['PROVINCE', 'MODIFICATION_ITEMS', 'CLIENT_NAME'],
+        missingRequiredFields: ['PROVINCE', 'MODIFICATION_ITEMS', 'SENIOR_NAME'],
       });
 
       const result = classifyManualReviewNeed(input, 'MEDIUM', 10, 20);
@@ -432,6 +432,33 @@ describe('FR-2.6: Manual Review Classifier', () => {
 
     it('uses correct complexity signal requirement', () => {
       expect(COMPLEXITY_CONFIG.requiredSignalsForComplexity).toBe(2);
+    });
+  });
+
+  describe('Catalog contradiction trigger', () => {
+    it('flags immediately when a catalog contradiction is present, even at HIGH confidence with no complexity signals', () => {
+      const input = buildTestInput();
+      const result = classifyManualReviewNeed(input, 'HIGH', 10, 20, [
+        'Ontario Assistive Devices Program (ADP)',
+      ]);
+
+      expect(result.shouldFlag).toBe(true);
+      expect(result.reason).toBe(ProjectManualReviewReason.DISCOVERY_CATALOG_CONTRADICTION);
+      expect(result.description).toContain('Ontario Assistive Devices Program (ADP)');
+    });
+
+    it('takes priority over the LOW_CONFIDENCE reason when both conditions are present', () => {
+      const input = buildTestInput();
+      const result = classifyManualReviewNeed(input, 'LOW', 0, 10, ['Some Contradicting Program']);
+
+      expect(result.reason).toBe(ProjectManualReviewReason.DISCOVERY_CATALOG_CONTRADICTION);
+    });
+
+    it('does not flag for this reason when no contradictions are passed', () => {
+      const input = buildTestInput();
+      const result = classifyManualReviewNeed(input, 'HIGH', 10, 20, []);
+
+      expect(result.reason).not.toBe(ProjectManualReviewReason.DISCOVERY_CATALOG_CONTRADICTION);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
 
 export interface PricingAuditSourceReference {
-  sourceType: 'DISCOVERY_GRANT_SOURCE' | 'PRICING_MATRIX';
+  sourceType: 'DISCOVERY_GRANT_SOURCE';
   sourceId?: string;
   title?: string;
   jurisdiction?: string;
@@ -28,8 +28,6 @@ export interface PricingDecisionAuditInput {
   projectId: string;
   quoteId: string;
   actorUserId?: string | null;
-  pricingMatrixVersionId: string;
-  pricingMatrixVersionNumber?: number;
   subtotal: number;
   total: number;
   eligibilityAssessmentId?: string;
@@ -46,8 +44,6 @@ export interface PricingDecisionAuditInput {
 
 export interface PricingDecisionAuditMetadata {
   pricing: {
-    matrixVersionId: string;
-    matrixVersionNumber?: number;
     subtotal: number;
     total: number;
   };
@@ -85,12 +81,6 @@ export function normalizePricingDecisionAuditMetadata(
 
   return {
     pricing: {
-      matrixVersionId:
-        typeof pricing.matrixVersionId === 'string' ? pricing.matrixVersionId : 'unknown',
-      matrixVersionNumber:
-        typeof pricing.matrixVersionNumber === 'number'
-          ? pricing.matrixVersionNumber
-          : undefined,
       subtotal: typeof pricing.subtotal === 'number' ? pricing.subtotal : 0,
       total: typeof pricing.total === 'number' ? pricing.total : 0,
     },
@@ -146,8 +136,6 @@ export async function logPricingDecisionAuditNonBlocking(
     description: 'Quote pricing decision generated with pricing and source provenance metadata.',
     metadata: {
       pricing: {
-        matrixVersionId: input.pricingMatrixVersionId,
-        matrixVersionNumber: input.pricingMatrixVersionNumber,
         subtotal: input.subtotal,
         total: input.total,
       },

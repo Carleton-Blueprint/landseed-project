@@ -17,7 +17,7 @@ export const virusScanQueue = new Queue<{ key: string; photoId: string; bucket?:
 
 export const aiJobsQueue = new Queue<{ jobType: string; payload: unknown }>("ai-jobs", {
   connection,
-  defaultJobOptions: { attempts: 2, backoff: { type: "exponential", delay: 2000 } },
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
 });
 
 export const emailQueue = new Queue<{
@@ -42,6 +42,11 @@ export const emailQueue = new Queue<{
   authActionLink?: string | null;
   seniorName?: string | null;
   isCaregiverSubmission?: boolean;
+  senderId?: string;
+  linkedResourceId?: string;
+  informationRequestType?: string;
+  informationRequestMessage?: string;
+  newEmail?: string | null;
 }>("email", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
@@ -51,15 +56,19 @@ export const builderTrendTransferQueue = new Queue<{
   transferId: string;
 }>("buildertrend-transfer", {
   connection,
-  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
 });
 
 export const manualReviewQueue = new Queue<{
   projectId: string;
-  assessmentId: string;
+  // Omitted for triggers with no EligibilityAssessment (e.g. photo analysis) —
+  // the worker's stale-evaluation guard only applies when this is present.
+  assessmentId?: string;
   aiConfidence: "HIGH" | "MEDIUM" | "LOW";
   complexityScore?: number;
   reason?: string;
+  photoId?: string;
+  metadata?: Record<string, unknown>;
 }>("manual-review", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 1000 } },
@@ -77,6 +86,14 @@ export const manualFallbackExportQueue = new Queue<{
 }>("manual-fallback-export", {
   connection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
+});
+
+export const estimateGenerationQueue = new Queue<{
+  projectId: string;
+  actorUserId?: string;
+}>("estimate-generation", {
+  connection,
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
 });
 
 export function createVirusScanWorker(
@@ -115,6 +132,11 @@ export function createEmailWorker(
       authActionLink?: string | null;
       seniorName?: string | null;
       isCaregiverSubmission?: boolean;
+      senderId?: string;
+      linkedResourceId?: string;
+      informationRequestType?: string;
+      informationRequestMessage?: string;
+      newEmail?: string | null;
     };
   }) => Promise<void>
 ) {
@@ -126,6 +148,8 @@ export function createBuilderTrendTransferWorker(
     data: {
       transferId: string;
     };
+    attemptsMade: number;
+    opts: { attempts?: number };
   }) => Promise<void>
 ) {
   return new Worker("buildertrend-transfer", processor, { connection });
@@ -135,10 +159,12 @@ export function createManualReviewWorker(
   processor: (job: {
     data: {
       projectId: string;
-      assessmentId: string;
+      assessmentId?: string;
       aiConfidence: "HIGH" | "MEDIUM" | "LOW";
       complexityScore?: number;
       reason?: string;
+      photoId?: string;
+      metadata?: Record<string, unknown>;
     };
   }) => Promise<void>
 ) {
@@ -160,4 +186,45 @@ export function createManualFallbackExportWorker(
   }) => Promise<void>
 ) {
   return new Worker("manual-fallback-export", processor, { connection });
+}
+
+export function createEstimateGenerationWorker(
+  processor: (job: {
+    data: {
+      projectId: string;
+      actorUserId?: string;
+    };
+  }) => Promise<void>
+) {
+  return new Worker("estimate-generation", processor, { connection });
+}
+
+// Some tests (e.g. builderTrendTransferQueueConfig.test.ts) mock bullmq/ioredis
+// themselves and load this module for real to inspect constructor args, which
+// leaves virusScanQueue etc. as plain mock objects with no .close()/.quit().
+// Guard each call so closeQueueConnections is safe regardless of whether the
+// underlying bullmq/ioredis instances are real or mocked.
+async function closeIfCloseable(target: { close?: () => Promise<unknown> }): Promise<void> {
+  if (typeof target.close === "function") {
+    await target.close();
+  }
+}
+
+// BullMQ does not close an externally-provided connection when a Queue is
+// closed, since it assumes the caller owns that connection's lifecycle.
+// Callers (e.g. test teardown) that want to fully release the shared
+// connection must close all queues first, then this.
+export async function closeQueueConnections(): Promise<void> {
+  await Promise.all([
+    closeIfCloseable(virusScanQueue),
+    closeIfCloseable(aiJobsQueue),
+    closeIfCloseable(emailQueue),
+    closeIfCloseable(builderTrendTransferQueue),
+    closeIfCloseable(manualReviewQueue),
+    closeIfCloseable(manualFallbackExportQueue),
+    closeIfCloseable(estimateGenerationQueue),
+  ]);
+  if (typeof connection.quit === "function") {
+    await connection.quit();
+  }
 }

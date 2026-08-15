@@ -13,6 +13,10 @@ import { useSession } from "next-auth/react";
 import { Button } from "@/frontend/components/ui/button";
 import { PhotoUploadInterface } from "./PhotoUploadInterface";
 import { FloorPlanUploadInterface } from "./FloorPlanUploadInterface";
+import {
+  PhotoUploadInterface,
+  type PhotoUploadInterfaceHandle,
+} from "./PhotoUploadInterface";
 import { useIntakeDraft } from "@/frontend/contexts/IntakeDraftContext";
 import type { IntakeData } from "@/backend/schemas/intakeDraft";
 import {
@@ -21,6 +25,7 @@ import {
   registerIntakeAccount,
 } from "@/frontend/lib/intakeAccount";
 import { getApiErrorMessage } from "@/frontend/lib/apiErrors";
+import { validatePasswordStrength } from "@/shared/passwordPolicy";
 
 const provinces = [
   "AB",
@@ -98,11 +103,12 @@ const intakeFieldsSchema = z.object({
 function buildIntakeSchema(requireAccountFields: boolean) {
   return intakeFieldsSchema.superRefine((data, ctx) => {
     if (requireAccountFields) {
-      if (!data.password || data.password.length < 8) {
+      const passwordError = data.password ? validatePasswordStrength(data.password) : "Password is required.";
+      if (passwordError) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["password"],
-          message: "Password must be at least 8 characters",
+          message: passwordError,
         });
       }
 
@@ -277,6 +283,8 @@ export function IntakeForm() {
   const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
   const [removingPhotoId, setRemovingPhotoId] = React.useState<string | null>(null);
   const previousUploadCountRef = React.useRef(0);
+  const filePhotoIdMapRef = React.useRef<Map<File, string>>(new Map());
+  const photoUploadRef = React.useRef<PhotoUploadInterfaceHandle>(null);
 
   const ensureIntakeAccountBeforeAction = React.useCallback(async () => {
     if (isAuthenticated) {
@@ -358,6 +366,7 @@ export function IntakeForm() {
         const uploadData = await uploadResponse.json();
         if (uploadData.photo?.id && uploadData.photo?.url) {
           addPhoto({ id: uploadData.photo.id, url: uploadData.photo.url });
+          filePhotoIdMapRef.current.set(file, uploadData.photo.id);
         }
         setPhotoError(null);
       } else {
@@ -375,14 +384,39 @@ export function IntakeForm() {
     }
   };
 
+  const handleDeleteFile = async (file: File) => {
+    const photoId = filePhotoIdMapRef.current.get(file);
+    if (!photoId) return;
+
+    filePhotoIdMapRef.current.delete(file);
+    setPhotoError(null);
+
+    try {
+      await removePhoto(photoId);
+    } catch {
+      setPhotoError("Failed to remove photo. Please try again.");
+    }
+  };
+
   const handleRemovePhoto = async (photoId: string) => {
     setRemovingPhotoId(photoId);
     setPhotoError(null);
 
     try {
       await removePhoto(photoId);
-      previousUploadCountRef.current = 0;
-      setPhotoKey((prev) => prev + 1);
+
+      let matchedFile: File | null = null;
+      for (const [file, id] of filePhotoIdMapRef.current.entries()) {
+        if (id === photoId) {
+          matchedFile = file;
+          break;
+        }
+      }
+      if (matchedFile) {
+        filePhotoIdMapRef.current.delete(matchedFile);
+        photoUploadRef.current?.removeFile(matchedFile);
+        previousUploadCountRef.current = Math.max(0, previousUploadCountRef.current - 1);
+      }
     } catch {
       setPhotoError("Failed to remove photo. Please try again.");
     } finally {
@@ -944,8 +978,12 @@ export function IntakeForm() {
         {photos.length < 10 ? (
           <PhotoUploadInterface
             key={photoKey}
+            ref={photoUploadRef}
             onUpload={(files) => {
               void handlePhotoUpload(files);
+            }}
+            onDeleteFile={(file) => {
+              void handleDeleteFile(file);
             }}
             maxFiles={10 - photos.length}
             maxSizeMB={10}

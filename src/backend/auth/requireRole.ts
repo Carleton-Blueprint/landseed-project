@@ -8,11 +8,20 @@ class HttpError extends Error {
   }
 }
 
-function parseAllowedEmails(): string[] {
+/** Exported for callers that need the full allowlist (e.g. listing admins to reset MFA for), not just a single-email check. */
+export function parseAllowedEmails(): string[] {
   return (process.env.ADVISORY_TEAM_EMAILS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+}
+
+/**
+ * Standalone allowlist check, usable before a Session exists (e.g. inside
+ * NextAuth's authorize() callback, which runs pre-session).
+ */
+export function isAdvisoryTeamEmail(email: string | null | undefined): boolean {
+  return email ? parseAllowedEmails().includes(email.toLowerCase()) : false;
 }
 
 /**
@@ -23,11 +32,9 @@ function parseAllowedEmails(): string[] {
 export async function hasMinimumRole(session: Session | null | undefined, requiredRole: "USER" | "ADMIN"): Promise<boolean> {
   if (!session?.user?.id) return false;
 
-  const email = session.user.email?.toLowerCase();
-
   if (requiredRole === "USER") return true;
 
-  return email ? parseAllowedEmails().includes(email) : false;
+  return isAdvisoryTeamEmail(session.user.email);
 }
 
 export async function requireMinimumRole(session: Session | null | undefined, requiredRole: "USER" | "ADMIN") {

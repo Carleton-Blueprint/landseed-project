@@ -1,8 +1,11 @@
 import { AuthEmailTokenPurpose, NotificationEventType } from "@prisma/client";
 import {
+  buildEmailChangeNewConfirmIdempotencyKey,
+  buildEmailChangeOldConfirmIdempotencyKey,
   buildEmailVerificationIdempotencyKey,
   buildPasswordResetIdempotencyKey,
   enqueueAuthEmail,
+  enqueueEmailChangeVerification,
   enqueueEmailVerificationIfNeeded,
   getAppBaseUrl,
 } from "@/backend/auth/authEmailNotification";
@@ -34,6 +37,15 @@ describe("authEmailNotification", () => {
     it("builds stable password reset keys", () => {
       expect(buildPasswordResetIdempotencyKey("user-1", "token-1")).toBe(
         "password-reset:user-1:token-1"
+      );
+    });
+
+    it("builds stable email-change keys", () => {
+      expect(buildEmailChangeOldConfirmIdempotencyKey("user-1", "token-1")).toBe(
+        "email-change-old:user-1:token-1"
+      );
+      expect(buildEmailChangeNewConfirmIdempotencyKey("user-1", "token-1")).toBe(
+        "email-change-new:user-1:token-1"
       );
     });
   });
@@ -90,6 +102,65 @@ describe("authEmailNotification", () => {
         authActionLink: "https://landseed.test/auth/reset-password?token=reset-token",
         seniorName: undefined,
         isCaregiverSubmission: undefined,
+      });
+    });
+  });
+
+  describe("enqueueEmailChangeVerification", () => {
+    it("enqueues the old-email confirmation with the pending newEmail carried through", async () => {
+      (createAuthEmailToken as jest.Mock).mockResolvedValue({
+        rawToken: "old-confirm-token",
+        tokenId: "token-1",
+        expiresAt: new Date("2026-06-26T13:00:00.000Z"),
+      });
+
+      await enqueueEmailChangeVerification({
+        userId: "user-1",
+        purpose: AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM,
+        newEmail: "new@example.com",
+        recipientEmail: "current@example.com",
+        recipientName: "Alex",
+      });
+
+      expect(createAuthEmailToken).toHaveBeenCalledWith({
+        userId: "user-1",
+        purpose: AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM,
+        newEmail: "new@example.com",
+      });
+      expect(enqueueNotification).toHaveBeenCalledWith({
+        eventType: NotificationEventType.EMAIL_CHANGE_VERIFY_OLD,
+        idempotencyKey: "email-change-old:user-1:token-1",
+        recipientEmail: "current@example.com",
+        recipientName: "Alex",
+        userId: "user-1",
+        authActionLink: "https://landseed.test/api/account/email-change/verify-old?token=old-confirm-token",
+        newEmail: "new@example.com",
+      });
+    });
+
+    it("enqueues the new-email confirmation addressed to the new email", async () => {
+      (createAuthEmailToken as jest.Mock).mockResolvedValue({
+        rawToken: "new-confirm-token",
+        tokenId: "token-2",
+        expiresAt: new Date("2026-06-26T13:00:00.000Z"),
+      });
+
+      await enqueueEmailChangeVerification({
+        userId: "user-1",
+        purpose: AuthEmailTokenPurpose.EMAIL_CHANGE_NEW_CONFIRM,
+        newEmail: "new@example.com",
+        recipientEmail: "new@example.com",
+        recipientName: "Alex",
+      });
+
+      expect(enqueueNotification).toHaveBeenCalledWith({
+        eventType: NotificationEventType.EMAIL_CHANGE_VERIFY_NEW,
+        idempotencyKey: "email-change-new:user-1:token-2",
+        recipientEmail: "new@example.com",
+        recipientName: "Alex",
+        userId: "user-1",
+        authActionLink: "https://landseed.test/api/account/email-change/verify-new?token=new-confirm-token",
+        newEmail: "new@example.com",
       });
     });
   });

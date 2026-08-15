@@ -1,8 +1,12 @@
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import { generateQuote } from "@/backend/services/quote";
-import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
-import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
+import { estimateGenerationQueue, aiJobsQueue } from "@/backend/queue";
+import {
+  buildEstimateGenerationJobId,
+  getEstimateGenerationDelayMs,
+} from "@/backend/services/estimateGeneration";
+import { getPricingSourceFromRefinedEstimate } from "@/backend/services/pricingSource";
+import { PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE } from "@/backend/services/photoAnalysis";
 
 export interface FinalizeIntakeInput {
   projectId: string;
@@ -53,20 +57,6 @@ interface QuoteRecordShape {
   refinedEstimate: unknown;
 }
 
-function getPricingSourceFromRefinedEstimate(refinedEstimate: unknown): PreliminaryRange["source"] {
-  if (!refinedEstimate || typeof refinedEstimate !== "object" || Array.isArray(refinedEstimate)) {
-    return "serp_api_partial";
-  }
-
-  const lineItems = (refinedEstimate as { lineItems?: Array<{ pricingSource?: string | null }> }).lineItems ?? [];
-  if (lineItems.length === 0) {
-    return "serp_api_partial";
-  }
-
-  const allSerpSourced = lineItems.every((item) => item.pricingSource !== null);
-  return allSerpSourced ? "serp_api" : "serp_api_partial";
-}
-
 function toQuoteRangeResult(quote: QuoteRecordShape): QuoteRangeResult {
   if (quote.estimateMin == null || quote.estimateMax == null) {
     return { quoteId: quote.id };
@@ -83,29 +73,6 @@ function toQuoteRangeResult(quote: QuoteRecordShape): QuoteRangeResult {
   };
 }
 
-function buildQuoteItems(draftData: unknown): Array<{ description: string; quantity: number; unitPrice: number }> {
-  const modificationItems =
-    draftData && typeof draftData === "object" && !Array.isArray(draftData)
-      ? (draftData as { modificationItems?: unknown }).modificationItems
-      : undefined;
-
-  if (!Array.isArray(modificationItems) || modificationItems.length === 0) {
-    return [
-      {
-        description: "Home modifications (initial intake estimate)",
-        quantity: 1,
-        unitPrice: 150,
-      },
-    ];
-  }
-
-  return modificationItems.map((item) => ({
-    description: typeof item === "string" ? item : String(item),
-    quantity: 1,
-    unitPrice: 150,
-  }));
-}
-
 export async function finalizeIntake(input: FinalizeIntakeInput): Promise<FinalizeIntakeResult> {
   const project = await prisma.project.findUnique({
     where: { id: input.projectId },
@@ -113,6 +80,7 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
       id: true,
       status: true,
       draftData: true,
+      isManualMode: true,
       quotes: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -206,59 +174,52 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
     userAgent: input.userAgent,
   });
 
-  const quoteItems = buildQuoteItems(project.draftData);
+  if (!project.isManualMode) {
+    await estimateGenerationQueue.add(
+      "generate-estimate",
+      {
+        projectId: project.id,
+        actorUserId: input.actorUserId,
+      },
+      {
+        jobId: buildEstimateGenerationJobId(project.id),
+        delay: getEstimateGenerationDelayMs(),
+        removeOnComplete: { count: 100 },
+        removeOnFail: { count: 500 },
+      }
+    );
 
-  try {
-    const quoteResult = await generateQuote({
-      projectId: project.id,
-      items: quoteItems,
+    // Sweep photos that finished virus scanning before the project was promoted — the
+    // clean-scan trigger in virusScanWorker.ts defers to this point in that case, since
+    // Project.draftData (and the client's declared modification codes) only exists now.
+    // Reuses the same jobId as the clean-scan trigger, so if a scan happens to clear right
+    // around promotion and both paths fire, BullMQ's jobId dedup makes the second a no-op.
+    const cleanUnanalyzedPhotos = await prisma.photo.findMany({
+      where: {
+        projectId: project.id,
+        virus_scan_status: "clean",
+        analysisStatus: { notIn: ["READY", "ANALYZING"] },
+      },
+      select: { id: true },
     });
 
-    const pricingSource = getPricingSourceFromRefinedEstimate(quoteResult.refinedEstimate);
-    const range: PreliminaryRange = {
-      min: quoteResult.estimateMin,
-      max: quoteResult.estimateMax,
-      source: pricingSource,
-      generatedAt: new Date().toISOString(),
-    };
-
-    try {
-      const readyResult = await markEstimateReadyForReview({
-        projectId: project.id,
-        quoteId: quoteResult.quoteId,
-        triggerSource: ESTIMATE_READY_TRIGGER_SOURCE.LEGACY_QUOTE_GENERATION,
-        actorUserId: input.actorUserId,
-        ipAddress: input.ipAddress,
-        userAgent: input.userAgent,
-      });
-
-      return {
-        ok: true,
-        projectId: project.id,
-        status: readyResult.projectStatus === "estimate_ready" ? "estimate_ready" : "submitted",
-        quoteId: quoteResult.quoteId,
-        range,
-        message: "Intake finalized, preliminary quote generated, and estimate marked ready.",
-      };
-    } catch (readyError) {
-      console.warn("Estimate ready transition failed after quote generation:", readyError);
-      return {
-        ok: true,
-        projectId: project.id,
-        status: "submitted",
-        quoteId: quoteResult.quoteId,
-        range,
-        message: "Intake finalized and preliminary quote generated.",
-      };
+    for (const photo of cleanUnanalyzedPhotos) {
+      try {
+        await aiJobsQueue.add(
+          "ai-jobs",
+          { jobType: PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE, payload: { photoId: photo.id } },
+          { jobId: `photo-analysis-${photo.id}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
+        );
+      } catch (queueError) {
+        console.warn(`Failed to queue photo analysis for ${photo.id} at intake finalization:`, queueError);
+      }
     }
-  } catch (quoteError) {
-    console.warn("Quote generation failed after intake finalization:", quoteError);
-
-    return {
-      ok: true,
-      projectId: project.id,
-      status: "submitted",
-      message: "Intake finalized successfully. Preliminary quote generation is pending.",
-    };
   }
+
+  return {
+    ok: true,
+    projectId: project.id,
+    status: "submitted",
+    message: "Intake finalized. Preliminary quote generation is scheduled.",
+  };
 }

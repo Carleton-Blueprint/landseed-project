@@ -1,0 +1,10 @@
+-- AlterEnum
+ALTER TYPE "AuthEmailTokenPurpose" ADD VALUE 'EMAIL_CHANGE_OLD_CONFIRM';
+ALTER TYPE "AuthEmailTokenPurpose" ADD VALUE 'EMAIL_CHANGE_NEW_CONFIRM';
+
+-- AlterEnum
+ALTER TYPE "NotificationEventType" ADD VALUE 'EMAIL_CHANGE_VERIFY_OLD';
+ALTER TYPE "NotificationEventType" ADD VALUE 'EMAIL_CHANGE_VERIFY_NEW';
+
+-- AlterTable
+ALTER TABLE "AuthEmailToken" ADD COLUMN "newEmail" TEXT;

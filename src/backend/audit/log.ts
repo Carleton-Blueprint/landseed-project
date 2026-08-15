@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { createHash, createSign, randomUUID } from 'node:crypto';
 import { prisma } from 'lib/prisma';
 
-export type AuditEventCategory = "MANUAL_CHANGE" | "SENSITIVE_ACCESS";
+export type AuditEventCategory = "MANUAL_CHANGE" | "SENSITIVE_ACCESS" | "AI_GENERATION";
 export type AuditEventOutcome = "SUCCESS" | "DENIED" | "FAILURE";
 export type AuditSensitivityLevel = "INTERNAL" | "CONFIDENTIAL" | "RESTRICTED";
 
@@ -61,9 +61,12 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
     projectId: input.projectId ?? null,
     actorUserId: input.actorUserId ?? null,
     createdAt: createdAt.toISOString(),
-    beforeState: input.beforeState ?? null,
-    afterState: input.afterState ?? null,
-    metadata: input.metadata ?? null,
+    // Hash the sanitized (storage-safe) states, not the raw input, so this
+    // matches what verifyAuditChain later re-reads from the JSONB columns
+    // and so circular-reference input can't throw here.
+    beforeState: beforeStateJson === null ? null : JSON.parse(beforeStateJson),
+    afterState: afterStateJson === null ? null : JSON.parse(afterStateJson),
+    metadata: metadataJson === null ? null : JSON.parse(metadataJson),
   };
 
   const eventHash = createHash('sha256').update(JSON.stringify(payloadForHash)).digest('hex');

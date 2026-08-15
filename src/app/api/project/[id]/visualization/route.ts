@@ -1,18 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "lib/prisma";
+import { getSignedDownloadUrlFromS3Url } from "lib/s3";
+import { isLiveImageGenerationEnabled } from "lib/openai";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
-
-function modificationItemsFromDraft(draftData: unknown): string[] {
-  if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) {
-    return [];
-  }
-
-  const raw = (draftData as Record<string, unknown>).modificationItems;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((item): item is string => typeof item === "string");
-}
+import { generateMockAccessibilityVisual, modificationItemsFromDraft } from "@/backend/services/imageGeneration";
 
 export async function GET(
   request: NextRequest,
@@ -57,9 +49,21 @@ export async function GET(
 
     const photos = await Promise.all(
       project.photos.map(async (photo) => {
-        const generatedImageUrl = await generateMockAccessibilityVisual(photo.url, {
-          modificationCodes: modificationItems,
-        });
+        let generatedImageUrl: string | null;
+
+        if (photo.generationStatus === "READY" && photo.generatedImageUrl) {
+          generatedImageUrl = photo.generatedImageUrl.includes(".amazonaws.com")
+            ? await getSignedDownloadUrlFromS3Url(photo.generatedImageUrl, 900)
+            : photo.generatedImageUrl;
+        } else if (isLiveImageGenerationEnabled()) {
+          // Generation is pending, in progress, or failed — leave null so callers
+          // can show a pending/placeholder state rather than a stale mock visual.
+          generatedImageUrl = null;
+        } else {
+          generatedImageUrl = await generateMockAccessibilityVisual(photo.url, {
+            modificationCodes: modificationItems,
+          });
+        }
 
         return {
           id: photo.id,

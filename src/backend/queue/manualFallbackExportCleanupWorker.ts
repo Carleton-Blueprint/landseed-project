@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { cleanupExpiredManualFallbackExports } from "@/backend/services/manualFallbackExport";
 
 const SCAN_INTERVAL_MS = Number(process.env.MANUAL_FALLBACK_EXPORT_CLEANUP_INTERVAL_MS ?? 15 * 60 * 1000);

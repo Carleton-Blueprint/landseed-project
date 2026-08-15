@@ -13,7 +13,7 @@ const INTAKE_MODIFICATION_LABEL_TO_CODE: Record<string, ModificationCode> = {
   handrails: MODIFICATION_CODES.HANDRAILS,
 };
 
-function normalizeLabel(input: string): string {
+export function normalizeLabel(input: string): string {
   return input.trim().toLowerCase().replace(/\s+/g, " ");
 }
 

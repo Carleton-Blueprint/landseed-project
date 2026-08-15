@@ -1,8 +1,14 @@
+import NextAuth from "next-auth";
 import { NextFetchEvent, NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { authConfig } from "@/auth.config";
 import { requireMinimumRole, HttpError } from "@/backend/auth/requireRole";
 import { queueDeniedAdminAccessAudit } from "@/backend/audit/adminAccessDispatch";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
+
+// Edge-safe: built from the providerless authConfig so this Edge middleware
+// never pulls in the Credentials provider's authorize() (bcrypt, Prisma,
+// node:crypto via audit-log signing and MFA's AES-GCM) — see auth.config.ts.
+const { auth } = NextAuth(authConfig);
 
 const ADMIN_PATHS = ["/admin", "/api/admin"];
 
@@ -25,7 +31,13 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   try {
     // Require ADMIN for admin surface
     await requireMinimumRole(session, "ADMIN");
-    return NextResponse.next();
+
+    // Forward the current pathname so src/app/admin/layout.tsx (a Node-runtime
+    // Server Component, unlike this Edge middleware) can tell whether it's
+    // already rendering /admin/mfa-setup without needing its own DB call here.
+    const forwardedHeaders = new Headers(request.headers);
+    forwardedHeaders.set("x-pathname", pathname);
+    return NextResponse.next({ request: { headers: forwardedHeaders } });
   } catch (err) {
     if (err instanceof HttpError) {
       const auditContext = getRequestAuditContext(request);

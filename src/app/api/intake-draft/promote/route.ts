@@ -7,8 +7,25 @@ import { auth } from "@/auth";
 import { promoteIntakeDraft } from "@/backend/services/intakeDraft";
 import { authGateResponse } from "@/backend/auth/authGateResponse";
 import { requireVerifiedEmail } from "@/backend/auth/requireVerifiedEmail";
+import { enforceRateLimit } from "@/backend/auth/rateLimit";
+import { getClientIp } from "@/backend/auth/authEmailResponses";
+
+const PROMOTE_SUBMISSION_LIMIT = 10;
+const PROMOTE_SUBMISSION_WINDOW_SECONDS = 60 * 60;
 
 export async function POST(request: Request) {
+  const { response: rateLimitResponse } = await enforceRateLimit({
+    scope: "intake-draft-promote-ip",
+    identifier: getClientIp(request),
+    limit: PROMOTE_SUBMISSION_LIMIT,
+    windowSeconds: PROMOTE_SUBMISSION_WINDOW_SECONDS,
+    route: "/api/intake-draft/promote",
+    message: "Too many submissions from this network. Please try again later.",
+  });
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json(

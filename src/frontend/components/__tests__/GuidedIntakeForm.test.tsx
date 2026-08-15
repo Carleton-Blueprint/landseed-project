@@ -59,6 +59,7 @@ afterEach(() => {
 
 describe("GuidedIntakeForm", () => {
   it("PATCHes guidedData after a field change", async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(
       <IntakeDraftProvider>
         <GuidedIntakeForm />
@@ -68,23 +69,32 @@ describe("GuidedIntakeForm", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("radio", { name: "No" })[0]).toBeChecked()
     );
+    // fetch() is recorded synchronously, but hydration (isHydrated) only flips
+    // after the response promise chain resolves; flush it before interacting
+    // or the field-change watcher may not be subscribed yet.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
 
     fireEvent.click(screen.getAllByRole("radio", { name: "Yes" })[0]);
 
     await act(async () => {
-      jest.advanceTimersByTime(2000);
+      await jest.advanceTimersByTimeAsync(2500);
     });
 
-    await waitFor(() => {
-      const patchCall = mockFetch.mock.calls.find(
-        (call) => call[0] === "/api/intake-draft" && call[1]?.method === "PATCH"
-      );
-      expect(patchCall).toBeDefined();
-      expect(JSON.parse(patchCall![1]!.body as string)).toEqual(
-        expect.objectContaining({
-          guidedData: expect.objectContaining({ mobilityAssistance: "yes" }),
-        })
-      );
-    });
+    await waitFor(
+      () => {
+        const patchCall = mockFetch.mock.calls.find(
+          (call) => call[0] === "/api/intake-draft" && call[1]?.method === "PATCH"
+        );
+        expect(patchCall).toBeDefined();
+        expect(JSON.parse(patchCall![1]!.body as string)).toEqual(
+          expect.objectContaining({
+            guidedData: expect.objectContaining({ mobilityAssistance: "yes" }),
+          })
+        );
+      },
+      { timeout: 3000 }
+    );
   });
 });

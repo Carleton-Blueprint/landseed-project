@@ -17,8 +17,10 @@
  *   Upload API → Redis Queue → This Worker → ClamAV → Database Update
  */
 
-import { createVirusScanWorker } from "./index";
+import "dotenv/config";
+import { createVirusScanWorker, aiJobsQueue } from "./index";
 import { prisma } from "lib/prisma";
+import { PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE } from "@/backend/services/photoAnalysis";
 import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import NodeClam from "clamscan";
 import { writeFile, unlink } from "fs/promises";
@@ -27,6 +29,13 @@ import { tmpdir } from "os";
 import { Readable } from "stream";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { recordFailureAndMaybeAlert } from "@/backend/services/criticalFailureAlerts";
+import { ALERT_THRESHOLD_KEYS } from "@/backend/services/alertThresholds";
+import {
+  ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
+  type AccessibilityImageGenerationJobPayload,
+} from "@/backend/services/imageGeneration";
+import { isLiveImageGenerationEnabled } from "lib/openai";
 
 // Initialize S3 client for downloading files to scan
 const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
@@ -247,6 +256,45 @@ const worker = createVirusScanWorker(async (job) => {
           where: { id: photoId },
           data: { virus_scan_status: "clean" },
         });
+
+        // Queue AI photo analysis now that the photo is confirmed clean — but only if the
+        // project has already been promoted out of the guided-intake shell. Before promotion,
+        // Project.draftData (and therefore the client's declared modification codes) doesn't
+        // exist yet, so analyzing now would reconcile against nothing. finalizeIntake() sweeps
+        // clean, unanalyzed photos at promotion time instead; this covers the race where a
+        // scan finishes after the project is already promoted. Photos only — documents (grant
+        // PDFs, etc.) aren't candidates for modification-type inference.
+        const isPromoted = photo?.project.status !== "draft";
+        const isManualMode = photo?.project.isManualMode ?? false;
+        if (isManualMode) {
+          console.log(`   🛠️  Project ${photo?.project.id} is in manual mode — skipping AI photo analysis for ${photoId}`);
+        } else if (isPromoted) {
+          try {
+            await aiJobsQueue.add(
+              "ai-jobs",
+              { jobType: PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE, payload: { photoId } },
+              { jobId: `photo-analysis-${photoId}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
+            );
+            console.log(`   🤖 Queued photo modification analysis for ${photoId}`);
+          } catch (queueError) {
+            console.warn(`   ⚠️  Failed to queue photo analysis for ${photoId}:`, queueError);
+          }
+        } else {
+          console.log(`   ⏳ Project not yet promoted — deferring photo analysis for ${photoId} to intake finalization`);
+        }
+
+        if (isLiveImageGenerationEnabled() && !isManualMode) {
+          try {
+            const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
+            await aiJobsQueue.add(`accessibility-image-generation:${photoId}`, {
+              jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
+              payload: jobPayload,
+            });
+            console.log(`   🖼️  Queued accessibility image generation for photo ${photoId}`);
+          } catch (queueError) {
+            console.warn(`   ⚠️  Failed to queue image generation for ${photoId}:`, queueError);
+          }
+        }
       }
 
       console.log(`✅ Virus scan completed: CLEAN`);
@@ -286,6 +334,18 @@ worker.on("completed", (job) => {
 worker.on("failed", (job, err) => {
   console.error(`❌ Job "${job?.id}" failed:`, err.message);
   console.error(`   Will retry (${job?.attemptsMade}/${job?.opts.attempts} attempts)`);
+
+  const maxAttempts = job?.opts.attempts ?? 3;
+  if (job && job.attemptsMade >= maxAttempts) {
+    // Scan errors only — this event never fires for an actual infection
+    // (that branch resolves normally, it doesn't throw), so this is
+    // specifically the ClamAV/S3/etc. failure path.
+    void recordFailureAndMaybeAlert({
+      key: ALERT_THRESHOLD_KEYS.FILE_SCAN_FAILURE,
+      summary: `File scan failed after ${job.attemptsMade} attempts`,
+      details: { jobId: job.id, photoId: job.data.photoId, errorMessage: err.message },
+    });
+  }
 });
 
 worker.on("error", (err) => {

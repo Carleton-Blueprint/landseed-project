@@ -6,6 +6,18 @@ import { auth } from "@/auth";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
+import { buildBuilderTrendWorkOrderPayload } from "@/backend/integrations/builderTrendPayload";
+import {
+  isTieredEstimate,
+  PRICING_TIER_KEYS,
+  type AnyRefinedEstimate,
+  type PricingTierKey,
+  type TieredRefinedEstimate,
+} from "@/backend/services/pricingTiers";
+
+function isPricingTierKey(value: unknown): value is PricingTierKey {
+  return typeof value === "string" && (PRICING_TIER_KEYS as readonly string[]).includes(value);
+}
 
 export async function POST(
   req: NextRequest,
@@ -32,31 +44,7 @@ export async function POST(
     }
 
     const body = await req.json();
-    const { status, reason, survey } = body;
-
-    if (process.env.NODE_ENV === "development") {
-      if (status !== "ACCEPTED" && status !== "DECLINED") {
-        return NextResponse.json({ error: "Invalid status provided" }, { status: 400 });
-      }
-      if (status === "DECLINED" && (!reason || typeof reason !== "string")) {
-        return NextResponse.json({ error: "A valid reason is required when declining" }, { status: 400 });
-      }
-      if (status === "DECLINED" && survey && typeof survey === "object") {
-        if (!survey.primaryReason || typeof survey.primaryReason !== "string") {
-          return NextResponse.json({ error: "Survey primaryReason is required" }, { status: 400 });
-        }
-      }
-      return NextResponse.json({
-        success: true,
-        quote: {
-          id: resolvedParams.id,
-          status,
-          declinedReason: status === "DECLINED" ? reason : null,
-          lastClientActivityAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }
-      }, { status: 200 });
-    }
+    const { status, reason, survey, selectedTier } = body;
 
     // Validate inputs
     if (status !== "ACCEPTED" && status !== "DECLINED") {
@@ -105,6 +93,13 @@ export async function POST(
           include: {
             projectAccess: {
               where: { userId: session.user.id }
+            },
+            user: {
+              select: { name: true, email: true, phone: true }
+            },
+            photos: {
+              where: { virus_scan_status: "clean" },
+              select: { id: true, url: true }
             }
           }
         }
@@ -145,8 +140,61 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden: You don't have access to this quote" }, { status: 403 });
     }
 
+    const refinedEstimate = quote.refinedEstimate as unknown as AnyRefinedEstimate | null;
+    const quoteIsTiered = !!refinedEstimate && isTieredEstimate(refinedEstimate);
+
+    if (status === "ACCEPTED" && quoteIsTiered && !isPricingTierKey(selectedTier)) {
+      await logAuditEventNonBlocking({
+        category: "MANUAL_CHANGE",
+        action: "ESTIMATE_STATUS_CHANGE",
+        outcome: "FAILURE",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: session.user.id,
+        projectId: quote.projectId,
+        quoteId: quote.id,
+        resourceType: "quote",
+        resourceId: quote.id,
+        description: "Rejected acceptance of tiered estimate due to missing/invalid selectedTier",
+        metadata: { providedSelectedTier: selectedTier },
+        ...requestContext,
+      });
+      return NextResponse.json(
+        { error: "A valid selectedTier is required to accept a tiered estimate" },
+        { status: 400 }
+      );
+    }
+
+    const acceptedTier: PricingTierKey | null =
+      status === "ACCEPTED" && quoteIsTiered ? (selectedTier as PricingTierKey) : null;
+
     // Process the update
     const updatedProjectStatus = status === "ACCEPTED" ? "estimate_accepted" : "estimate_declined";
+
+    // Built outside the transaction: signs photo URLs via S3, which is
+    // network I/O that shouldn't run while holding a DB transaction open.
+    const builderTrendPayload =
+      status === "ACCEPTED"
+        ? await buildBuilderTrendWorkOrderPayload({
+            project: {
+              id: quote.project.id,
+              address: quote.project.address,
+              draftData: quote.project.draftData,
+              user: quote.project.user,
+              photos: quote.project.photos,
+            },
+            quote: {
+              id: quote.id,
+              subtotal: quote.subtotal,
+              total: quote.total,
+              estimateMin: quote.estimateMin,
+              estimateMax: quote.estimateMax,
+            },
+            approvedAt: new Date(),
+            refinedEstimate,
+            quoteIsTiered,
+            acceptedTier,
+          })
+        : null;
 
     // Update Quote status and Project status in a transaction
     const updatedQuote = await prisma.$transaction(async (tx) => {
@@ -197,6 +245,20 @@ export async function POST(
         });
       }
 
+      if (status === "ACCEPTED" && quoteIsTiered && acceptedTier) {
+        const tieredEstimate = refinedEstimate as TieredRefinedEstimate;
+
+        await tx.quote.update({
+          where: { id: quote.id },
+          data: {
+            refinedEstimate: {
+              ...tieredEstimate,
+              selectedTier: acceptedTier,
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+
       let builderTrendTransfer: {
         id: string;
         status: string;
@@ -204,16 +266,7 @@ export async function POST(
       } | null = null;
 
       if (status === "ACCEPTED") {
-        const payloadJson = JSON.stringify({
-          projectId: quote.projectId,
-          quoteId: quote.id,
-          projectAddress: quote.project.address,
-          scopeDetails: quote.project.draftData ?? null,
-          estimate: {
-            status,
-            approvedAt: new Date().toISOString(),
-          },
-        });
+        const payloadJson = JSON.stringify(builderTrendPayload);
 
         const insertedTransferRows = await tx.$queryRaw<
           Array<{ id: string; status: string }>
@@ -272,6 +325,7 @@ export async function POST(
 
       return {
         ...updatedRows[0],
+        selectedTier: acceptedTier,
         builderTrendTransfer,
       };
     });

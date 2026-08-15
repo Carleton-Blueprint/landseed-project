@@ -44,3 +44,24 @@ if (typeof Request === "undefined") {
   // @ts-ignore
   global.Headers = primitives.Headers;
 }
+
+// src/backend/queue/index.ts opens a shared BullMQ/ioredis connection at
+// import time, and BullMQ never closes an externally-provided connection
+// on its own. Any test file that actually loads the real module (as
+// opposed to one that `jest.mock`s it away, which never populates
+// require.cache under its real path) leaks that connection and blocks
+// Jest from exiting. Close it here, once per test file, but only when the
+// real module was genuinely loaded.
+afterAll(async () => {
+  let resolvedPath: string | undefined;
+  try {
+    resolvedPath = require.resolve("@/backend/queue");
+  } catch {
+    return;
+  }
+
+  if (require.cache[resolvedPath]) {
+    const { closeQueueConnections } = require("@/backend/queue");
+    await closeQueueConnections();
+  }
+});

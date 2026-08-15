@@ -26,7 +26,7 @@ export type NotificationJobPayload = {
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
-  questionCategory?: string;    
+  questionCategory?: string;
   questionSubject?: string;
   fileName?: string;
   documentType?: string;
@@ -41,6 +41,13 @@ export type NotificationJobPayload = {
   authActionLink?: string | null;
   seniorName?: string | null;
   isCaregiverSubmission?: boolean;
+  // Communication history linkage — who sent it and what resource it refers to.
+  senderId?: string;
+  linkedResourceId?: string;
+  // Staff information request details
+  informationRequestType?: string;
+  informationRequestMessage?: string;
+  newEmail?: string | null;
 };
 
 export interface NotificationDeliveryMetricsInput {
@@ -158,6 +165,9 @@ export async function queueNotification(payload: NotificationJobPayload): Promis
     authActionLink: payload.authActionLink,
     seniorName: payload.seniorName,
     isCaregiverSubmission: payload.isCaregiverSubmission,
+    informationRequestType: payload.informationRequestType,
+    informationRequestMessage: payload.informationRequestMessage,
+    newEmail: payload.newEmail,
   });
 
   // Strip undefined keys so payload remains valid JSON for Prisma Json fields.
@@ -202,7 +212,9 @@ export async function processNotification(payload: NotificationJobPayload): Prom
   const claimed = await prisma.notificationDelivery.updateMany({
     where: {
       idempotencyKey: payload.idempotencyKey,
-      status: { not: NotificationDeliveryStatus.SENT },
+      status: {
+        in: [NotificationDeliveryStatus.PENDING, NotificationDeliveryStatus.FAILED],
+      },
     },
     data: { status: NotificationDeliveryStatus.PROCESSING },
   });
@@ -225,6 +237,9 @@ export async function processNotification(payload: NotificationJobPayload): Prom
     authActionLink: payload.authActionLink,
     seniorName: payload.seniorName,
     isCaregiverSubmission: payload.isCaregiverSubmission,
+    informationRequestType: payload.informationRequestType,
+    informationRequestMessage: payload.informationRequestMessage,
+    newEmail: payload.newEmail,
   });
 
   const finalSubject = payload.subject ?? template.subject;
@@ -275,7 +290,7 @@ export async function processNotification(payload: NotificationJobPayload): Prom
           });
         } else if (notice.noticeType === "FINAL_NOTICE") {
           await prisma.accountDeletionRequest.updateMany({
-            where: { id: notice.accountDeletionRequestId },
+            where: { id: notice.accountDeletionRequestId, status: "IN_GRACE_PERIOD" },
             data: { status: "READY_FOR_DELETION" },
           });
         }
@@ -289,10 +304,11 @@ export async function processNotification(payload: NotificationJobPayload): Prom
         category: getCategoryFromEventType(payload.eventType),
         recipientEmail: payload.recipientEmail,
         recipientId: payload.userId,
+        senderId: payload.senderId,
         subject: template.subject,
         contentSummary: generateContentSummary(payload, template),
         linkedResourceType: getLinkedResourceType(payload.eventType),
-        linkedResourceId: undefined,
+        linkedResourceId: payload.linkedResourceId,
         status: CommunicationStatus.SENT,
         metadata: {
           provider: result.provider,
@@ -335,10 +351,11 @@ export async function processNotification(payload: NotificationJobPayload): Prom
           category: getCategoryFromEventType(payload.eventType),
           recipientEmail: payload.recipientEmail,
           recipientId: payload.userId,
+          senderId: payload.senderId,
           subject: template.subject,
           contentSummary: generateContentSummary(payload, template),
           linkedResourceType: getLinkedResourceType(payload.eventType),
-          linkedResourceId: undefined,
+          linkedResourceId: payload.linkedResourceId,
           status: CommunicationStatus.FAILED,
           metadata: {
             idempotencyKey: payload.idempotencyKey,

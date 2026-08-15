@@ -32,7 +32,7 @@ export default async () => {
   return {
     ...resolved,
     transformIgnorePatterns: [
-      "/node_modules/(?!(bullmq|msgpackr|packr)/)",
+      "/node_modules/(?!(bullmq|msgpackr|packr|otplib|@otplib|@scure|@noble)/)",
     ],
   };
 };
