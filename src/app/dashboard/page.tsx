@@ -2,52 +2,25 @@ import { prisma } from "lib/prisma";
 import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { auth } from "@/auth";
-import { redirect } from "next/navigation";
 import { redirectToSignIn } from "lib/auth-redirect";
 import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
 
 export const metadata = {
   title: "Project Tracker — Landseed",
-  description: "Track your home modification projects and AI-discovered grant eligibility.",
+  description: "Track your home modification projects and InPlace AI-discovered grant eligibility.",
 };
 import {
   NotificationCenter,
   NotificationItem,
 } from "@/frontend/components/NotificationCenter";
 import {
-  CheckCircleIcon,
-  ClipboardIcon,
-  EyeIcon,
-  InfoIcon,
-  GlobeIcon,
-  BuildingIcon,
-  MapPinIcon,
-  SearchIcon,
-  HomeIcon,
-  CameraIcon,
-} from "@/frontend/components/icons";
+  DashboardProjectsClient,
+  DashboardProjectItem,
+} from "@/frontend/components/dashboard/DashboardProjectsClient";
 import { AlertCircle } from "lucide-react";
 import { EmailVerificationBanner } from "@/frontend/components/auth/EmailVerificationBanner";
 import { isDevAuthBypassEnabled } from "@/backend/auth/devBypass";
 
-/* ------------------------------------------------------------------ */
-/* Status helpers                                                      */
-/* ------------------------------------------------------------------ */
-
-function getStatusLabel(status: string) {
-  if (status === "draft") return "Pending";
-  return status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function getStatusStyle(status: string) {
-  if (status === "draft")
-    return "border-amber-200 bg-amber-50 text-amber-700";
-  if (status === "submitted")
-    return "border-blue-200 bg-blue-50 text-blue-700";
-  if (status === "estimate_expired")
-    return "border-orange-200 bg-orange-50 text-orange-700";
-  return "border-emerald-200 bg-emerald-50 text-emerald-700";
-}
 
 /* ------------------------------------------------------------------ */
 /* Estimate helpers                                                    */
@@ -97,15 +70,42 @@ function getMockNotifications(projects: { id: string; address: string; status: s
   const items: NotificationItem[] = [];
 
   if (first) {
-    if (first.status === "estimate_ready") {
+    // If the project is in draft mode, simulate an automated 7-day reminder
+    if (first.status === "draft") {
+      const requestDate = new Date(now - 8 * 24 * 60 * 60 * 1000);
+      const formattedDate = requestDate.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
       items.push({
-        id: `mock-estimate-approval-${first.id}`,
+        id: `mock-reminder-7d-${first.id}`,
         kind: "action_required",
-        title: "Estimate Awaiting Approval",
-        body: `Your final estimate for ${first.address} requires your approval to proceed to the next steps.`,
-        href: `/projects/${first.id}/estimate`,
-        createdAt: new Date(now - 1000 * 60 * 5).toISOString(),
+        title: "Additional photos requested",
+        body: `Additional photos requested by the advisory team on ${formattedDate}`,
+        href: `/dashboard/${first.id}`,
+        createdAt: requestDate.toISOString(),
         urgent: true,
+        read: false,
+      });
+    }
+
+    if (first.status === "estimate_ready") {
+      const inactivityDate = new Date(now - 15 * 24 * 60 * 60 * 1000);
+      const formattedDate = inactivityDate.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+      items.push({
+        id: `mock-reminder-14d-estimate-${first.id}`,
+        kind: "action_required",
+        title: "Estimate Expiring Soon",
+        body: `Refined Estimate for ${first.address}, delivered on ${formattedDate}, will expire after 30 days of inactivity.`,
+        href: `/projects/${first.id}/estimate`,
+        createdAt: inactivityDate.toISOString(),
+        urgent: true,
+        read: false,
       });
     }
 
@@ -161,56 +161,26 @@ type ProjectEligibility = {
   assessedAt: Date;
 };
 
-const DECISION_DISPLAY: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string; border: string }> = {
-  ELIGIBLE: {
-    label: "Grants Found",
-    icon: <CheckCircleIcon size={18} className="text-emerald-600" />,
-    color: "text-emerald-700",
-    bg: "bg-emerald-50",
-    border: "border-emerald-200",
-  },
-  NEEDS_MORE_INFO: {
-    label: "More Info Needed",
-    icon: <ClipboardIcon size={18} className="text-amber-600" />,
-    color: "text-amber-700",
-    bg: "bg-amber-50",
-    border: "border-amber-200",
-  },
-  MANUAL_REVIEW: {
-    label: "Manual Review",
-    icon: <EyeIcon size={18} className="text-orange-600" />,
-    color: "text-orange-700",
-    bg: "bg-orange-50",
-    border: "border-orange-200",
-  },
-  INELIGIBLE: {
-    label: "No Matches",
-    icon: <InfoIcon size={18} className="text-gray-500" />,
-    color: "text-gray-600",
-    bg: "bg-gray-50",
-    border: "border-gray-200",
-  },
-};
-
-const SCOPE_ICONS: Record<string, React.ReactNode> = {
-  NATIONAL: <GlobeIcon size={14} />,
-  PROVINCIAL: <BuildingIcon size={14} />,
-  MUNICIPAL: <MapPinIcon size={14} />,
-};
-
-function countByScope(grants: DiscoveredGrantSummary[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const g of grants) {
-    counts[g.scope] = (counts[g.scope] ?? 0) + 1;
-  }
-  return counts;
-}
 
 /* ------------------------------------------------------------------ */
 /* Page Component                                                      */
 /* ------------------------------------------------------------------ */
 
-export default async function DashboardPage() {
+type DashboardPageProps = {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  const resolvedParams = searchParams ? await searchParams : {};
+  const activeTabParam = typeof resolvedParams?.tab === "string" ? resolvedParams.tab : "all";
+  const initialTab =
+    activeTabParam === "submitted" || activeTabParam === "draft" || activeTabParam === "all"
+      ? activeTabParam
+      : "all";
+  const isSubmitted = resolvedParams?.submitted === "true";
+  const newProjectId =
+    typeof resolvedParams?.projectId === "string" ? resolvedParams.projectId : null;
+
   const session = await auth();
   if (!session?.user?.id) {
     redirectToSignIn("/dashboard");
@@ -237,6 +207,7 @@ export default async function DashboardPage() {
       typeof prisma.project.findMany<{
         include: {
           photos: true;
+          documents: true;
           quotes: {
             orderBy: { createdAt: "desc" };
             take: 1;
@@ -251,6 +222,7 @@ export default async function DashboardPage() {
     >
   > = [];
   const eligibilityByProject = new Map<string, ProjectEligibility>();
+  let reminders: NotificationItem[] = [];
 
   try {
     projects = await prisma.project.findMany({
@@ -262,6 +234,7 @@ export default async function DashboardPage() {
       orderBy: { createdAt: "desc" },
       include: {
         photos: true,
+        documents: true,
         quotes: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -298,14 +271,55 @@ export default async function DashboardPage() {
         assessedAt: a.createdAt,
       });
     }
+
+    if (session?.user?.id) {
+      const { getDashboardReminders } = await import("@/backend/notifications/reminders");
+      reminders = await getDashboardReminders(session.user.id);
+    }
   } catch {
     // No DB in dev — renders empty dashboard
   }
 
-  const notifications = getMockNotifications(
-    projects.map((p) => ({ id: p.id, address: p.address, status: p.status }))
-  );
+  const notifications = [
+    ...reminders,
+    ...getMockNotifications(
+      projects.map((p) => ({ id: p.id, address: p.address, status: p.status }))
+    ),
+  ];
 
+  const projectItems: DashboardProjectItem[] = projects.map((project) => {
+    const estimateSummary = getEstimateSummary(project);
+    const eligibility = eligibilityByProject.get(project.id);
+
+    return {
+      id: project.id,
+      address: project.address,
+      status: project.status,
+      createdAt: project.createdAt.toISOString(),
+      photoCount: project.photos.length,
+      grantDocumentKey: project.grantDocumentKey,
+      estimateSummary: {
+        title: estimateSummary.title,
+        value: estimateSummary.value,
+        explanation: estimateSummary.explanation,
+      },
+      eligibility: eligibility
+        ? {
+            overallDecision: eligibility.overallDecision,
+            discoveredGrants: eligibility.discoveredGrants.map((g) => ({
+              grantId: g.grantId,
+              title: g.title,
+              scope: g.scope,
+              decision: g.decision,
+              relevanceScore: g.relevanceScore,
+              confidence: g.confidence,
+            })),
+            provider: eligibility.provider,
+            assessedAt: eligibility.assessedAt.toISOString(),
+          }
+        : null,
+    };
+  });
 
   return (
     <main className="relative min-h-screen bg-gray-50 z-0 overflow-hidden">
@@ -337,16 +351,16 @@ export default async function DashboardPage() {
 
       {/* Dashboard header */}
       <div className="border-b bg-white">
-        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-start sm:justify-between md:px-8">
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between md:px-8">
           <div className="min-w-0">
             <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-              Project Tracker
+              My Projects
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Track your home modification projects and AI-discovered grant eligibility.
+              Track your home modification projects and grant eligibility.
             </p>
           </div>
-          <div className="shrink-0 self-end sm:self-start">
+          <div className="shrink-0">
             <NotificationCenter notifications={notifications} />
           </div>
         </div>
@@ -388,6 +402,12 @@ export default async function DashboardPage() {
           );
         })()}
 
+        <DashboardProjectsClient
+          projects={projectItems}
+          initialTab={initialTab}
+          isSubmitted={isSubmitted}
+          newProjectId={newProjectId}
+        />
         {projects.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm">
             <HomeIcon size={36} className="mx-auto text-gray-300" />

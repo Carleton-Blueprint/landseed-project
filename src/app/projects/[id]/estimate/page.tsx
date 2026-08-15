@@ -1,5 +1,5 @@
 import React from "react";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";

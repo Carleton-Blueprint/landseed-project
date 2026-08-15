@@ -453,7 +453,7 @@ export function GrantDiscoverySummary({ projectId }: { projectId: string }) {
   if (!data) {
     return (
       <section className="rounded-xl border bg-white p-5 shadow-sm" id="grant-discovery-section">
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">AI Grant Assessment</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">InPlace AI Grant Assessment</h2>
         <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-200 bg-gradient-to-br from-indigo-50/20 to-violet-50/20 p-6 flex flex-col sm:flex-row items-center gap-4 shadow-sm">
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
           <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-500 shadow-inner">
@@ -492,7 +492,7 @@ export function GrantDiscoverySummary({ projectId }: { projectId: string }) {
               d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"
             />
           </svg>
-          AI-Sourced Grant Discovery
+          InPlace AI-Sourced Grant Discovery
         </h2>
         <p className="mt-0.5 text-sm text-gray-500">
           Grants automatically discovered and evaluated against your project profile.

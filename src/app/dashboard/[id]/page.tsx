@@ -127,7 +127,8 @@ export default async function ProjectDetailPage({
     redirectToSignIn(`/dashboard/${resolvedParams.id}`);
   }
 
-  let project = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let project: any = null;
   try {
     project = await prisma.project.findUnique({
       where: { id: resolvedParams.id },
@@ -213,7 +214,8 @@ export default async function ProjectDetailPage({
   let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
   try {
     photosWithSignedUrls = await Promise.all(
-      project.photos.map(async (photo) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      project.photos.map(async (photo: any) => {
         const imageUrl = "imageUrl" in photo
           ? ((photo as { imageUrl?: string | null }).imageUrl ?? photo.url)
           : photo.url;
@@ -249,10 +251,14 @@ export default async function ProjectDetailPage({
       })
     );
   } catch {
-    photosWithSignedUrls = project.photos.map((photo) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    photosWithSignedUrls = project.photos.map((photo: any) => ({
       id: photo.id,
       imageUrl: photo.url,
-      generatedImageUrl: photo.url,
+      generatedImageUrl:
+        "generatedImageUrl" in photo && photo.generatedImageUrl
+          ? photo.generatedImageUrl
+          : "https://placehold.co/800x600?text=InPlace+AI+Renovation+Rendition&font=inter&bg=4F46E5&txtclr=FFFFFF",
     }));
   }
 

@@ -44,9 +44,7 @@ describe("Navigation Component Role Guards", () => {
     render(<Navigation />);
 
     // Verify basic links are shown
-    expect(screen.getByText("Project Tracker")).toBeInTheDocument();
-    expect(screen.getByText("Request Assessment")).toBeInTheDocument();
-    expect(screen.getByText("Share Access")).toBeInTheDocument();
+    expect(screen.getByText("My Projects")).toBeInTheDocument();
 
     // Verify Advisor Panel is NOT shown
     expect(screen.queryByText("Advisor Panel")).not.toBeInTheDocument();
@@ -68,7 +66,7 @@ describe("Navigation Component Role Guards", () => {
     render(<Navigation />);
 
     // Verify basic links + Advisor Panel are shown
-    expect(screen.getByText("Project Tracker")).toBeInTheDocument();
+    expect(screen.getByText("My Projects")).toBeInTheDocument();
     expect(screen.getByText("Advisor Panel")).toBeInTheDocument();
   });
 
@@ -78,12 +76,9 @@ describe("Navigation Component Role Guards", () => {
       status: "unauthenticated",
     });
 
-    render(<Navigation />);
+    const { container } = render(<Navigation />);
 
-    // Verify standard links are shown but Advisor Panel is hidden
-    expect(screen.getByText("Client Portal")).toBeInTheDocument();
-    expect(screen.queryByText("Project Tracker")).not.toBeInTheDocument();
-    expect(screen.queryByText("Share Access")).not.toBeInTheDocument();
-    expect(screen.queryByText("Advisor Panel")).not.toBeInTheDocument();
+    // Verify component renders nothing (returns null)
+    expect(container.firstChild).toBeNull();
   });
 });

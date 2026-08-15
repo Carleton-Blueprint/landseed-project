@@ -49,7 +49,7 @@ describe("GrantDiscoverySummary", () => {
     render(<GrantDiscoverySummary projectId={projectId} />);
 
     await waitFor(() => {
-      expect(screen.getByText("AI Grant Assessment")).toBeInTheDocument();
+      expect(screen.getByText("InPlace AI Grant Assessment")).toBeInTheDocument();
       expect(screen.getByText("Assessment Pending")).toBeInTheDocument();
       expect(
         screen.getByText("Grant eligibility discovery will run automatically once your project is finalized.")
@@ -93,7 +93,7 @@ describe("GrantDiscoverySummary", () => {
     render(<GrantDiscoverySummary projectId={projectId} />);
 
     await waitFor(() => {
-      expect(screen.getByText("AI-Sourced Grant Discovery")).toBeInTheDocument();
+      expect(screen.getByText("InPlace AI-Sourced Grant Discovery")).toBeInTheDocument();
       expect(screen.getAllByText("Eligible")[0]).toBeInTheDocument();
       expect(screen.getByText("HMSI Senior Independence Grant")).toBeInTheDocument();
       expect(screen.getByText("1 grant program evaluated")).toBeInTheDocument();

@@ -12,7 +12,6 @@ import {
 } from "@/frontend/components/icons";
 
 /* ------------------------------------------------------------------ */
-/* Icon mapping                                                        */
 /* ------------------------------------------------------------------ */
 
 const MOD_ICON_MAP: Record<string, (props: { size: number; className?: string }) => React.ReactNode> = {
@@ -26,7 +25,6 @@ const MOD_ICON_MAP: Record<string, (props: { size: number; className?: string })
 const FALLBACK_ICON_FN = (p: { size: number; className?: string }) => <WrenchIcon {...p} />;
 
 /* ------------------------------------------------------------------ */
-/* Timeline data                                                       */
 /* ------------------------------------------------------------------ */
 
 type Phase = { name: string; days: number; color: string };
@@ -117,7 +115,6 @@ const FALLBACK_TIMELINE = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
 function getTimeline(item: string) {
@@ -137,7 +134,6 @@ function sumDays(phases: Phase[]) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Component                                                           */
 /* ------------------------------------------------------------------ */
 
 interface ProjectTimelineProps {
@@ -157,7 +153,6 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
 
   return (
     <section id="project-timeline" aria-label="Project Timeline" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      {/* Header */}
       <div style={{
         background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%)",
         borderRadius: "16px 16px 0 0", padding: "24px", color: "#fff", position: "relative", overflow: "hidden",
@@ -184,7 +179,6 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
           </div>
         </div>
 
-        {/* Summary chips */}
         <div style={{ position: "relative", zIndex: 1, display: "flex", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
           <div style={{
             background: "rgba(255,255,255,0.12)", backdropFilter: "blur(6px)",
@@ -216,12 +210,10 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
         </div>
       </div>
 
-      {/* Timeline Body */}
       <div style={{
         background: "#fff", border: "1px solid #e5e7eb", borderTop: "none",
         borderRadius: "0 0 16px 16px", padding: "20px 24px",
       }}>
-        {/* Overall progress bar */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, alignItems: "center" }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
@@ -245,7 +237,6 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
           </div>
         </div>
 
-        {/* Individual modification timelines */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {timelines.map((t, idx) => {
             const isExpanded = expandedItem === t.key;
@@ -258,7 +249,6 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
                 background: isExpanded ? "#fafafe" : "#fff",
                 transition: "all 0.2s ease",
               }}>
-                {/* Item header */}
                 <button type="button" onClick={() => setExpandedItem(isExpanded ? null : t.key)}
                   style={{
                     width: "100%", display: "flex", alignItems: "center", gap: 12,
@@ -282,7 +272,6 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
                     </p>
                   </div>
 
-                  {/* Mini bar */}
                   <div style={{ width: 80, display: "flex", gap: 1, height: 6, borderRadius: 4, overflow: "hidden", flexShrink: 0 }}>
                     {t.phases.map((p, pi) => (
                       <div key={pi} style={{
@@ -291,17 +280,14 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
                     ))}
                   </div>
 
-                  {/* Chevron */}
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"
                     style={{ flexShrink: 0, transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "rotate(0)" }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
 
-                {/* Expanded phases */}
                 {isExpanded && (
                   <div style={{ padding: "0 16px 16px", borderTop: "1px solid #f3f4f6" }}>
-                    {/* Phase bar (larger) */}
                     <div style={{ display: "flex", gap: 2, height: 12, borderRadius: 6, overflow: "hidden", margin: "14px 0 16px", background: "#f3f4f6" }}>
                       {t.phases.map((p, pi) => (
                         <div key={pi} title={`${p.name}: ${p.days} day${p.days !== 1 ? "s" : ""}`} style={{
@@ -311,14 +297,12 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
                       ))}
                     </div>
 
-                    {/* Phase list */}
                     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
                       {t.phases.map((p, pi) => {
                         const phasePct = Math.round((p.days / totalPhaseDays) * 100);
                         const isLast = pi === t.phases.length - 1;
                         return (
                           <div key={pi} style={{ display: "flex", gap: 12, position: "relative", paddingBottom: isLast ? 0 : 16 }}>
-                            {/* Connector line */}
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20, flexShrink: 0 }}>
                               <div style={{
                                 width: 12, height: 12, borderRadius: "50%", background: p.color,
@@ -330,7 +314,6 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
                               )}
                             </div>
 
-                            {/* Phase content */}
                             <div style={{ flex: 1, paddingTop: 0 }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{p.name}</span>
@@ -350,7 +333,6 @@ export function ProjectTimeline({ modificationItems }: ProjectTimelineProps) {
           })}
         </div>
 
-        {/* Disclaimer */}
         <div style={{
           marginTop: 16, padding: "10px 14px", borderRadius: 10,
           background: "#fffbeb", border: "1px solid #fde68a",

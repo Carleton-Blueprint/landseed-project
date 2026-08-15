@@ -94,7 +94,7 @@ function ComparisonSlider({
       {/* After (full-width background) */}
       <Image
         src={afterSrc}
-        alt={`${alt} — AI rendition`}
+        alt={`${alt} — InPlace AI rendition`}
         fill
         className="object-cover"
         sizes="(max-width: 640px) 100vw, 50vw"
@@ -142,7 +142,7 @@ function ComparisonSlider({
         Original
       </span>
       <span className="absolute right-3 top-3 z-10 rounded-md bg-violet-600/80 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
-        AI Rendition
+        InPlace AI Rendition
       </span>
     </div>
   );
@@ -224,8 +224,8 @@ export function ProjectVisualizationGallery({
 
   const viewModes: { key: ViewMode; label: string; icon: React.ReactNode; disabled?: boolean }[] = [
     { key: "original", label: "Original Photos", icon: <CameraIcon size={16} /> },
-    { key: "generated", label: "AI Renditions", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>, disabled: photos.length === 0 },
-    { key: "compare", label: "Before / After", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h3M16 3h3a2 2 0 012 2v14a2 2 0 01-2 2h-3M12 3v18" /></svg>, disabled: photos.length === 0 },
+    { key: "generated", label: "InPlace AI Renditions", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>, disabled: photos.length === 0 },
+    { key: "compare", label: "Visual Comparison (Before / After)", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h3M16 3h3a2 2 0 012 2v14a2 2 0 01-2 2h-3M12 3v18" /></svg>, disabled: photos.length === 0 },
   ];
 
   return (
@@ -233,26 +233,31 @@ export function ProjectVisualizationGallery({
       {/* Header */}
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <svg
-              className="h-5 w-5 text-indigo-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
-              />
-            </svg>
-            Space Visualizations
-          </h2>
+          <div className="flex items-center gap-2.5 flex-wrap mb-1">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <svg
+                className="h-5 w-5 text-indigo-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
+                />
+              </svg>
+              Space Visualizations
+            </h2>
+            <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-0.5 text-xs font-semibold text-white shadow-sm">
+              ✨ Visual Comparison Gallery
+            </span>
+          </div>
           <p className="text-sm text-gray-500">
             {viewMode === "compare"
-              ? "Drag the slider to compare original photos with AI-generated modification visuals."
-              : "Toggle between your original uploaded photos and AI-generated modification visuals."}
+              ? "Compare original senior-submitted photos side-by-side with InPlace AI-generated renovation renditions and interactive overlay sliders."
+              : "Toggle between your original uploaded photos and InPlace AI-generated modification visuals."}
           </p>
         </div>
 
@@ -286,12 +291,12 @@ export function ProjectVisualizationGallery({
             viewMode === "compare" ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"
           }`}
         >
-          {photos.map((photo) => {
+          {photos.map((photo, index) => {
             const originalSrc =
               photo.imageUrl ?? "https://placehold.co/600x400?text=No+image";
             const generatedSrc =
               photo.generatedImageUrl ??
-              "https://placehold.co/600x400?text=AI+visual+pending";
+              "https://placehold.co/600x400?text=InPlace+AI+visual+pending";
 
             /* --- Comparison slider mode --- */
             if (viewMode === "compare") {
@@ -308,22 +313,135 @@ export function ProjectVisualizationGallery({
                     </div>
                     <h4 className="text-sm font-semibold text-gray-900">Before & After Slider</h4>
                     <p className="mt-1 max-w-[260px] text-xs text-gray-500 leading-normal">
-                      AI rendition pending — comparison will appear when generated.
+                      InPlace AI rendition pending — comparison will appear when generated.
                     </p>
                     <span className="mt-3.5 inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-0.5 text-[10px] font-semibold text-violet-700">
                       <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
-                      Generating AI View
+                      Generating InPlace AI View
                     </span>
                   </div>
                 );
               }
               return (
-                <ComparisonSlider
+                <div
                   key={photo.id}
-                  beforeSrc={originalSrc}
-                  afterSrc={generatedSrc}
-                  alt="Project space"
-                />
+                  className="rounded-2xl border border-gray-200/80 bg-gradient-to-b from-white to-slate-50/50 p-5 sm:p-6 shadow-md transition-all duration-300 hover:shadow-lg"
+                >
+                  {/* Card Header */}
+                  <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-gray-100 pb-4">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-violet-600 text-xs font-bold shadow-inner">
+                        #{index + 1}
+                      </span>
+                      <div>
+                        <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                          Visual Comparison
+                          <span className="hidden sm:inline-block h-1 w-1 rounded-full bg-gray-300" />
+                          <span className="text-sm font-medium text-gray-500">Space Renovation Projection</span>
+                        </h3>
+                      </div>
+                    </div>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-600/10 to-indigo-600/10 border border-violet-200/80 px-3 py-1 text-xs font-semibold text-violet-700 shadow-sm self-start sm:self-auto">
+                      <span className="h-2 w-2 rounded-full bg-violet-600 animate-pulse" />
+                      InPlace AI Rendition Active
+                    </span>
+                  </div>
+
+                  {/* Side-by-Side Display Section */}
+                  <div className="mb-6">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                        <svg className="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+                        </svg>
+                        Side-by-Side View
+                      </h4>
+                      <span className="text-xs text-gray-500">Click either image to enlarge</span>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Left: Original Photo */}
+                      <div
+                        className="group relative overflow-hidden rounded-xl border border-gray-200 bg-slate-900 shadow-sm transition-all duration-300 hover:shadow-md cursor-pointer"
+                        onClick={() =>
+                          setLightbox({
+                            src: originalSrc,
+                            alt: "Original senior-submitted space",
+                            label: "Original Senior-Submitted Photo (Before Renovation)",
+                          })
+                        }
+                      >
+                        <div className="relative w-full" style={{ aspectRatio: "3/2" }}>
+                          <Image
+                            src={originalSrc}
+                            alt="Original senior-submitted space"
+                            fill
+                            className="object-cover transition-transform duration-500 group-hover:scale-105"
+                            sizes="(max-width: 768px) 100vw, 50vw"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent opacity-80 transition-opacity group-hover:opacity-70" />
+                          <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-lg bg-black/60 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm border border-white/10">
+                            <CameraIcon size={14} className="text-gray-300" />
+                            <span>Original Submitted Photo</span>
+                          </div>
+                          <div className="absolute bottom-3 left-3 right-3 z-10 flex items-center justify-between">
+                            <p className="text-xs text-gray-200 font-medium">Existing Senior Home Space</p>
+                            <span className="text-[10px] font-bold tracking-wider uppercase bg-gray-700/80 text-gray-300 px-2 py-0.5 rounded border border-gray-600">Before</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: InPlace AI Renovation Rendition */}
+                      <div
+                        className="group relative overflow-hidden rounded-xl border border-violet-200 bg-violet-950 shadow-sm transition-all duration-300 hover:shadow-md cursor-pointer"
+                        onClick={() =>
+                          setLightbox({
+                            src: generatedSrc,
+                            alt: "InPlace AI renovation rendition",
+                            label: "InPlace AI-Generated Renovation Rendition (Proposed Modifications)",
+                          })
+                        }
+                      >
+                        <div className="relative w-full" style={{ aspectRatio: "3/2" }}>
+                          <Image
+                            src={generatedSrc}
+                            alt="InPlace AI renovation rendition"
+                            fill
+                            className="object-cover transition-transform duration-500 group-hover:scale-105"
+                            sizes="(max-width: 768px) 100vw, 50vw"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-violet-950/90 via-violet-950/10 to-transparent opacity-80 transition-opacity group-hover:opacity-70" />
+                          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 rounded-lg bg-violet-600/90 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white shadow-lg border border-violet-400/30">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>
+                            <span>InPlace AI Rendition</span>
+                          </div>
+                          <div className="absolute bottom-3 left-3 right-3 z-10 flex items-center justify-between">
+                            <p className="text-xs text-violet-100 font-medium truncate pr-2">Proposed Renovation Projection</p>
+                            <span className="text-[10px] font-bold tracking-wider uppercase bg-violet-500/50 text-violet-100 px-2 py-0.5 rounded border border-violet-400/40 shrink-0">After</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Interactive Slider Section */}
+                  <div className="rounded-xl border border-gray-200/80 bg-gray-50/70 p-4">
+                    <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-600"><path d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h3M16 3h3a2 2 0 012 2v14a2 2 0 01-2 2h-3M12 3v18" /></svg>
+                        Interactive Transition Overlay
+                      </span>
+                      <span className="text-xs text-gray-500 bg-white px-2.5 py-1 rounded-md border border-gray-200 shadow-2xs font-medium">
+                        ↔ Drag center slider left/right to compare
+                      </span>
+                    </div>
+                    <ComparisonSlider
+                      beforeSrc={originalSrc}
+                      afterSrc={generatedSrc}
+                      alt="Project space comparison"
+                    />
+                  </div>
+                </div>
               );
             }
 
@@ -340,9 +458,9 @@ export function ProjectVisualizationGallery({
                 : originalSrc;
 
             const label = isShowingGenerated
-              ? "AI-generated modification visual"
+              ? "InPlace AI-generated modification visual"
               : isPendingGenerated
-              ? "AI visual not available yet — showing original"
+              ? "InPlace AI visual not available yet — showing original"
               : "Original uploaded photo";
 
             return (
@@ -368,7 +486,7 @@ export function ProjectVisualizationGallery({
                   {isShowingGenerated && (
                     <span className="absolute left-3 top-3 rounded-md bg-violet-600/80 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm flex items-center gap-1">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>
-                      AI Rendition
+                      InPlace AI Rendition
                     </span>
                   )}
                   
@@ -381,7 +499,7 @@ export function ProjectVisualizationGallery({
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
                         </svg>
                       </div>
-                      <h4 className="text-sm font-semibold text-white">AI Visual Rendering</h4>
+                      <h4 className="text-sm font-semibold text-white">InPlace AI Visual Rendering</h4>
                       <p className="mt-1 max-w-[220px] text-xs text-slate-300 leading-normal">
                         Visual projection is generating. The original photo will be updated automatically.
                       </p>
@@ -429,7 +547,7 @@ export function ProjectVisualizationGallery({
           <div>
             <p className="text-sm font-medium text-gray-700">No Photos Submitted</p>
             <p className="text-xs text-gray-500">
-              Upload project photos to see AI-generated visual renditions of proposed modifications.
+              Upload project photos to see InPlace AI-generated visual renditions of proposed modifications.
             </p>
           </div>
         </div>
