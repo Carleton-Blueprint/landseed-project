@@ -153,6 +153,13 @@ function buildFlagDescription(
             `client-declared codes (${declared.join(', ') || 'none'})`
         : 'AI-inferred modification codes differ from the client-declared codes, or AI confidence was LOW'
     );
+  } else if (reason === 'DISCOVERY_CATALOG_CONTRADICTION') {
+    const contradictingGrantTitles = metadata?.contradictingGrantTitles;
+    parts.push(
+      Array.isArray(contradictingGrantTitles) && contradictingGrantTitles.length > 0
+        ? `Grant discovery marked eligible program(s) that contradict our own catalog data: ${contradictingGrantTitles.join(', ')}`
+        : 'Grant discovery marked an eligible program that contradicts our own catalog data'
+    );
   }
 
   parts.push(`AI confidence level: ${aiConfidence}`);

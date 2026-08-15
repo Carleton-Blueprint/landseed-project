@@ -1,7 +1,12 @@
 /// <reference types="jest" />
 
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { discoverAndEvaluateGrants, resolveGrantDiscoveryMetadata } from '../discoverySearchProvider';
+import {
+  discoverAndEvaluateGrants,
+  resolveGrantDiscoveryMetadata,
+  detectCatalogContradictions,
+  DiscoveredGrant,
+} from '../discoverySearchProvider';
 import { EligibilityDecision, EligibilityInput } from '../types';
 
 const originalFetch = globalThis.fetch;
@@ -669,5 +674,85 @@ describe('discoverAndEvaluateGrants', () => {
       }
       restoreDiscoveryEnv(savedEnv);
     }
+  });
+});
+
+describe('detectCatalogContradictions', () => {
+  function makeGrant(overrides: Partial<DiscoveredGrant>): DiscoveredGrant {
+    return {
+      grantId: 'on_adp',
+      title: 'Ontario Assistive Devices Program (ADP)',
+      scope: 'PROVINCIAL',
+      jurisdiction: 'ON',
+      sourceUrl: 'https://www.ontario.ca/page/assistive-devices-program',
+      summary: 'Funds assistive devices.',
+      decision: EligibilityDecision.ELIGIBLE,
+      relevanceScore: 80,
+      confidence: 'HIGH',
+      matchedCriteria: [],
+      missingCriteria: [],
+      rationale: 'test',
+      ...overrides,
+    };
+  }
+
+  it('flags a grant marked ELIGIBLE whose catalog entry has an empty eligibleModificationCodes list (not modification-specific)', () => {
+    const grants = [makeGrant({ grantId: 'on_adp', decision: EligibilityDecision.ELIGIBLE })];
+
+    const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
+
+    expect(contradictions).toHaveLength(1);
+    expect(contradictions[0].grantId).toBe('on_adp');
+  });
+
+  it('flags a grant marked ELIGIBLE whose catalog entry has no overlap with the requested modification codes', () => {
+    // hatc_canada covers GRAB_BARS/RAISED_TOILET/WALK_IN_SHOWER/WIDENED_DOORWAY/STAIR_LIFT/HANDRAILS —
+    // none of which is requested here.
+    const grants = [
+      makeGrant({
+        grantId: 'hatc_canada',
+        title: 'Home Accessibility Tax Credit (HATC)',
+        decision: EligibilityDecision.ELIGIBLE,
+      }),
+    ];
+
+    const contradictions = detectCatalogContradictions(grants, []);
+
+    expect(contradictions).toHaveLength(1);
+  });
+
+  it('does not flag a grant whose catalog entry overlaps the requested modification codes', () => {
+    const grants = [
+      makeGrant({
+        grantId: 'hatc_canada',
+        title: 'Home Accessibility Tax Credit (HATC)',
+        decision: EligibilityDecision.ELIGIBLE,
+      }),
+    ];
+
+    const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
+
+    expect(contradictions).toHaveLength(0);
+  });
+
+  it('does not flag a grant that is not ELIGIBLE, even if the catalog has no overlap', () => {
+    const grants = [makeGrant({ grantId: 'on_adp', decision: EligibilityDecision.INELIGIBLE })];
+
+    const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
+
+    expect(contradictions).toHaveLength(0);
+  });
+
+  it('does not flag a grant whose grantId has no matching catalog entry (novel AI discovery)', () => {
+    const grants = [
+      makeGrant({
+        grantId: 'some_novel_program_the_ai_found',
+        decision: EligibilityDecision.ELIGIBLE,
+      }),
+    ];
+
+    const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
+
+    expect(contradictions).toHaveLength(0);
   });
 });
