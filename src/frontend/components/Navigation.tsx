@@ -48,20 +48,10 @@ export function Navigation() {
         <nav className="flex items-center gap-1" aria-label="Main navigation">
           {navLinks.map((link) => {
             const isActive = pathname === link.href;
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 ${
-                  isActive
-                    ? "bg-emerald-50 text-emerald-700"
-                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
-                }`}
-              >
-            const linkClassName = `rounded-lg border px-3.5 py-1.5 text-xs font-semibold tracking-wide transition-all duration-200 active:scale-95 ${
+            const linkClassName = `rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 ${
               isActive
-                ? "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm"
-                : "border-gray-200 bg-white text-gray-600 hover:border-emerald-300 hover:bg-emerald-50/30 hover:text-emerald-700"
+                ? "bg-emerald-50 text-emerald-700"
+                : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
             }`;
 
             // Plain <a> (hard navigation) instead of <Link>: /admin's layout is

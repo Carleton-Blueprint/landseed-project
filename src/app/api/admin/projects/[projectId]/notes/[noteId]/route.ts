@@ -8,8 +8,6 @@
 import type { Session } from "next-auth";
 import { auth } from "@/auth";
 import { authGateResponse } from "@/backend/auth/authGateResponse";
-import { HttpError, requireMinimumRole } from "@/backend/auth/requireRole";
-import type { Session } from "next-auth";
 import { HttpError } from "@/backend/auth/requireRole";
 import { MfaSetupRequiredError, requireAdminWithMfaEnrolled } from "@/backend/auth/requireAdminMfa";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";

@@ -11,7 +11,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useSession } from "next-auth/react";
 import { Button } from "@/frontend/components/ui/button";
-import { PhotoUploadInterface } from "./PhotoUploadInterface";
 import { FloorPlanUploadInterface } from "./FloorPlanUploadInterface";
 import {
   PhotoUploadInterface,
