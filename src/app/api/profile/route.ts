@@ -21,7 +21,6 @@ function readMockProfile(defaultUser: { id: string; name: string; email: string 
         name: data.name || defaultUser.name,
         email: data.email || defaultUser.email,
         phone: data.phone ?? "(555) 019-2834",
-        pendingEmail: data.pendingEmail || null,
       };
     } catch {
       // ignore
@@ -31,7 +30,6 @@ function readMockProfile(defaultUser: { id: string; name: string; email: string 
     name: defaultUser.name,
     email: defaultUser.email,
     phone: "(555) 019-2834",
-    pendingEmail: null,
   };
 }
 
@@ -73,7 +71,7 @@ export async function GET() {
   try {
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { name: true, email: true, phone: true, pendingEmail: true },
+      select: { name: true, email: true, phone: true },
     });
     return NextResponse.json(user);
   } catch (error) {
@@ -82,7 +80,6 @@ export async function GET() {
       name: session.user.name || "Dev User",
       email: session.user.email || "dev@example.com",
       phone: "",
-      pendingEmail: null,
     });
   }
 }
