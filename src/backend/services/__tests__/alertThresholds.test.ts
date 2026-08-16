@@ -1,7 +1,14 @@
 /**
  * @jest-environment node
  */
-export {};
+import {
+  getAllAlertThresholds,
+  getAlertThreshold,
+  updateAlertThreshold,
+  invalidateAlertThresholdCache,
+  AlertThresholdError,
+  ALERT_THRESHOLD_KEYS,
+} from "../alertThresholds";
 
 const mockFindMany = jest.fn();
 const mockFindUnique = jest.fn();
@@ -23,15 +30,6 @@ const mockLogAuditEventNonBlocking = jest.fn();
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: (...args: unknown[]) => mockLogAuditEventNonBlocking(...args),
 }));
-
-const {
-  getAllAlertThresholds,
-  getAlertThreshold,
-  updateAlertThreshold,
-  invalidateAlertThresholdCache,
-  AlertThresholdError,
-  ALERT_THRESHOLD_KEYS,
-} = require("../alertThresholds");
 
 describe("getAllAlertThresholds", () => {
   beforeEach(() => {

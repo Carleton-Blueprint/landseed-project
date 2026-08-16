@@ -1,7 +1,10 @@
 /**
  * @jest-environment node
  */
-export {};
+import { parseAllowedEmails } from "@/backend/auth/requireRole";
+import { sendTransactionalEmail } from "@/backend/services/transactionalEmail";
+import { logSecurityEventNonBlocking } from "@/backend/security/securityEvent";
+import { sendAdminAlert } from "../adminAlerts";
 
 jest.mock("@/backend/auth/requireRole", () => ({
   parseAllowedEmails: jest.fn(),
@@ -14,11 +17,6 @@ jest.mock("@/backend/services/transactionalEmail", () => ({
 jest.mock("@/backend/security/securityEvent", () => ({
   logSecurityEventNonBlocking: jest.fn(),
 }));
-
-const { parseAllowedEmails } = require("@/backend/auth/requireRole");
-const { sendTransactionalEmail } = require("@/backend/services/transactionalEmail");
-const { logSecurityEventNonBlocking } = require("@/backend/security/securityEvent");
-const { sendAdminAlert } = require("../adminAlerts");
 
 describe("sendAdminAlert", () => {
   beforeEach(() => {
