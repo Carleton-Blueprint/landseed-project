@@ -22,7 +22,6 @@
 .DS_Store
 *.pem
 
-# Local Postgres data (accidentally committed by PR #83 — see docs/pr-83-premerge-checklist-2026-08-15.md)
 pgdata/
 pg.log
 
