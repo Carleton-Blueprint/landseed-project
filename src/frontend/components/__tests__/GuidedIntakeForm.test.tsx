@@ -59,7 +59,6 @@ afterEach(() => {
 
 describe("GuidedIntakeForm", () => {
   it("PATCHes guidedData after a field change", async () => {
-    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(
       <IntakeDraftProvider>
         <GuidedIntakeForm />

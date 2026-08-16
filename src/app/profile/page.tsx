@@ -37,6 +37,10 @@ export default function ProfilePage() {
   const [changeEmailError, setChangeEmailError] = React.useState<string | null>(null);
   const [changeEmailSuccess, setChangeEmailSuccess] = React.useState<string | null>(null);
   const [changeEmailLoading, setChangeEmailLoading] = React.useState(false);
+  const [emailChangeStatus, setEmailChangeStatus] = React.useState<{
+    kind: "success" | "error";
+    message: string;
+  } | null>(null);
 
   // Export states
   const [isExportingPdf, setIsExportingPdf] = React.useState(false);
@@ -66,7 +70,6 @@ export default function ProfilePage() {
             email: data.email || "",
             phone: data.phone || "",
           });
-          setPendingEmail(data.pendingEmail || null);
         }
       } catch (err) {
         console.error("Failed to load profile", err);
@@ -74,8 +77,57 @@ export default function ProfilePage() {
         setIsLoading(false);
       }
     }
+    async function loadPendingEmailChange() {
+      try {
+        const res = await fetch("/api/account/email-change");
+        if (res.ok) {
+          const data = await res.json();
+          setPendingEmail(data.pendingEmail || null);
+        }
+      } catch (err) {
+        console.error("Failed to load pending email change status", err);
+      }
+    }
     loadProfile();
+    loadPendingEmailChange();
   }, [reset]);
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("emailChange");
+    if (!status) return;
+
+    const statusMessages: Record<string, { kind: "success" | "error"; message: string }> = {
+      old_verified: {
+        kind: "success",
+        message: "Current email verified. A confirmation link has been sent to your new email address.",
+      },
+      completed: { kind: "success", message: "Your email address has been updated." },
+      expired: {
+        kind: "error",
+        message: "That verification link has expired. Please restart the email change request.",
+      },
+      used: { kind: "error", message: "That verification link has already been used." },
+      new_email_taken: {
+        kind: "error",
+        message: "That email address is no longer available.",
+      },
+      invalid: { kind: "error", message: "That verification link is invalid." },
+    };
+
+    const resolved = statusMessages[status];
+    if (resolved) {
+      setEmailChangeStatus(resolved);
+    }
+
+    params.delete("emailChange");
+    const newSearch = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`
+    );
+  }, []);
 
   async function onSubmit(values: ProfileFormValues) {
     setSuccessMessage(null);
@@ -109,7 +161,7 @@ export default function ProfilePage() {
 
     setChangeEmailLoading(true);
     try {
-      const res = await fetch("/api/profile/change-email", {
+      const res = await fetch("/api/account/email-change", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ newEmail: newEmailInput }),
@@ -136,7 +188,7 @@ export default function ProfilePage() {
     setChangeEmailSuccess(null);
     setChangeEmailLoading(true);
     try {
-      const res = await fetch("/api/profile/change-email", {
+      const res = await fetch("/api/account/email-change", {
         method: "DELETE",
       });
 
@@ -160,7 +212,7 @@ export default function ProfilePage() {
     setChangeEmailSuccess(null);
     setChangeEmailLoading(true);
     try {
-      const res = await fetch("/api/profile/change-email", {
+      const res = await fetch("/api/account/email-change", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ newEmail: pendingEmail }),
@@ -226,6 +278,19 @@ export default function ProfilePage() {
             View and update your Landseed account details.
           </p>
         </div>
+
+        {emailChangeStatus && (
+          <div
+            className={`rounded-xl border p-3.5 text-sm font-medium ${
+              emailChangeStatus.kind === "success"
+                ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                : "bg-red-50 border-red-200 text-red-700"
+            }`}
+            role="status"
+          >
+            {emailChangeStatus.message}
+          </div>
+        )}
 
         {/* 1. Account details form */}
         <section aria-labelledby="profile-settings-title" className="rounded-2xl border bg-white p-6 shadow-sm">

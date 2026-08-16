@@ -21,7 +21,6 @@ jest.mock("@/frontend/lib/intakeAccount", () => ({
   hasAuthenticatedSession: () => false,
   isLegacyAuthBypassClient: () => false,
   registerIntakeAccount: jest.fn(async () => null),
-  isLegacyAuthBypassClient: () => false,
 }));
 
 const mockFetch = jest.fn();

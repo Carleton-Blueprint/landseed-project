@@ -15,6 +15,61 @@ const bodySchema = z.object({
   newEmail: z.string().email(),
 });
 
+const PENDING_CHANGE_PURPOSES = [
+  AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM,
+  AuthEmailTokenPurpose.EMAIL_CHANGE_NEW_CONFIRM,
+];
+
+export async function GET() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const pendingToken = await prisma.authEmailToken.findFirst({
+    where: {
+      userId: session.user.id,
+      purpose: { in: PENDING_CHANGE_PURPOSES },
+      usedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { newEmail: true },
+  });
+
+  return NextResponse.json({ pendingEmail: pendingToken?.newEmail ?? null });
+}
+
+export async function DELETE(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  await prisma.authEmailToken.deleteMany({
+    where: {
+      userId: session.user.id,
+      purpose: { in: PENDING_CHANGE_PURPOSES },
+      usedAt: null,
+    },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "EMAIL_CHANGE_CANCELLED",
+    outcome: "SUCCESS",
+    sensitivityLevel: "CONFIDENTIAL",
+    actorUserId: session.user.id,
+    resourceType: "User",
+    resourceId: session.user.id,
+    description: "Pending email change request cancelled by the user.",
+    ipAddress: getClientIp(request),
+    userAgent: request.headers.get("user-agent"),
+  });
+
+  return NextResponse.json({ success: true });
+}
+
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
