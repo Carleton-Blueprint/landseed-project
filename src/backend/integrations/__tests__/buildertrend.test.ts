@@ -4,6 +4,11 @@
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 import { builderTrendTransferQueue } from "@/backend/queue";
+import {
+  processBuilderTrendTransfer,
+  triggerManualFallbackForExhaustedTransfer,
+  retryBuilderTrendTransfer,
+} from "../buildertrend";
 
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
@@ -33,12 +38,6 @@ jest.mock("lib/prisma", () => ({
     },
   },
 }));
-
-const {
-  processBuilderTrendTransfer,
-  triggerManualFallbackForExhaustedTransfer,
-  retryBuilderTrendTransfer,
-} = require("../buildertrend") as typeof import("../buildertrend");
 
 const mockedQueueGetJob = builderTrendTransferQueue.getJob as jest.MockedFunction<
   typeof builderTrendTransferQueue.getJob

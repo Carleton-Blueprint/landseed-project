@@ -1,7 +1,9 @@
 /**
  * @jest-environment node
  */
-export {};
+import { parseAllowedEmails } from "@/backend/auth/requireRole";
+import { sendTransactionalEmail } from "@/backend/services/transactionalEmail";
+import { buildDailyDigest, sendDailyDigest, runCatchUpIfNeeded } from "../adminDigest";
 
 const mockGroupBy = jest.fn();
 const mockProjectFindMany = jest.fn();
@@ -42,10 +44,6 @@ jest.mock("@/backend/auth/requireRole", () => ({
 jest.mock("@/backend/services/transactionalEmail", () => ({
   sendTransactionalEmail: jest.fn(),
 }));
-
-const { parseAllowedEmails } = require("@/backend/auth/requireRole");
-const { sendTransactionalEmail } = require("@/backend/services/transactionalEmail");
-const { buildDailyDigest, sendDailyDigest, runCatchUpIfNeeded } = require("../adminDigest");
 
 function stubEmptyContent() {
   mockProjectFindMany.mockResolvedValue([]);

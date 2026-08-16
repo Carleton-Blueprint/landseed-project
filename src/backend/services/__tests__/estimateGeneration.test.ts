@@ -2,6 +2,16 @@ import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
+import {
+  getEstimateGenerationDelayMinutes,
+  getEstimateGenerationDelayMs,
+  buildEstimateGenerationJobId,
+  buildQuoteItems,
+  processScheduledEstimateGeneration,
+  ESTIMATE_GENERATION_DELAY_MINUTES_ENV,
+  DEFAULT_ESTIMATE_GENERATION_DELAY_MINUTES,
+  MAX_ESTIMATE_GENERATION_DELAY_MINUTES,
+} from "../estimateGeneration";
 
 jest.mock("@/backend/services/quote", () => ({
   generateQuote: jest.fn(),
@@ -22,17 +32,6 @@ jest.mock("lib/prisma", () => ({
     },
   },
 }));
-
-const {
-  getEstimateGenerationDelayMinutes,
-  getEstimateGenerationDelayMs,
-  buildEstimateGenerationJobId,
-  buildQuoteItems,
-  processScheduledEstimateGeneration,
-  ESTIMATE_GENERATION_DELAY_MINUTES_ENV,
-  DEFAULT_ESTIMATE_GENERATION_DELAY_MINUTES,
-  MAX_ESTIMATE_GENERATION_DELAY_MINUTES,
-} = require("../estimateGeneration") as typeof import("../estimateGeneration");
 
 describe("estimateGeneration delay config", () => {
   const originalEnv = process.env[ESTIMATE_GENERATION_DELAY_MINUTES_ENV];

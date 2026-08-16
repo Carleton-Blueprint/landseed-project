@@ -1,7 +1,10 @@
 /**
  * @jest-environment node
  */
-export {};
+import { incrementFailureCounter } from "@/backend/monitoring/failureWindow";
+import { getAlertThreshold } from "@/backend/services/alertThresholds";
+import { sendAdminAlert } from "@/backend/services/adminAlerts";
+import { recordFailureAndMaybeAlert } from "../criticalFailureAlerts";
 
 jest.mock("@/backend/monitoring/failureWindow", () => ({
   incrementFailureCounter: jest.fn(),
@@ -20,11 +23,6 @@ jest.mock("@/backend/services/alertThresholds", () => ({
 jest.mock("@/backend/services/adminAlerts", () => ({
   sendAdminAlert: jest.fn(),
 }));
-
-const { incrementFailureCounter } = require("@/backend/monitoring/failureWindow");
-const { getAlertThreshold } = require("@/backend/services/alertThresholds");
-const { sendAdminAlert } = require("@/backend/services/adminAlerts");
-const { recordFailureAndMaybeAlert } = require("../criticalFailureAlerts");
 
 describe("recordFailureAndMaybeAlert", () => {
   beforeEach(() => {

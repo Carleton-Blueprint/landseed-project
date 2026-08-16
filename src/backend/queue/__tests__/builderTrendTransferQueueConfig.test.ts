@@ -19,8 +19,8 @@ jest.mock("bullmq", () => ({
 }));
 
 describe("builderTrendTransferQueue configuration", () => {
-  beforeAll(() => {
-    require("../index");
+  beforeAll(async () => {
+    await import("../index");
   });
 
   it("retries up to 3 times with exponential backoff", () => {
