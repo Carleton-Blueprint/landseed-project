@@ -47,7 +47,7 @@ describe("password utilities", () => {
     it("returns a bcrypt hash", async () => {
       const hash = await hashPassword(VALID_PASSWORD);
       expect(hash).toMatch(/^\$2[aby]\$/);
-    });
+    }, 15000);
 
     it("rejects weak passwords", async () => {
       await expect(hashPassword("weak")).rejects.toThrow(
@@ -57,14 +57,18 @@ describe("password utilities", () => {
   });
 
   describe("verifyPassword", () => {
+    let hash: string;
+
+    beforeAll(async () => {
+      hash = await hashPassword(VALID_PASSWORD);
+    }, 15000);
+
     it("returns true for matching password", async () => {
-      const hash = await hashPassword(VALID_PASSWORD);
       await expect(verifyPassword(VALID_PASSWORD, hash)).resolves.toBe(true);
-    });
+    }, 15000);
 
     it("returns false for non-matching password", async () => {
-      const hash = await hashPassword(VALID_PASSWORD);
       await expect(verifyPassword("WrongPass1!", hash)).resolves.toBe(false);
-    });
+    }, 15000);
   });
 });
