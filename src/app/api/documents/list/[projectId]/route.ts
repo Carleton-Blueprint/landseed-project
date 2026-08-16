@@ -31,7 +31,7 @@ export async function GET(
     }
 
     const documents = await prisma.document.findMany({
-      where: { projectId },
+      where: { projectId, isClientVisible: true },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
