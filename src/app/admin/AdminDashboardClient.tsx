@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import { StaffNotesPanel } from "@/frontend/components/StaffNotesPanel";
+import { ProjectAdminDocuments } from "@/app/admin/ProjectAdminDocuments";
 import {
   CheckCircleIcon,
   ClipboardIcon,
@@ -616,6 +617,9 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
 
       {/* Internal Staff Notes */}
       <StaffNotesPanel projectId={project.id} />
+
+      {/* Project Documents */}
+      <ProjectAdminDocuments projectId={project.id} />
     </div>
   );
 }
