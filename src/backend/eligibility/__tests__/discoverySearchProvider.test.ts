@@ -5,8 +5,12 @@ import {
   discoverAndEvaluateGrants,
   resolveGrantDiscoveryMetadata,
   detectCatalogContradictions,
+  scoreCandidate,
+  dedupeAiCandidates,
   DiscoveredGrant,
+  GrantDiscoveryScope,
 } from '../discoverySearchProvider';
+import { GrantDiscoverySourceEntry } from '../discoverySourceCatalog';
 import { EligibilityDecision, EligibilityInput } from '../types';
 
 const originalFetch = globalThis.fetch;
@@ -754,5 +758,170 @@ describe('detectCatalogContradictions', () => {
     const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
 
     expect(contradictions).toHaveLength(0);
+  });
+});
+
+describe('scoreCandidate', () => {
+  // Deliberately maxes out every non-modification signal (jurisdiction, text
+  // overlap, keyword overlap, owner-occupied, consent) so that, pre-fix, the
+  // combined score alone clears eligibleThreshold (75) with no modification
+  // overlap at all — reproducing the on_adp-style false positive.
+  function makeMaxSignalSource(
+    overrides: Partial<GrantDiscoverySourceEntry>
+  ): GrantDiscoverySourceEntry {
+    return {
+      id: 'test_program',
+      title: 'Test Device Program',
+      scope: 'PROVINCIAL',
+      jurisdiction: 'ON',
+      sourceUrl: 'https://example.com/test-program',
+      summary: 'A synthetic program used for testing.',
+      keywords: ['alpha', 'beta', 'gamma', 'delta'],
+      requiresOwnerOccupied: true,
+      requiresConsentConfirmed: true,
+      ...overrides,
+    };
+  }
+
+  const maxSignalQueryTokens = [
+    'test', 'device', 'program', 'synthetic', 'testing', 'alpha', 'beta', 'gamma', 'delta',
+  ];
+
+  it('caps a device-only program (empty eligibleModificationCodes) below ELIGIBLE even when every other signal maxes out', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: [] });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.score).toBeLessThan(75);
+    expect(result.decision).not.toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.missingCriteria).toContain('no_modification_overlap');
+  });
+
+  it('caps a modification-specific program with zero code overlap below ELIGIBLE even when every other signal maxes out', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: ['RAISED_TOILET'] });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.score).toBeLessThan(75);
+    expect(result.decision).not.toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.missingCriteria).toContain('no_modification_overlap');
+  });
+
+  it('still allows ELIGIBLE when the program overlaps the requested modification codes', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: ['GRAB_BARS', 'HANDRAILS'] });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.decision).toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.matchedCriteria.some((c) => c.startsWith('modification_overlap_'))).toBe(true);
+  });
+
+  it('does not exclude on modification codes when the project requests none', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: [] });
+    const input: EligibilityInput = {
+      ...baseEligibilityInput,
+      required: { ...baseEligibilityInput.required, modificationCodes: [] },
+    };
+
+    const result = scoreCandidate(input, source, maxSignalQueryTokens);
+
+    expect(result.decision).toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.missingCriteria).not.toContain('no_modification_overlap');
+  });
+});
+
+describe('dedupeAiCandidates', () => {
+  function makeCandidate(overrides: Partial<{
+    grantId: string;
+    title: string;
+    sourceUrl: string;
+    score: number;
+  }> = {}) {
+    const { grantId = 'grant_a', title = 'Home and Vehicle Modification Program', sourceUrl = 'https://www.ontario.ca/page/home-and-vehicle-modification-program', score = 70 } = overrides;
+    return {
+      source: {
+        id: grantId,
+        title,
+        scope: 'PROVINCIAL' as GrantDiscoveryScope,
+        jurisdiction: 'ON',
+        sourceUrl,
+        summary: 'A grant program.',
+      },
+      score,
+      decision: EligibilityDecision.ELIGIBLE,
+      matchedCriteria: [],
+      missingCriteria: [],
+      confidence: 'HIGH' as const,
+      rationale: 'test',
+    };
+  }
+
+  it('collapses duplicate grantIds, keeping the higher-scoring entry', () => {
+    const candidates = [makeCandidate({ score: 60 }), makeCandidate({ score: 90 })];
+
+    const deduped = dedupeAiCandidates(candidates);
+
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0].score).toBe(90);
+  });
+
+  it('collapses entries with the same title and sourceUrl even under different grantIds', () => {
+    const candidates = [
+      makeCandidate({ grantId: 'on_hvmp', score: 55 }),
+      makeCandidate({ grantId: 'on_hvmp_duplicate', score: 55 }),
+    ];
+
+    const deduped = dedupeAiCandidates(candidates);
+
+    expect(deduped).toHaveLength(1);
+  });
+
+  it('keeps distinct programs separate', () => {
+    const candidates = [
+      makeCandidate({ grantId: 'on_hvmp' }),
+      makeCandidate({
+        grantId: 'hatc_canada',
+        title: 'Home Accessibility Tax Credit (HATC)',
+        sourceUrl: 'https://www.canada.ca/en/revenue-agency/hatc',
+      }),
+    ];
+
+    const deduped = dedupeAiCandidates(candidates);
+
+    expect(deduped).toHaveLength(2);
+  });
+
+  it('is reflected end-to-end when the AI returns a duplicate decision', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+
+    try {
+      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                decisions: [mockOpenAiDecision(), mockOpenAiDecision()],
+              }),
+              usage: { prompt_tokens: 1200, completion_tokens: 400 },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      const result = await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      const liveHatcEntries = result.discoveredGrants.filter((grant) => grant.grantId === 'live_hatc_canada');
+      expect(liveHatcEntries).toHaveLength(1);
+    } finally {
+      restoreDiscoveryEnv(savedEnv);
+    }
   });
 });
