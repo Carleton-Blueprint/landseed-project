@@ -1,5 +1,8 @@
 import { describe, expect, it } from "@jest/globals";
-import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
+import {
+  normalizeModificationItems,
+  parseDeclaredModificationCodes,
+} from "@/backend/eligibility/modificationNormalization";
 
 describe("normalizeModificationItems", () => {
   it("maps known intake labels to stable internal codes", () => {
@@ -60,5 +63,34 @@ describe("normalizeModificationItems", () => {
     ]);
 
     expect(result).toEqual(["GRAB_BARS", "RAISED_TOILET"]);
+  });
+});
+
+describe("parseDeclaredModificationCodes", () => {
+  it("accepts known codes and dedupes", () => {
+    const result = parseDeclaredModificationCodes(["GRAB_BARS", "HANDRAILS", "GRAB_BARS"]);
+
+    expect(result).toEqual({ codes: ["GRAB_BARS", "HANDRAILS"], invalidCodes: [] });
+  });
+
+  it("reports unknown codes instead of silently dropping them", () => {
+    const result = parseDeclaredModificationCodes(["GRAB_BARS", "Grab bars", "not a code"]);
+
+    expect(result).toEqual({
+      codes: ["GRAB_BARS"],
+      invalidCodes: ["Grab bars", "not a code"],
+    });
+  });
+
+  it("ignores empty/whitespace-only entries", () => {
+    const result = parseDeclaredModificationCodes(["", "   ", "GRAB_BARS"]);
+
+    expect(result).toEqual({ codes: ["GRAB_BARS"], invalidCodes: [] });
+  });
+
+  it("returns empty codes for an empty input array", () => {
+    const result = parseDeclaredModificationCodes([]);
+
+    expect(result).toEqual({ codes: [], invalidCodes: [] });
   });
 });

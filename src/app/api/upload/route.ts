@@ -1,7 +1,9 @@
 /**
  * API route: POST /api/upload — accepts multipart/form-data photo uploads.
- * Validates file presence, size (max 10MB), and type (JPEG, PNG, WebP). 
- * Uploads to S3, creates Photo record, and queues virus scan job.
+ * Validates file presence, size (max 10MB), and type (JPEG, PNG, WebP).
+ * Uploads to S3, creates Photo record (optionally tagged with declared
+ * modification codes via repeated "modificationItems" fields), and queues
+ * virus scan job.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToS3 } from "lib/s3";
@@ -15,6 +17,7 @@ import { ProjectAccessRole } from "@prisma/client";
 import { virusScanQueue } from "@/backend/queue";
 import { enforceRateLimit } from "@/backend/auth/rateLimit";
 import { getClientIp } from "@/backend/auth/authEmailResponses";
+import { parseDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -72,6 +75,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const modificationItemsRaw = formData
+      .getAll("modificationItems")
+      .filter((value): value is string => typeof value === "string");
+    const { codes: declaredModificationCodes, invalidCodes } =
+      parseDeclaredModificationCodes(modificationItemsRaw);
+
+    if (invalidCodes.length > 0) {
+      return NextResponse.json(
+        { error: `Unknown modification code(s): ${invalidCodes.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
     const canUploadToProject = await hasProjectAccess(
       session.user.id,
       projectId,
@@ -118,6 +134,7 @@ export async function POST(request: NextRequest) {
         url: s3Url,
         projectId: projectId,
         virus_scan_status: "pending",
+        declaredModificationCodes,
       },
     });
 
