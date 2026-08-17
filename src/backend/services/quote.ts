@@ -103,12 +103,23 @@ export async function generateQuote(
     sourceUrl: grant.sourceUrl ?? null,
   }));
 
+  const pricingSource = getPricingSourceFromRefinedEstimate(primaryEstimate);
+  const fallbackLineItems = primaryEstimate.lineItems
+    .filter((item) => item.pricingSource === 'fallback')
+    .map((item) => ({
+      description: item.description,
+      query: item.pricingQuery,
+      fallbackUnitPrice: item.materialUnitCost,
+    }));
+
   await logPricingDecisionAuditNonBlocking({
     projectId: input.projectId,
     quoteId: quote.id,
     actorUserId: projectWithUser.user.id,
     subtotal: primaryEstimate.subtotal,
     total: primaryEstimate.total,
+    pricingSource,
+    fallbackLineItems,
     eligibilityAssessmentId: latestEligibility?.assessmentId,
     discoveryVersion: {
       engineVersion: latestEligibility?.discoveryEngineVersion,
@@ -141,7 +152,7 @@ export async function generateQuote(
     eligibilityAssessmentId: latestEligibility?.assessmentId,
     estimateMin: Number(quote.estimateMin!.toString()),
     estimateMax: Number(quote.estimateMax!.toString()),
-    pricingSource: getPricingSourceFromRefinedEstimate(primaryEstimate),
+    pricingSource,
     refinedEstimate,
   };
 }

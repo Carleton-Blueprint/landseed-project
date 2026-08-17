@@ -5,6 +5,8 @@ import { isLiveImageGenerationEnabled } from "lib/openai";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { generateMockAccessibilityVisual, modificationItemsFromDraft } from "@/backend/services/imageGeneration";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
 export async function GET(
   request: NextRequest,
@@ -51,18 +53,49 @@ export async function GET(
       project.photos.map(async (photo) => {
         let generatedImageUrl: string | null;
 
-        if (photo.generationStatus === "READY" && photo.generatedImageUrl) {
+        if (photo.generatedImageUrl) {
+          // Set by a successful live generation, or by the ai-jobs worker's
+          // mock fallback once live retries are exhausted — either way there's
+          // an image to serve.
           generatedImageUrl = photo.generatedImageUrl.includes(".amazonaws.com")
             ? await getSignedDownloadUrlFromS3Url(photo.generatedImageUrl, 900)
             : photo.generatedImageUrl;
         } else if (isLiveImageGenerationEnabled()) {
-          // Generation is pending, in progress, or failed — leave null so callers
-          // can show a pending/placeholder state rather than a stale mock visual.
+          // Generation is pending or in progress — leave null so callers
+          // can show a pending state rather than a stale mock visual.
           generatedImageUrl = null;
         } else {
-          generatedImageUrl = await generateMockAccessibilityVisual(photo.url, {
+          const mockImageUrl = await generateMockAccessibilityVisual(photo.url, {
             modificationCodes: modificationItems,
           });
+
+          await prisma.photo.update({
+            where: { id: photo.id },
+            data: {
+              generatedImageUrl: mockImageUrl,
+              generationModel: "mock",
+              generatedAt: new Date(),
+            },
+          });
+
+          await logAuditEventNonBlocking({
+            category: "AI_GENERATION",
+            action: "ACCESSIBILITY_IMAGE_GENERATION_MOCK_USED",
+            outcome: "SUCCESS",
+            sensitivityLevel: "INTERNAL",
+            projectId: photo.projectId,
+            resourceType: "photo",
+            resourceId: photo.id,
+            description: "Live image generation disabled; served mock placeholder visual.",
+            metadata: {
+              model: "mock",
+              mockImageUrl,
+              outputSource: "MOCK",
+              isFallback: false,
+            } satisfies AiProvenanceMetadata & Record<string, unknown>,
+          });
+
+          generatedImageUrl = mockImageUrl;
         }
 
         return {

@@ -21,6 +21,7 @@ import { PHOTO_ANALYSIS_MODEL_NAME } from "@/backend/services/photoAnalysisModel
 import { getIntakeModificationLabels } from "@/backend/services/estimateGeneration";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { manualReviewQueue } from "@/backend/queue";
+import type { AiOutputSource, AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
 export type PhotoAnalysisConfidence = "HIGH" | "MEDIUM" | "LOW";
 export type PhotoAnalysisStatus = "READY" | "FAILED" | "SKIPPED";
@@ -419,6 +420,9 @@ export async function processPhotoModificationAnalysisJob(
     },
   });
 
+  const outputSource: AiOutputSource =
+    result.status !== "READY" ? "NONE" : result.model === "mock" ? "MOCK" : "LIVE";
+
   await logAuditEventNonBlocking({
     category: "AI_GENERATION",
     action: result.status === "READY" ? "PHOTO_MODIFICATION_ANALYSIS_READY" : "PHOTO_MODIFICATION_ANALYSIS_FAILED",
@@ -438,7 +442,11 @@ export async function processPhotoModificationAnalysisJob(
       status: result.status,
       error: result.error,
       durationMs: Date.now() - startedAt,
-    },
+      outputSource,
+      // Analysis never falls back to a mock value on live failure — a missing signal is
+      // treated as a valid outcome (see file header), so this is always false.
+      isFallback: false,
+    } satisfies AiProvenanceMetadata & Record<string, unknown>,
   });
 
   await maybeReconcileProjectModificationCodes(photo.projectId, photo.project.draftData);

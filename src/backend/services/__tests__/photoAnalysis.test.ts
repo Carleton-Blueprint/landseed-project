@@ -284,7 +284,43 @@ describe("processPhotoModificationAnalysisJob", () => {
       }),
     });
     expect(mockLogAuditEventNonBlocking).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "PHOTO_MODIFICATION_ANALYSIS_READY", outcome: "SUCCESS" })
+      expect.objectContaining({
+        action: "PHOTO_MODIFICATION_ANALYSIS_READY",
+        outcome: "SUCCESS",
+        metadata: expect.objectContaining({ outputSource: "LIVE", isFallback: false }),
+      })
+    );
+  });
+
+  it("logs outputSource=MOCK (not a fallback) when PHOTO_ANALYSIS_MOCK_AI is enabled", async () => {
+    process.env.PHOTO_ANALYSIS_MOCK_AI = "true";
+    mockPhoto(["Grab bars"]);
+    mockProjectPhotos([{ analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "MEDIUM" }]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PHOTO_MODIFICATION_ANALYSIS_READY",
+        outcome: "SUCCESS",
+        metadata: expect.objectContaining({ model: "mock", outputSource: "MOCK", isFallback: false }),
+      })
+    );
+  });
+
+  it("logs outputSource=NONE when the live call fails (no mock fallback is applied)", async () => {
+    mockPhoto(["Grab bars"]);
+    mockCreate.mockRejectedValue(new Error("OpenAI rate limited"));
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PHOTO_MODIFICATION_ANALYSIS_FAILED",
+        outcome: "FAILURE",
+        metadata: expect.objectContaining({ outputSource: "NONE", isFallback: false }),
+      })
     );
   });
 
