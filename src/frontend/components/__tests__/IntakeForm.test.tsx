@@ -19,8 +19,8 @@ jest.mock("next-auth/react", () => ({
 
 jest.mock("@/frontend/lib/intakeAccount", () => ({
   hasAuthenticatedSession: () => false,
-  registerIntakeAccount: jest.fn(async () => null),
   isLegacyAuthBypassClient: () => false,
+  registerIntakeAccount: jest.fn(async () => null),
 }));
 
 const mockFetch = jest.fn();

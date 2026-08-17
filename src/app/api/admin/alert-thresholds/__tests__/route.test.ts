@@ -1,4 +1,9 @@
-export {};
+import { GET, PATCH } from "../route";
+import { auth } from "@/auth";
+import { HttpError } from "@/backend/auth/requireRole";
+import { requireAdminWithMfaEnrolled, MfaSetupRequiredError } from "@/backend/auth/requireAdminMfa";
+import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
+import { getAllAlertThresholds, updateAlertThreshold, AlertThresholdError } from "@/backend/services/alertThresholds";
 
 jest.mock("@/auth", () => ({
   auth: jest.fn(),
@@ -43,17 +48,6 @@ jest.mock("@/backend/services/alertThresholds", () => ({
   getAllAlertThresholds: jest.fn(),
   updateAlertThreshold: jest.fn(),
 }));
-
-const { GET, PATCH } = require("../route");
-const { auth } = require("@/auth");
-const { HttpError } = require("@/backend/auth/requireRole");
-const { requireAdminWithMfaEnrolled, MfaSetupRequiredError } = require("@/backend/auth/requireAdminMfa");
-const { logDeniedAdminAccessAttempt } = require("@/backend/audit/adminAccess");
-const {
-  getAllAlertThresholds,
-  updateAlertThreshold,
-  AlertThresholdError,
-} = require("@/backend/services/alertThresholds");
 
 const adminSession = { user: { id: "admin-1", email: "advisor@landseed.test" } };
 

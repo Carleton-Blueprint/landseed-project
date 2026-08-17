@@ -30,6 +30,7 @@ export async function enqueueAuthEmail(input: EnqueueAuthEmailInput): Promise<vo
   });
 
   const baseUrl = getAppBaseUrl();
+
   const isVerification = input.purpose === AuthEmailTokenPurpose.EMAIL_VERIFICATION;
   const eventType = isVerification
     ? NotificationEventType.EMAIL_VERIFICATION

@@ -9,9 +9,9 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/frontend/components/ui/button";
+import { FloorPlanUploadInterface } from "./FloorPlanUploadInterface";
 import {
   PhotoUploadInterface,
   type PhotoUploadInterfaceHandle,
@@ -62,7 +62,6 @@ const intakeFieldsSchema = z.object({
     password: z.string(),
     confirmPassword: z.string(),
 
-    // Service address
     addressLine1: z.string().min(1, "Street address is required").max(200),
     addressLine2: z.string().max(50).optional().or(z.literal("")),
     city: z.string().min(1, "City is required").max(100),
@@ -76,7 +75,6 @@ const intakeFieldsSchema = z.object({
         "Postal code can only contain letters, numbers, and spaces"
       ),
 
-    // Ownership
     ownershipStatus: z.enum(["owner", "tenant", "other"], {
       message: "Please select owner, tenant, or other",
     }),
@@ -89,16 +87,13 @@ const intakeFieldsSchema = z.object({
       .optional()
       .or(z.literal("")),
 
-    // Caregiver section
     isCaregiver: z.boolean().default(false),
     seniorName: z.string().max(120).optional().or(z.literal("")),
     relationshipToSenior: z.string().max(120).optional().or(z.literal("")),
     caregiverConsentConfirmed: z.boolean().default(false),
 
-    // Consent section
     clientConsentConfirmed: z.boolean().default(false),
 
-    // Modification items
     modificationItems: z
       .array(z.string())
       .min(1, "Select at least one modification item"),
@@ -244,7 +239,6 @@ function toIntakeData(values: IntakeFormValues): IntakeData {
 }
 
 export function IntakeForm() {
-  const router = useRouter();
   const { data: session } = useSession();
   const isAuthenticated = hasAuthenticatedSession(session);
   const legacyAuthBypass = isLegacyAuthBypassClient();
@@ -253,6 +247,7 @@ export function IntakeForm() {
     [isAuthenticated, legacyAuthBypass]
   );
   const {
+    projectId,
     intakeData,
     photos,
     isHydrated,
@@ -283,7 +278,7 @@ export function IntakeForm() {
   const [photoKey, setPhotoKey] = React.useState(0);
   const [photoError, setPhotoError] = React.useState<string | null>(null);
   const [accountError, setAccountError] = React.useState<string | null>(null);
-  const [isSettingUpAccount, setIsSettingUpAccount] = React.useState(false);
+  const [, setIsSettingUpAccount] = React.useState(false);
   const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
   const [removingPhotoId, setRemovingPhotoId] = React.useState<string | null>(null);
   const previousUploadCountRef = React.useRef(0);
@@ -435,7 +430,8 @@ export function IntakeForm() {
     setPhotoError(null);
   };
 
-  async function onSubmit(values: IntakeFormValues) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async function onSubmit(_values: IntakeFormValues) {
     if (photos.length < 1) {
       setPhotoError("Please upload at least 1 photo before submitting.");
       return;
@@ -469,10 +465,12 @@ export function IntakeForm() {
         return;
       }
 
-      const result = await promoteResponse.json();
-      if (result.projectId) {
-        router.push(`/submitted?projectId=${encodeURIComponent(result.projectId)}`);
-      }
+      const result = await promoteResponse.json().catch(() => ({}));
+      const targetUrl = result?.projectId
+        ? `/dashboard?tab=submitted&submitted=true&projectId=${encodeURIComponent(result.projectId)}`
+        : "/dashboard?tab=submitted&submitted=true";
+      window.location.href = targetUrl;
+      return;
     } catch (error) {
       console.error("Submit error:", error);
       setPhotoError("Failed to submit. Please try again.");
@@ -955,6 +953,7 @@ export function IntakeForm() {
             {photos.map((photo) => (
               <li key={photo.id} className="overflow-hidden rounded border">
                 <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photo.url}
                     alt="Saved project photo"
@@ -997,6 +996,22 @@ export function IntakeForm() {
             {photoError}
           </p>
         )}
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold">Floor Plans & Layout Sketches</h2>
+          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+            Optional
+          </span>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Optionally upload architectural drawings, floor plans, room measurements, or hand-drawn layout sketches to help our team understand the dimensions and layout of your space.
+        </p>
+        <FloorPlanUploadInterface
+          projectId={projectId}
+          ensureProjectId={ensureProjectId}
+        />
       </section>
 
       <section className="space-y-3">

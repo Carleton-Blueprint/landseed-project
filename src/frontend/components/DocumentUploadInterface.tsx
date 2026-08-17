@@ -151,7 +151,6 @@ export function DocumentUploadInterface({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch existing documents on mount
   useEffect(() => {
     async function fetchDocs() {
       try {
@@ -169,7 +168,6 @@ export function DocumentUploadInterface({
     fetchDocs();
   }, [projectId]);
 
-  // Upload a queued file
   const uploadFile = useCallback(
     async (queuedFile: QueuedFile, index: number) => {
       setQueuedFiles((prev) =>
@@ -184,7 +182,6 @@ export function DocumentUploadInterface({
         formData.append("label", queuedFile.label);
       }
 
-      // Simulate progress
       const progressInterval = setInterval(() => {
         if (!projectId) { clearInterval(progressInterval); return; }
         setQueuedFiles((prev) =>
@@ -239,7 +236,6 @@ export function DocumentUploadInterface({
     [projectId]
   );
 
-  // Handle files dropped or selected
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       if (!selectedCategory) {
@@ -258,7 +254,6 @@ export function DocumentUploadInterface({
       const startIndex = queuedFiles.length;
       setQueuedFiles((prev) => [...prev, ...newQueued]);
 
-      // Start uploads
       newQueued.forEach((qf, i) => {
         uploadFile(qf, startIndex + i);
       });
@@ -279,7 +274,6 @@ export function DocumentUploadInterface({
     disabled: !selectedCategory,
   });
 
-  // Delete document
   const handleDelete = async (docId: string) => {
     setDeletingId(docId);
     try {
@@ -294,12 +288,10 @@ export function DocumentUploadInterface({
     }
   };
 
-  // Remove from queue
   const removeFromQueue = (index: number) => {
     setQueuedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Notify parent when uploads complete
   useEffect(() => {
     if (onUploadComplete && uploadedDocs.length > 0) {
       onUploadComplete(uploadedDocs);
@@ -339,7 +331,6 @@ export function DocumentUploadInterface({
             </div>
           </div>
 
-          {/* Progress indicator */}
           <div className="mt-6 flex items-center gap-4">
             <div className="flex-1 bg-white/10 rounded-full h-2.5 overflow-hidden">
               <div
@@ -390,7 +381,6 @@ export function DocumentUploadInterface({
                   }
                 `}
               >
-                {/* Completed badge */}
                 {isCompleted && (
                   <div className="absolute top-2 right-2">
                     <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500 text-white text-xs font-bold">
@@ -458,7 +448,6 @@ export function DocumentUploadInterface({
         >
           <input {...getInputProps()} />
 
-          {/* Background decoration */}
           <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 to-purple-50/30 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
           <div className="relative z-10">
@@ -532,7 +521,6 @@ export function DocumentUploadInterface({
                   }
                 `}
               >
-                {/* Progress bar background */}
                 {qf.status === "uploading" && (
                   <div
                     className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300 rounded-full"
@@ -636,12 +624,10 @@ export function DocumentUploadInterface({
                   className="group relative rounded-xl border border-gray-200 bg-white p-4 hover:shadow-md hover:border-gray-300 transition-all duration-200"
                 >
                   <div className="flex items-center gap-4">
-                    {/* Icon */}
                       <div className="flex-shrink-0 w-11 h-11 rounded-xl bg-gray-100 group-hover:bg-blue-50 flex items-center justify-center transition-colors duration-200 text-gray-600">
                         {catInfo?.icon || <FileIcon size={18} />}
                     </div>
 
-                    {/* Info */}
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-gray-800 truncate text-sm">
                         {doc.fileName}
@@ -665,9 +651,7 @@ export function DocumentUploadInterface({
                       </div>
                     </div>
 
-                    {/* Status badges */}
                     <div className="flex-shrink-0 flex items-center gap-2">
-                      {/* Virus scan */}
                       <span
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(doc.virusScanStatus)}`}
                       >
@@ -678,14 +662,12 @@ export function DocumentUploadInterface({
                           : "Flagged"}
                       </span>
 
-                      {/* Review status */}
                       <span
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${reviewBadge.classes}`}
                       >
                         {reviewBadge.text}
                       </span>
 
-                      {/* Delete button */}
                       <button
                         type="button"
                         onClick={() => handleDelete(doc.id)}
@@ -760,7 +742,6 @@ export function DocumentUploadInterface({
         </div>
       </div>
 
-      {/* Hidden file input for programmatic use */}
       <input
         ref={fileInputRef}
         type="file"

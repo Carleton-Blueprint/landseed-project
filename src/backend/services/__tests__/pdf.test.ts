@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import { PDFDocument } from "pdf-lib";
 import { inflateSync } from "zlib";
-import { generateGrantPdf } from "../pdf";
+import { generateGrantPdf, GrantPdfInput } from "../pdf";
 
 // pdf-lib FlateDecode-compresses page content streams and draws text as
 // hex-encoded strings (`<4C616E64...> Tj`), so the drawn text never appears
@@ -58,7 +58,7 @@ describe("generateGrantPdf", () => {
       projectAddress: "",
       applicantName: "",
       applicantEmail: "",
-    } as any);
+    } as Partial<GrantPdfInput> as GrantPdfInput);
 
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.byteLength).toBeGreaterThan(200);

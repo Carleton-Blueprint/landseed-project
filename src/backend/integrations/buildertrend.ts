@@ -4,6 +4,11 @@ import { prisma } from "lib/prisma";
 import { builderTrendTransferQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
+import {
+  assertQuoteAcceptedForWorkOrder,
+  logWorkOrderCreationBlocked,
+  WorkOrderCreationBlockedError,
+} from "@/backend/services/workOrderAcceptance";
 import type { BuilderTrendWorkOrderPayload } from "@/backend/integrations/builderTrendPayload";
 import { mapBuilderTrendStatus } from "@/backend/integrations/buildertrendStatusMapping";
 
@@ -148,6 +153,37 @@ export async function processBuilderTrendTransfer(
 
   const transfer = rows[0];
   if (transfer.status === "SENT") {
+    return;
+  }
+
+  try {
+    await assertQuoteAcceptedForWorkOrder(transfer.quoteId);
+  } catch (error) {
+    const reason = error instanceof WorkOrderCreationBlockedError ? error.reason : "ESTIMATE_NOT_ACCEPTED";
+
+    await prisma.$executeRaw(
+      Prisma.sql`
+        UPDATE "BuilderTrendTransfer"
+        SET
+          "status" = 'FAILED'::"BuilderTrendTransferStatus",
+          "lastError" = ${`Work order creation blocked: ${reason}`},
+          "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${transfer.id}
+      `
+    );
+
+    const quoteSource = await prisma.quote.findUnique({
+      where: { id: transfer.quoteId },
+      select: { source: true },
+    });
+
+    await logWorkOrderCreationBlocked({
+      quoteId: transfer.quoteId,
+      projectId: transfer.projectId,
+      reason,
+      source: quoteSource?.source === "MANUAL" ? "MANUAL" : "AUTOMATED",
+    });
+
     return;
   }
 

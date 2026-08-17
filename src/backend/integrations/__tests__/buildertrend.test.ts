@@ -4,6 +4,11 @@
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 import { builderTrendTransferQueue } from "@/backend/queue";
+import {
+  processBuilderTrendTransfer,
+  triggerManualFallbackForExhaustedTransfer,
+  retryBuilderTrendTransfer,
+} from "../buildertrend";
 
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
@@ -23,6 +28,7 @@ jest.mock("@/backend/services/manualFallbackExport", () => ({
 const mockedQueryRaw = jest.fn();
 const mockedExecuteRaw = jest.fn();
 const mockedProjectFindUnique = jest.fn();
+const mockedQuoteFindUnique = jest.fn();
 
 jest.mock("lib/prisma", () => ({
   prisma: {
@@ -31,14 +37,11 @@ jest.mock("lib/prisma", () => ({
     project: {
       findUnique: (...args: unknown[]) => mockedProjectFindUnique(...args),
     },
+    quote: {
+      findUnique: (...args: unknown[]) => mockedQuoteFindUnique(...args),
+    },
   },
 }));
-
-const {
-  processBuilderTrendTransfer,
-  triggerManualFallbackForExhaustedTransfer,
-  retryBuilderTrendTransfer,
-} = require("../buildertrend") as typeof import("../buildertrend");
 
 const mockedQueueGetJob = builderTrendTransferQueue.getJob as jest.MockedFunction<
   typeof builderTrendTransferQueue.getJob
@@ -64,6 +67,7 @@ describe("processBuilderTrendTransfer", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedQuoteFindUnique.mockResolvedValue({ id: "quote-1", projectId: "project-1", status: "ACCEPTED" });
   });
 
   afterAll(() => {
@@ -77,6 +81,28 @@ describe("processBuilderTrendTransfer", () => {
 
     expect(mockedExecuteRaw).not.toHaveBeenCalled();
     expect(mockedAudit).not.toHaveBeenCalled();
+  });
+
+  it("marks the transfer FAILED and logs a blocked audit event when the quote is not accepted", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([baseTransferRow]);
+    mockedQuoteFindUnique.mockResolvedValue({ id: "quote-1", projectId: "project-1", status: "DECLINED" });
+
+    await processBuilderTrendTransfer("transfer-1", { attemptsMade: 0, maxAttempts: 3 });
+
+    expect(mockedExecuteRaw).toHaveBeenCalledTimes(1);
+    expect(mockedExecuteRaw.mock.calls[0][0].sql).toContain("'FAILED'::\"BuilderTrendTransferStatus\"");
+    expect(mockedExecuteRaw.mock.calls[0][0].values).toEqual(
+      expect.arrayContaining(["Work order creation blocked: ESTIMATE_DECLINED"])
+    );
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "WORK_ORDER_CREATION_BLOCKED",
+        outcome: "DENIED",
+        quoteId: "quote-1",
+        projectId: "project-1",
+        metadata: expect.objectContaining({ reason: "ESTIMATE_DECLINED" }),
+      })
+    );
   });
 
   it("marks the transfer SENT and logs attemptNumber 1 on a first-try success", async () => {

@@ -196,6 +196,7 @@ model Document {
   reviewStatus     DocumentReviewStatus @default(PENDING)
   reviewNote       String?
   uploadedByUserId String
+  isClientVisible  Boolean              @default(true)
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   project          Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -449,13 +450,28 @@ model AlertThresholdConfig {
 // send was missed while it was down and, if so, catch up with a single
 // summary covering the gap instead of silently skipping it.
 model AdminDigestRun {
-  id          String   @id @default(cuid())
-  sentAt      DateTime @default(now())
-  windowStart DateTime
-  windowEnd   DateTime
-  eventCount  Int
+  id                 String                       @id @default(cuid())
+  sentAt             DateTime                     @default(now())
+  windowStart        DateTime
+  windowEnd          DateTime
+  eventCount         Int
+  newSubmissionCount Int                          @default(0)
+  staffActionCount   Int                          @default(0)
+  deliveryFailures   AdminDigestDeliveryFailure[]
 
   @@index([sentAt])
+}
+
+model AdminDigestDeliveryFailure {
+  id             String         @id @default(cuid())
+  digestRunId    String
+  recipientEmail String
+  errorMessage   String         @db.Text
+  failedAt       DateTime       @default(now())
+  digestRun      AdminDigestRun @relation(fields: [digestRunId], references: [id], onDelete: Cascade)
+
+  @@index([digestRunId])
+  @@index([failedAt])
 }
 
 model EligibilityAssessment {
@@ -846,6 +862,7 @@ enum ProjectManualReviewReasonCode {
   HIGH_COMPLEXITY
   BOTH
   PHOTO_MODIFICATION_MISMATCH
+  DISCOVERY_CATALOG_CONTRADICTION
 }
 
 enum CommunicationType {

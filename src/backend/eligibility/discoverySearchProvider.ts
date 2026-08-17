@@ -5,7 +5,7 @@ import { DISCOVERY_MODEL_NAME } from './discoveryModelConfig';
 import { DISCOVERY_SYSTEM_PROMPT } from './discoveryPrompt';
 import { DISCOVERY_SCORING_CONFIG } from './discoveryScoringConfig';
 import { DISCOVERY_FALLBACK_SOURCE_CATALOG, GrantDiscoverySourceEntry } from './discoverySourceCatalog';
-import { EligibilityDecision, EligibilityInput } from './types';
+import { EligibilityDecision, EligibilityInput, ModificationCode } from './types';
 
 export type GrantDiscoveryScope = 'MUNICIPAL' | 'PROVINCIAL' | 'NATIONAL';
 
@@ -416,7 +416,7 @@ function calculateSourceSnapshotId(sources: GrantDiscoverySourceEntry[]): string
 // Heuristic scorer (used when AI is disabled / unavailable)
 // ---------------------------------------------------------------------------
 
-function scoreCandidate(
+export function scoreCandidate(
   input: EligibilityInput,
   source: GrantDiscoverySourceEntry,
   queryTokens: string[]
@@ -489,20 +489,27 @@ function scoreCandidate(
     }
   }
 
+  // A catalog entry with no overlap against the requested modification codes —
+  // including one that deliberately sets eligibleModificationCodes: [] to mark
+  // itself as not a modification-specific program (e.g. a devices/equipment
+  // program) — can never actually fund this request. That must exclude the
+  // candidate from ELIGIBLE outright, not just withhold the overlap bonus,
+  // otherwise unrelated signals (jurisdiction, text/keyword overlap, ownership,
+  // consent) can carry a mismatched program past eligibleThreshold on their own.
   const eligibleModificationCodes = uniqueStrings(source.eligibleModificationCodes ?? []);
-  if (eligibleModificationCodes.length > 0) {
-    const requestedMods = input.required.modificationCodes;
+  const requestedMods = input.required.modificationCodes;
+  let modificationScopeExcluded = false;
+
+  if (requestedMods.length > 0) {
     const overlapCount = requestedMods.filter((code) => eligibleModificationCodes.includes(code)).length;
+    const overlapRatio = eligibleModificationCodes.length > 0 ? overlapCount / requestedMods.length : 0;
 
-    if (requestedMods.length > 0) {
-      const overlapRatio = overlapCount / requestedMods.length;
+    if (overlapRatio > 0) {
       score += Math.round(overlapRatio * DISCOVERY_SCORING_CONFIG.modificationOverlapMaxPoints);
-
-      if (overlapRatio > 0) {
-        matchedCriteria.push(`modification_overlap_${Math.round(overlapRatio * 100)}pct`);
-      } else {
-        missingCriteria.push('no_modification_overlap');
-      }
+      matchedCriteria.push(`modification_overlap_${Math.round(overlapRatio * 100)}pct`);
+    } else {
+      modificationScopeExcluded = true;
+      missingCriteria.push('no_modification_overlap');
     }
   }
 
@@ -514,7 +521,10 @@ function scoreCandidate(
     missingCriteria.push('missing_required_application_fields');
   }
 
-  const cappedScore = Math.max(0, Math.min(100, score));
+  const uncappedScore = Math.max(0, Math.min(100, score));
+  const cappedScore = modificationScopeExcluded
+    ? Math.min(uncappedScore, DISCOVERY_SCORING_CONFIG.eligibleThreshold - 1)
+    : uncappedScore;
 
   let decision = EligibilityDecision.INELIGIBLE;
   let confidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
@@ -739,8 +749,10 @@ async function tryOpenAiWebSearch(
     profile,
     searchQueries: scopedQueries,
     instructions:
-      'Search the web using each query in searchQueries. For every real grant program you find, ' +
-      'evaluate it against the applicant profile and include it in the decisions array. ' +
+      'Search the web using each query in searchQueries. For every real program you find that funds ' +
+      'home accessibility renovations or modifications, evaluate it against the applicant profile and ' +
+      'include it in the decisions array. knownCandidates includes a fundsRequestedModifications flag ' +
+      'per program from our own catalog data, for context. ' +
       'Assign a unique grantId (snake_case), set scope to MUNICIPAL/PROVINCIAL/NATIONAL, ' +
       'set jurisdiction to the ISO province code (e.g. "ON") or "CA" for national programs, ' +
       'and include the live sourceUrl where the grant was found. ' +
@@ -752,6 +764,9 @@ async function tryOpenAiWebSearch(
       jurisdiction: c.source.jurisdiction,
       sourceUrl: c.source.sourceUrl,
       baselineScore: c.score,
+      fundsRequestedModifications: (c.source.eligibleModificationCodes ?? []).some((code) =>
+        input.required.modificationCodes.includes(code as ModificationCode)
+      ),
     })),
   });
 
@@ -896,6 +911,36 @@ function buildMessages(
   return { staff, client, reasonCodes };
 }
 
+/**
+ * Cross-checks discovered grants against our own catalog's known
+ * `eligibleModificationCodes` for the same program (matched by grantId — the
+ * AI reliably reuses catalog IDs when it recognizes a program it was given
+ * as a candidate; see docs/grant-discovery-verification-2026-08-14.md). If a
+ * grant is marked ELIGIBLE but the catalog says that program doesn't cover
+ * any of the requested modification codes (including catalog entries whose
+ * eligibleModificationCodes is deliberately empty, meaning "not a
+ * modification-specific program"), that's an internal contradiction worth
+ * flagging for manual review rather than trusting silently — this caught a
+ * real, reproducible false positive (Ontario ADP marked eligible for
+ * GRAB_BARS) during ground-truth verification.
+ */
+export function detectCatalogContradictions(
+  discoveredGrants: DiscoveredGrant[],
+  modificationCodes: ModificationCode[]
+): DiscoveredGrant[] {
+  return discoveredGrants.filter((grant) => {
+    if (grant.decision !== EligibilityDecision.ELIGIBLE) return false;
+
+    const catalogEntry = DISCOVERY_FALLBACK_SOURCE_CATALOG.find((entry) => entry.id === grant.grantId);
+    if (!catalogEntry || !catalogEntry.eligibleModificationCodes) return false;
+
+    const overlaps = catalogEntry.eligibleModificationCodes.some((code) =>
+      modificationCodes.includes(code as ModificationCode)
+    );
+    return !overlaps;
+  });
+}
+
 function buildDiscoveryResult(
   input: EligibilityInput,
   evaluations: DiscoveryCandidateEvaluation[],
@@ -945,6 +990,38 @@ function buildDiscoveryResult(
     discoveredGrants,
     discoveryMetadata: metadata,
   };
+}
+
+/**
+ * Dedupes AI-returned candidates against themselves within a single response.
+ * A single OpenAI web-search call can return the same program twice (observed
+ * live: two identical "Home and Vehicle Modification Program | ontario.ca"
+ * entries in one response) — the existing merge step only dedupes heuristic
+ * candidates against AI ones, never the AI's own decisions against each
+ * other. Matches first by grantId, then by normalized title + sourceUrl (in
+ * case the model assigns differing grantIds to what's really the same
+ * program), keeping the highest-scoring entry per match.
+ */
+export function dedupeAiCandidates(
+  candidates: DiscoveryCandidateEvaluation[]
+): DiscoveryCandidateEvaluation[] {
+  const byKey = new Map<string, DiscoveryCandidateEvaluation>();
+  const keyByTitleUrl = new Map<string, string>();
+
+  for (const candidate of candidates) {
+    const titleUrlKey = `${normalizeText(candidate.source.title)}::${candidate.source.sourceUrl.trim().toLowerCase()}`;
+    const key = byKey.has(candidate.source.id)
+      ? candidate.source.id
+      : keyByTitleUrl.get(titleUrlKey) ?? candidate.source.id;
+
+    const existing = byKey.get(key);
+    if (!existing || candidate.score > existing.score) {
+      byKey.set(key, candidate);
+    }
+    keyByTitleUrl.set(titleUrlKey, key);
+  }
+
+  return Array.from(byKey.values());
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,7 +1077,7 @@ export async function discoverAndEvaluateGrants(
       provider = isMock ? 'MOCK' : 'OPENAI';
       debug('MAIN', `AI returned ${llmDecisions.length} decisions — merging with heuristic results`);
 
-      const aiCandidates: DiscoveryCandidateEvaluation[] = llmDecisions.map((llm) => ({
+      const aiCandidatesRaw: DiscoveryCandidateEvaluation[] = llmDecisions.map((llm) => ({
         source: {
           id: llm.grantId,
           title: llm.title ?? llm.grantId,
@@ -1016,6 +1093,11 @@ export async function discoverAndEvaluateGrants(
         confidence: llm.confidence ?? 'MEDIUM',
         rationale: llm.rationale,
       }));
+
+      const aiCandidates = dedupeAiCandidates(aiCandidatesRaw);
+      if (aiCandidates.length < aiCandidatesRaw.length) {
+        debug('MAIN', `Deduped AI response: ${aiCandidatesRaw.length} → ${aiCandidates.length}`);
+      }
 
       const aiIds = new Set(aiCandidates.map((c) => c.source.id));
       const heuristicOnly = heuristicCandidates.filter((c) => !aiIds.has(c.source.id));

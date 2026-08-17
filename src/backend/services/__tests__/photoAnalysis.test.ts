@@ -1,4 +1,10 @@
 import { MODIFICATION_CODES } from "@/backend/eligibility/types";
+import { getSignedDownloadUrlFromS3Url } from "lib/s3";
+import {
+  analyzeProjectPhoto,
+  buildPhotoAnalysisPrompt,
+  processPhotoModificationAnalysisJob,
+} from "../photoAnalysis";
 
 const mockCreate = jest.fn();
 
@@ -39,12 +45,6 @@ const mockManualReviewQueueAdd = jest.fn().mockResolvedValue(undefined);
 jest.mock("@/backend/queue", () => ({
   manualReviewQueue: { add: (...args: unknown[]) => mockManualReviewQueueAdd(...args) },
 }));
-
-const {
-  analyzeProjectPhoto,
-  buildPhotoAnalysisPrompt,
-  processPhotoModificationAnalysisJob,
-} = require("../photoAnalysis") as typeof import("../photoAnalysis");
 
 describe("buildPhotoAnalysisPrompt", () => {
   it("includes every modification code in the taxonomy", () => {
@@ -175,7 +175,6 @@ describe("analyzeProjectPhoto", () => {
   });
 
   it("signs S3 photo URLs before calling OpenAI", async () => {
-    const { getSignedDownloadUrlFromS3Url } = require("lib/s3");
     mockCreate.mockResolvedValue({
       choices: [
         {

@@ -12,6 +12,11 @@ jest.mock("next/link", () => {
   return MockLink;
 });
 
+// AdminDashboardClient renders StaffNotesPanel, which calls useSession().
+jest.mock("next-auth/react", () => ({
+  useSession: jest.fn(() => ({ data: null, status: "unauthenticated" })),
+}));
+
 const mockProjects: SerializedProject[] = [
   {
     id: "proj-1",

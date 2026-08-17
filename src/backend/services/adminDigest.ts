@@ -1,13 +1,16 @@
 /**
- * Daily admin digest: aggregates the last 24h of SecurityEvent rows
- * (rate-limit hits + alert triggers) and emails a summary to every
- * ADVISORY_TEAM_EMAILS address — the AC's "or the admin daily digest"
- * alternative to the immediate per-failure alerts in criticalFailureAlerts.ts.
+ * Daily admin digest: summarizes the last 24h for the advisory team —
+ * new submissions, requests needing staff action, and the last 24h of
+ * SecurityEvent rows (rate-limit hits + alert triggers) — emailed to every
+ * ADVISORY_TEAM_EMAILS address. The security-event summary is also the
+ * AC's "or the admin daily digest" alternative to the immediate
+ * per-failure alerts in criticalFailureAlerts.ts.
  *
  * Every successful send is recorded to AdminDigestRun so a restarted
  * worker can tell whether a scheduled send was missed while it was down
  * (see runCatchUpIfNeeded) and catch up with one summary covering the gap
- * instead of silently skipping it.
+ * instead of silently skipping it. Per-recipient send failures are
+ * recorded to AdminDigestDeliveryFailure instead of only being logged.
  */
 import { prisma } from "lib/prisma";
 import { parseAllowedEmails } from "@/backend/auth/requireRole";
@@ -19,23 +22,59 @@ export interface DigestGroupCount {
   count: number;
 }
 
+export interface NewSubmissionSummary {
+  projectId: string;
+  address: string;
+  createdAt: Date;
+}
+
+export interface StaffActionItem {
+  projectId: string;
+  address: string;
+  reason: string;
+}
+
 export interface DailyDigest {
   windowStart: Date;
   windowEnd: Date;
   groups: DigestGroupCount[];
   totalEvents: number;
+  newSubmissions: NewSubmissionSummary[];
+  staffActionItems: StaffActionItem[];
 }
+
+const MANUAL_REVIEW_REASON_LABELS: Record<string, string> = {
+  LOW_CONFIDENCE: "Grant discovery returned low-confidence results",
+  HIGH_COMPLEXITY: "Project flagged as high complexity",
+  BOTH: "Low-confidence grant discovery and high complexity",
+  PHOTO_MODIFICATION_MISMATCH: "Submitted photos don't match the requested modification",
+};
 
 export async function buildDailyDigest(
   windowEnd: Date = new Date(),
   windowStart: Date = new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000)
 ): Promise<DailyDigest> {
-  const grouped = await prisma.securityEvent.groupBy({
-    by: ["eventType", "scope"],
-    where: { createdAt: { gte: windowStart, lt: windowEnd } },
-    _count: { _all: true },
-    orderBy: { _count: { scope: "desc" } },
-  });
+  const [grouped, newProjects, manualReviewFlags, openQuestions] = await Promise.all([
+    prisma.securityEvent.groupBy({
+      by: ["eventType", "scope"],
+      where: { createdAt: { gte: windowStart, lt: windowEnd } },
+      _count: { _all: true },
+      orderBy: { _count: { scope: "desc" } },
+    }),
+    prisma.project.findMany({
+      where: { createdAt: { gte: windowStart, lt: windowEnd } },
+      select: { id: true, address: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.projectManualReviewFlag.findMany({
+      where: { isActive: true },
+      select: { reason: true, project: { select: { id: true, address: true } } },
+    }),
+    prisma.quoteQuestion.findMany({
+      where: { status: "OPEN" },
+      select: { subject: true, quote: { select: { project: { select: { id: true, address: true } } } } },
+    }),
+  ]);
 
   const groups: DigestGroupCount[] = grouped.map((row) => ({
     eventType: row.eventType,
@@ -43,12 +82,62 @@ export async function buildDailyDigest(
     count: row._count._all,
   }));
 
+  const newSubmissions: NewSubmissionSummary[] = newProjects.map((project) => ({
+    projectId: project.id,
+    address: project.address,
+    createdAt: project.createdAt,
+  }));
+
+  const staffActionItems: StaffActionItem[] = [
+    ...manualReviewFlags.map((flag) => ({
+      projectId: flag.project.id,
+      address: flag.project.address,
+      reason: MANUAL_REVIEW_REASON_LABELS[flag.reason] ?? "Needs manual review",
+    })),
+    ...openQuestions.map((question) => ({
+      projectId: question.quote.project.id,
+      address: question.quote.project.address,
+      reason: `Open question: ${question.subject}`,
+    })),
+  ];
+
   return {
     windowStart,
     windowEnd,
     groups,
     totalEvents: groups.reduce((sum, g) => sum + g.count, 0),
+    newSubmissions,
+    staffActionItems,
   };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const SECURITY_EVENT_LABELS: Record<string, string> = {
+  RATE_LIMIT_HIT: "rate-limit hit",
+  ALERT_TRIGGERED: "alert triggered",
+};
+
+function htmlSection(title: string, itemsHtml: string[]): string {
+  if (itemsHtml.length === 0) {
+    return "";
+  }
+  return `
+    <tr>
+      <td style="padding: 16px 0 8px 0;">
+        <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1a1a1a;">${title}</p>
+        <ul style="margin: 0; padding-left: 20px; font-size: 15px; line-height: 1.6; color: #333333;">
+          ${itemsHtml.join("")}
+        </ul>
+      </td>
+    </tr>`;
 }
 
 function renderDigestEmail(
@@ -58,30 +147,89 @@ function renderDigestEmail(
   const dateLabel = digest.windowEnd.toISOString().slice(0, 10);
   const rangeLabel = `${digest.windowStart.toISOString().slice(0, 10)} to ${dateLabel}`;
   const prefix = isCatchUp ? "[LandSeed Daily Digest — Catch-up]" : "[LandSeed Daily Digest]";
-  const intro = isCatchUp
-    ? `Catch-up digest — the admin digest worker was offline and missed its scheduled send. This covers ${rangeLabel}.`
-    : "Rate-limit hits and alert triggers, last 24 hours:";
+  const periodLabel = isCatchUp ? `the missed period (${rangeLabel})` : "the last 24 hours";
 
-  if (digest.groups.length === 0) {
-    const emptyMessage = isCatchUp
-      ? `No rate-limit hits or alert triggers for the missed period (${rangeLabel}).`
-      : "No rate-limit hits or alert triggers in the last 24 hours.";
-    return {
-      subject: `${prefix} ${dateLabel} — no rate-limit hits or alerts`,
-      html: `<p>${emptyMessage}</p>`,
-      text: emptyMessage,
-    };
+  const nothingToReport =
+    digest.newSubmissions.length === 0 &&
+    digest.staffActionItems.length === 0 &&
+    digest.groups.length === 0;
+
+  const subjectParts: string[] = [];
+  if (digest.newSubmissions.length > 0) {
+    subjectParts.push(`${digest.newSubmissions.length} new request(s)`);
   }
+  if (digest.staffActionItems.length > 0) {
+    subjectParts.push(`${digest.staffActionItems.length} need${digest.staffActionItems.length === 1 ? "s" : ""} action`);
+  }
+  const subject = nothingToReport
+    ? `${prefix} ${dateLabel} — nothing to report`
+    : `${prefix} ${dateLabel} — ${subjectParts.join(", ") || `${digest.totalEvents} security event(s)`}`;
 
-  const rows = digest.groups.map((g) => `${g.eventType} / ${g.scope}: ${g.count}`).join("\n");
-  const htmlRows = digest.groups
-    .map((g) => `<li>${g.eventType} / ${g.scope}: <strong>${g.count}</strong></li>`)
+  const introText = isCatchUp
+    ? `The admin digest was delayed, so this catches up on ${periodLabel}.`
+    : `Here's what happened over ${periodLabel}.`;
+
+  const newSubmissionsHtml = digest.newSubmissions.map(
+    (s) => `<li>${escapeHtml(s.address)} — submitted ${s.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC</li>`
+  );
+  const staffActionHtml = digest.staffActionItems.map(
+    (item) => `<li>${escapeHtml(item.address)} — ${escapeHtml(item.reason)}</li>`
+  );
+  const securityEventHtml = digest.groups.map(
+    (g) => `<li>${escapeHtml(SECURITY_EVENT_LABELS[g.eventType] ?? g.eventType)} (${escapeHtml(g.scope)}): <strong>${g.count}</strong></li>`
+  );
+
+  const sectionsHtml = [
+    htmlSection("New requests", newSubmissionsHtml),
+    htmlSection("Needs staff action", staffActionHtml),
+    htmlSection("Security activity", securityEventHtml),
+  ]
+    .filter(Boolean)
     .join("");
 
+  const html = `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 480px; width: 100%; background-color: #ffffff; border-radius: 8px; padding: 24px; font-family: -apple-system, Helvetica, Arial, sans-serif;">
+            <tr>
+              <td style="padding-bottom: 12px;">
+                <p style="margin: 0; font-size: 18px; font-weight: 700; color: #1a1a1a;">LandSeed Daily Digest</p>
+                <p style="margin: 4px 0 0 0; font-size: 14px; color: #666666;">${escapeHtml(introText)}</p>
+              </td>
+            </tr>
+            ${sectionsHtml || `<tr><td style="padding: 8px 0; font-size: 15px; color: #333333;">Nothing to report ${escapeHtml(periodLabel)}.</td></tr>`}
+          </table>
+        </td>
+      </tr>
+    </table>`;
+
+  const textLines = [introText, ""];
+  if (digest.newSubmissions.length > 0) {
+    textLines.push(
+      "New requests:",
+      ...digest.newSubmissions.map((s) => `- ${s.address} — submitted ${s.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC`),
+      ""
+    );
+  }
+  if (digest.staffActionItems.length > 0) {
+    textLines.push("Needs staff action:", ...digest.staffActionItems.map((item) => `- ${item.address} — ${item.reason}`), "");
+  }
+  if (digest.groups.length > 0) {
+    textLines.push(
+      "Security activity:",
+      ...digest.groups.map((g) => `- ${SECURITY_EVENT_LABELS[g.eventType] ?? g.eventType} (${g.scope}): ${g.count}`),
+      ""
+    );
+  }
+  if (nothingToReport) {
+    textLines.push(`Nothing to report over ${periodLabel}.`);
+  }
+
   return {
-    subject: `${prefix} ${dateLabel} — ${digest.totalEvents} event(s)`,
-    html: `<p>${intro}</p><ul>${htmlRows}</ul>`,
-    text: `${intro}\n\n${rows}`,
+    subject,
+    html,
+    text: textLines.join("\n").trim(),
   };
 }
 
@@ -106,6 +254,8 @@ export async function sendDailyDigest(
     const digest = await buildDailyDigest(windowEnd, options.windowStart);
     const recipients = parseAllowedEmails();
 
+    const failures: { recipientEmail: string; errorMessage: string }[] = [];
+
     if (recipients.length === 0) {
       console.error("No ADVISORY_TEAM_EMAILS configured; cannot send admin daily digest");
     } else {
@@ -113,19 +263,29 @@ export async function sendDailyDigest(
       await Promise.all(
         recipients.map((to) =>
           sendTransactionalEmail({ to, ...email }).catch((error) => {
-            console.error("Failed to send admin daily digest email:", to, error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error("Failed to send admin daily digest email:", to, errorMessage);
+            failures.push({ recipientEmail: to, errorMessage });
           })
         )
       );
     }
 
-    await prisma.adminDigestRun.create({
+    const run = await prisma.adminDigestRun.create({
       data: {
         windowStart: digest.windowStart,
         windowEnd: digest.windowEnd,
         eventCount: digest.totalEvents,
+        newSubmissionCount: digest.newSubmissions.length,
+        staffActionCount: digest.staffActionItems.length,
       },
     });
+
+    if (failures.length > 0) {
+      await prisma.adminDigestDeliveryFailure.createMany({
+        data: failures.map((failure) => ({ digestRunId: run.id, ...failure })),
+      });
+    }
   } catch (error) {
     console.error("Failed to build/send admin daily digest:", error);
   }
