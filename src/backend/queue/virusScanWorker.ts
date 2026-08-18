@@ -283,16 +283,30 @@ const worker = createVirusScanWorker(async (job) => {
           console.log(`   ⏳ Project not yet promoted — deferring photo analysis for ${photoId} to intake finalization`);
         }
 
+        // Same draft/promoted gate as photo analysis above: generation reads
+        // photo.declaredModificationCodes, which the client tags during intake —
+        // generating before promotion means generating before tagging is done (and,
+        // since a client can retag a photo repeatedly before submitting, wastefully
+        // re-running on every edit if we instead retried on each tag change).
+        // finalizeIntake() sweeps clean, ungenerated photos at promotion time instead —
+        // reuses the same jobId as this trigger, so if a scan happens to clear right
+        // around promotion and both paths fire, BullMQ's jobId dedup makes the second
+        // a no-op (mirrors the photo-analysis jobId pattern above).
         if (isLiveImageGenerationEnabled() && !isManualMode) {
-          try {
-            const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
-            await aiJobsQueue.add(`accessibility-image-generation:${photoId}`, {
-              jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
-              payload: jobPayload,
-            });
-            console.log(`   🖼️  Queued accessibility image generation for photo ${photoId}`);
-          } catch (queueError) {
-            console.warn(`   ⚠️  Failed to queue image generation for ${photoId}:`, queueError);
+          if (isPromoted) {
+            try {
+              const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
+              await aiJobsQueue.add(
+                `accessibility-image-generation:${photoId}`,
+                { jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE, payload: jobPayload },
+                { jobId: `accessibility-image-generation-${photoId}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
+              );
+              console.log(`   🖼️  Queued accessibility image generation for photo ${photoId}`);
+            } catch (queueError) {
+              console.warn(`   ⚠️  Failed to queue image generation for ${photoId}:`, queueError);
+            }
+          } else {
+            console.log(`   ⏳ Project not yet promoted — deferring image generation for ${photoId} to intake finalization`);
           }
         }
       }

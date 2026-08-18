@@ -28,6 +28,14 @@ jest.mock("@/backend/services/photoAnalysis", () => ({
   PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE: "PHOTO_MODIFICATION_ANALYSIS",
 }));
 
+jest.mock("@/backend/services/imageGeneration", () => ({
+  ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE: "ACCESSIBILITY_IMAGE_GENERATION",
+}));
+
+jest.mock("lib/openai", () => ({
+  isLiveImageGenerationEnabled: jest.fn(),
+}));
+
 const serpLineItem = {
   description: "Mock item",
   quantity: 1,
@@ -65,6 +73,8 @@ jest.mock("lib/prisma", () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { finalizeIntake } = require("../finalizeIntake") as typeof import("../finalizeIntake");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { isLiveImageGenerationEnabled } = require("lib/openai") as typeof import("lib/openai");
 
 describe("finalizeIntake", () => {
   const mockedPrisma = prisma as unknown as {
@@ -85,11 +95,15 @@ describe("finalizeIntake", () => {
     typeof estimateGenerationQueue.add
   >;
   const mockedAiJobsQueueAdd = aiJobsQueue.add as jest.MockedFunction<typeof aiJobsQueue.add>;
+  const mockedIsLiveImageGenerationEnabled = isLiveImageGenerationEnabled as jest.MockedFunction<
+    typeof isLiveImageGenerationEnabled
+  >;
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockedProjectUpdateMany.mockReset();
     mockedPrisma.photo.findMany.mockResolvedValue([]);
+    mockedIsLiveImageGenerationEnabled.mockReturnValue(false);
   });
 
   it("returns an existing quote range for an already finalized project", async () => {
@@ -210,6 +224,59 @@ describe("finalizeIntake", () => {
       "ai-jobs",
       { jobType: "PHOTO_MODIFICATION_ANALYSIS", payload: { photoId: "photo-2" } },
       expect.objectContaining({ jobId: "photo-analysis-photo-2" })
+    );
+  });
+
+  it("does not query or queue image generation when live generation is disabled", async () => {
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-7",
+      status: "draft",
+      draftData: { modificationItems: ["Grab bars"] },
+      quotes: [],
+    });
+    mockedProjectUpdateMany.mockResolvedValue({ count: 1 });
+    mockedIsLiveImageGenerationEnabled.mockReturnValue(false);
+
+    await finalizeIntake({ projectId: "proj-7", actorUserId: "user-7" });
+
+    expect(mockedPrisma.photo.findMany).toHaveBeenCalledTimes(1); // analysis sweep only
+    expect(
+      mockedPrisma.photo.findMany.mock.calls.some(([args]) => "generationStatus" in args.where)
+    ).toBe(false);
+  });
+
+  it("queues image generation for clean, ungenerated photos on finalize when live generation is enabled (deferred pre-promotion uploads)", async () => {
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-8",
+      status: "draft",
+      draftData: { modificationItems: ["Grab bars"] },
+      quotes: [],
+    });
+    mockedProjectUpdateMany.mockResolvedValue({ count: 1 });
+    mockedIsLiveImageGenerationEnabled.mockReturnValue(true);
+    mockedPrisma.photo.findMany.mockImplementation(({ where }: { where: Record<string, unknown> }) =>
+      Promise.resolve("generationStatus" in where ? [{ id: "photo-3" }, { id: "photo-4" }] : [])
+    );
+
+    await finalizeIntake({ projectId: "proj-8", actorUserId: "user-8" });
+
+    expect(mockedPrisma.photo.findMany).toHaveBeenCalledWith({
+      where: {
+        projectId: "proj-8",
+        virus_scan_status: "clean",
+        generationStatus: { notIn: ["READY", "GENERATING"] },
+      },
+      select: { id: true },
+    });
+    expect(mockedAiJobsQueueAdd).toHaveBeenCalledWith(
+      "accessibility-image-generation:photo-3",
+      { jobType: "ACCESSIBILITY_IMAGE_GENERATION", payload: { photoId: "photo-3" } },
+      expect.objectContaining({ jobId: "accessibility-image-generation-photo-3" })
+    );
+    expect(mockedAiJobsQueueAdd).toHaveBeenCalledWith(
+      "accessibility-image-generation:photo-4",
+      { jobType: "ACCESSIBILITY_IMAGE_GENERATION", payload: { photoId: "photo-4" } },
+      expect.objectContaining({ jobId: "accessibility-image-generation-photo-4" })
     );
   });
 
