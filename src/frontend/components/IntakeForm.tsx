@@ -519,7 +519,7 @@ export function IntakeForm() {
     <form
       onSubmit={handleSubmit(onSubmit)}
       aria-label="Digital intake form"
-      className="space-y-6 max-w-2xl"
+      className="space-y-6 max-w-2xl mx-auto"
     >
       <h1 className="text-xl font-semibold">Intake Form</h1>
 
