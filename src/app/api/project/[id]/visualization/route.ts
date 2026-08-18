@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
+import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { isLiveImageGenerationEnabled } from "lib/openai";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
@@ -55,7 +56,7 @@ export async function GET(
           // Set by a successful live generation, or by the ai-jobs worker's
           // mock fallback once live retries are exhausted — either way there's
           // an image to serve.
-          generatedImageUrl = photo.generatedImageUrl.includes(".amazonaws.com")
+          generatedImageUrl = isPrivateS3PhotoUrl(photo.generatedImageUrl)
             ? await getSignedDownloadUrlFromS3Url(photo.generatedImageUrl, 900)
             : photo.generatedImageUrl;
         } else if (isLiveImageGenerationEnabled()) {

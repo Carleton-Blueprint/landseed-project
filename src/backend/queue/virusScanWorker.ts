@@ -21,7 +21,8 @@ import "dotenv/config";
 import { createVirusScanWorker, aiJobsQueue } from "./index";
 import { prisma } from "lib/prisma";
 import { PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE } from "@/backend/services/photoAnalysis";
-import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { getS3Client, S3_BUCKET } from "lib/s3";
 import NodeClam from "clamscan";
 import { writeFile, unlink } from "fs/promises";
 import { join } from "path";
@@ -36,17 +37,6 @@ import {
   type AccessibilityImageGenerationJobPayload,
 } from "@/backend/services/imageGeneration";
 import { isLiveImageGenerationEnabled } from "lib/openai";
-
-// Initialize S3 client for downloading files to scan
-const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
-const s3Client = new S3Client({
-  region: AWS_REGION,
-  endpoint: `https://s3.${AWS_REGION}.amazonaws.com`,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? "",
-  },
-});
 
 // Initialize ClamAV scanner
 let clamScanner: NodeClam | null = null;
@@ -93,7 +83,7 @@ async function scanFileForVirus(s3Key: string, bucket: string): Promise<"clean" 
       Key: s3Key,
     });
     
-    const response = await s3Client.send(command);
+    const response = await getS3Client().send(command);
     const fileStream = response.Body;
     
     if (!fileStream || !(fileStream instanceof Readable)) {
@@ -143,7 +133,7 @@ async function scanFileForVirus(s3Key: string, bucket: string): Promise<"clean" 
  */
 const worker = createVirusScanWorker(async (job) => {
   const { key, photoId, bucket } = job.data;
-  const bucketName = bucket ?? process.env.AWS_S3_BUCKET ?? "";
+  const bucketName = bucket ?? S3_BUCKET;
 
   console.log(`\n🔍 Processing virus scan job for ${photoId}`);
   console.log(`   S3 Key: ${key}`);
@@ -196,7 +186,7 @@ const worker = createVirusScanWorker(async (job) => {
         Bucket: bucketName,
         Key: key,
       });
-      await s3Client.send(deleteCommand);
+      await getS3Client().send(deleteCommand);
       console.log(`   ✅ Infected file deleted: ${key}`);
 
       // 3. Log audit event for security tracking
@@ -371,8 +361,8 @@ console.log("\n" + "=".repeat(60));
 console.log("🔍 VIRUS SCAN WORKER STARTED (ClamAV)");
 console.log("=".repeat(60));
 console.log(`📡 Redis: ${process.env.REDIS_URL ?? "redis://localhost:6379"}`);
-console.log(`📦 S3 Region: ${process.env.AWS_REGION ?? "ca-central-1"}`);
-console.log(`🪣 S3 Bucket: ${process.env.AWS_S3_BUCKET ?? "(not set)"}`);
+console.log(`📦 R2 Account: ${process.env.R2_ACCOUNT_ID ?? "(not set)"}`);
+console.log(`🪣 R2 Bucket: ${process.env.R2_BUCKET ?? "(not set)"}`);
 console.log(`🛡️  ClamAV: ${process.env.CLAMAV_HOST ?? "localhost"}:${process.env.CLAMAV_PORT ?? "3310"}`);
 console.log(`⏳ Waiting for jobs from queue: "virus-scan"`);
 console.log("=".repeat(60) + "\n");
