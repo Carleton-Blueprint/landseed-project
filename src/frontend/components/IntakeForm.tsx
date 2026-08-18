@@ -1091,22 +1091,19 @@ export function IntakeForm() {
           </div>
         )}
 
-        {photos.length < 10 ? (
-          <PhotoUploadInterface
-            key={photoKey}
-            ref={photoUploadRef}
-            onUpload={(files) => {
-              void handlePhotoUpload(files);
-            }}
-            onDeleteFile={(file) => {
-              void handleDeleteFile(file);
-            }}
-            maxFiles={10 - photos.length}
-            maxSizeMB={10}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">Maximum of 10 photos reached.</p>
-        )}
+        <PhotoUploadInterface
+          key={photoKey}
+          ref={photoUploadRef}
+          onUpload={(files) => {
+            void handlePhotoUpload(files);
+          }}
+          onDeleteFile={(file) => {
+            void handleDeleteFile(file);
+          }}
+          maxFiles={Math.max(0, 10 - photos.length)}
+          maxSizeMB={10}
+          disabled={photos.length >= 10}
+        />
 
         {photoError && (
           <p className="text-sm text-destructive" role="alert">

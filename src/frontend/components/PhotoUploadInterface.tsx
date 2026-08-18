@@ -8,6 +8,7 @@ export interface PhotoUploadInterfaceProps {
   onDeleteFile?: (file: File, index: number) => void;
   maxFiles?: number;
   maxSizeMB?: number;
+  disabled?: boolean;
 }
 
 export interface PhotoUploadInterfaceHandle {
@@ -34,7 +35,7 @@ export const PhotoUploadInterface = React.forwardRef<
   PhotoUploadInterfaceHandle,
   PhotoUploadInterfaceProps
 >(function PhotoUploadInterface(
-  { onUpload, onDeleteFile, maxFiles = 10, maxSizeMB = 10 },
+  { onUpload, onDeleteFile, maxFiles = 10, maxSizeMB = 10, disabled = false },
   ref
 ) {
   const [files, setFiles] = useState<File[]>([]);
@@ -119,8 +120,8 @@ export const PhotoUploadInterface = React.forwardRef<
         return;
       }
 
-      if (files.length + acceptedFiles.length > maxFiles) {
-        setError(`You can only upload up to ${maxFiles} files total.`);
+      if (acceptedFiles.length > maxFiles) {
+        setError(`You can only upload up to ${maxFiles} more file${maxFiles === 1 ? "" : "s"}.`);
         return;
       }
 
@@ -152,6 +153,7 @@ export const PhotoUploadInterface = React.forwardRef<
     },
     maxSize: maxSizeMB * 1024 * 1024,
     maxFiles,
+    disabled,
   });
 
   const removeFile = (index: number) => {
@@ -179,16 +181,27 @@ export const PhotoUploadInterface = React.forwardRef<
     <div className="w-full space-y-4">
       <div
         {...getRootProps()}
-        className={`cursor-pointer rounded border-2 border-dashed p-8 text-center ${
-          isDragActive
-            ? "border-blue-500 bg-blue-50"
-            : "border-gray-300 hover:border-blue-400"
+        title={
+          disabled
+            ? "You've reached the max of 10 photos — delete a photo to upload more."
+            : undefined
+        }
+        className={`rounded border-2 border-dashed p-8 text-center ${
+          disabled
+            ? "cursor-not-allowed border-gray-200 opacity-60"
+            : isDragActive
+              ? "cursor-pointer border-blue-500 bg-blue-50"
+              : "cursor-pointer border-gray-300 hover:border-blue-400"
         }`}
       >
         <input {...getInputProps()} />
         <div>
           <p className="font-semibold text-gray-700">
-            {isDragActive ? "Drop here..." : "Click or drag files here to upload"}
+            {disabled
+              ? "Maximum of 10 photos reached"
+              : isDragActive
+                ? "Drop here..."
+                : "Click or drag files here to upload"}
           </p>
           <p className="mt-2 text-sm text-gray-500">
             Accepted formats: JPG, JPEG, PNG, HEIC
