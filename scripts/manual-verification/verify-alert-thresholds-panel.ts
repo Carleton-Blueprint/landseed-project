@@ -1,11 +1,15 @@
 /**
  * Manual verification script: drives the "Monitoring Alert Thresholds" admin
  * panel (Rate Limiting and Monitoring/Alerting, Phase 2) end-to-end in a
- * headless browser — sign in via the dev auth bypass, expand the panel,
- * edit a row, disable a row — and screenshots each step.
+ * headless browser — sign in, expand the panel, edit a row, disable a row —
+ * and screenshots each step.
  *
- * Requires: `npm run dev` already running, DEV_AUTH_BYPASS=true and
- * ADVISORY_TEAM_EMAILS containing the sign-in email (see .env).
+ * Requires: `npm run dev` already running and ADVISORY_TEAM_EMAILS
+ * containing the sign-in email (see .env). NOTE: the sign-in step below
+ * predates the dev auth bypass removal and drives the old name/email-only
+ * legacy form at /auth/signin, which now just redirects to `/` — it needs
+ * to be updated to fill password on the home page's sign-in form before
+ * this script works again.
  *
  * Usage: BASE_URL=http://localhost:3001 npx tsx scripts/manual-verification/verify-alert-thresholds-panel.ts
  */

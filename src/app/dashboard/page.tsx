@@ -19,7 +19,6 @@ import {
 } from "@/frontend/components/dashboard/DashboardProjectsClient";
 import { AlertCircle } from "lucide-react";
 import { EmailVerificationBanner } from "@/frontend/components/auth/EmailVerificationBanner";
-import { isDevAuthBypassEnabled } from "@/backend/auth/devBypass";
 
 
 /* ------------------------------------------------------------------ */
@@ -195,9 +194,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       select: { email: true, emailVerified: true },
     });
     accountEmail = account?.email ?? null;
-    needsEmailVerification = Boolean(
-      accountEmail && !account?.emailVerified && !isDevAuthBypassEnabled()
-    );
+    needsEmailVerification = Boolean(accountEmail && !account?.emailVerified);
   } catch {
     // No DB in dev — skip verification banner
   }

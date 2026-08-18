@@ -20,7 +20,6 @@ import { useIntakeDraft } from "@/frontend/contexts/IntakeDraftContext";
 import type { IntakeData } from "@/backend/schemas/intakeDraft";
 import {
   hasAuthenticatedSession,
-  isLegacyAuthBypassClient,
   registerIntakeAccount,
 } from "@/frontend/lib/intakeAccount";
 import { getApiErrorMessage } from "@/frontend/lib/apiErrors";
@@ -253,10 +252,9 @@ function toIntakeData(values: IntakeFormValues): IntakeData {
 export function IntakeForm() {
   const { data: session } = useSession();
   const isAuthenticated = hasAuthenticatedSession(session);
-  const legacyAuthBypass = isLegacyAuthBypassClient();
   const intakeSchema = React.useMemo(
-    () => buildIntakeSchema(!isAuthenticated && !legacyAuthBypass),
-    [isAuthenticated, legacyAuthBypass]
+    () => buildIntakeSchema(!isAuthenticated),
+    [isAuthenticated]
   );
   const {
     projectId,
@@ -303,11 +301,6 @@ export function IntakeForm() {
       return true;
     }
 
-    if (legacyAuthBypass) {
-      setAccountError("Please sign in from the client portal before saving your intake.");
-      return false;
-    }
-
     const values = getValues();
     const accountSetupError = await registerIntakeAccount({
       name: values.name,
@@ -323,7 +316,7 @@ export function IntakeForm() {
 
     setAccountError(null);
     return true;
-  }, [getValues, isAuthenticated, legacyAuthBypass]);
+  }, [getValues, isAuthenticated]);
 
   React.useEffect(() => {
     if (!isHydrated || !intakeData) return;
@@ -593,7 +586,7 @@ export function IntakeForm() {
           )}
         </div>
 
-        {!isAuthenticated && !legacyAuthBypass && (
+        {!isAuthenticated && (
           <>
             <div className="flex flex-col gap-2">
               <label htmlFor="intake-password" className="mb-1 block text-sm font-medium">
