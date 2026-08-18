@@ -180,6 +180,44 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
     requiresOwnerOccupied: true,
     requiresConsentConfirmed: true,
   },
+  {
+    // Added 2026-08-18: surfaced repeatedly by the live grant discovery AI
+    // during 2026-08-14/08-15 ground-truth verification (see
+    // docs/grant-discovery-verification-2026-08-14.md and -2026-08-15.md) as
+    // "Ontario Renovates Program (City of London)". Verified 2026-08-18
+    // against the live london.ca page and the official 2025 Homeowner
+    // Package/application form (Revised May 2025): individual seniors
+    // (60+) or persons with disabilities apply directly to the City of
+    // London (Middlesex County residents also eligible) — not an
+    // organization-only program.
+    id: 'london_ontario_renovates',
+    title: 'Ontario Renovates Program (City of London)',
+    scope: 'MUNICIPAL',
+    jurisdiction: 'ON',
+    sourceUrl: 'https://london.ca/living-london/building-renovating/ontario-renovates',
+    summary:
+      'City of London program (also serving Middlesex County) providing a one-time 10-year forgivable loan of up to $25,000 for eligible home repairs and/or accessibility modifications for low-to-moderate income seniors (60+) and persons with disabilities. The first $5,000 of an approved accessibility-modification request is a non-repayable grant. Household income must be at or below $95,000/year and liquid assets at or below $30,000; the property must be the applicant\'s sole and principal residence.',
+    keywords: [
+      'Ontario Renovates', 'London', 'Middlesex', 'forgivable loan', 'senior',
+      'disability', 'accessibility', 'grab bar', 'ramp', 'stair lift', 'municipal',
+    ],
+    // Narrowed to what the program's own application form actually offers as
+    // accessibility-modification checkboxes (Ramps, Handrails, Levered
+    // handles, Fire alarms, Grab bars, Accessible shower stalls, Chair and
+    // bath lifts, Raised toilets, Height adjustment to countertops) rather
+    // than copying the standard 6-code set used elsewhere in this catalog.
+    // WIDENED_DOORWAY is deliberately excluded: "doors and windows" only
+    // appears under the separate general home-repair category on the form,
+    // not the accessibility-modification checklist — an applicant has no
+    // way to request doorway widening under this specific program.
+    eligibleModificationCodes: [
+      MODIFICATION_CODES.GRAB_BARS, MODIFICATION_CODES.RAISED_TOILET,
+      MODIFICATION_CODES.WALK_IN_SHOWER, MODIFICATION_CODES.STAIR_LIFT,
+      MODIFICATION_CODES.HANDRAILS,
+    ],
+    requiresOwnerOccupied: true,
+    requiresConsentConfirmed: true,
+  },
 
   // ---------------------------------------------------------------------------
   // BRITISH COLUMBIA — PROVINCIAL
