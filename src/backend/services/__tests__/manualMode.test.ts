@@ -6,6 +6,7 @@ import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend
 import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { prisma } from "lib/prisma";
+import { generateManualOutputPackage } from "../manualMode";
 
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
@@ -48,8 +49,6 @@ jest.mock("lib/prisma", () => ({
     },
   },
 }));
-
-const { generateManualOutputPackage } = require("../manualMode") as typeof import("../manualMode");
 
 const mockedAudit = logAuditEventNonBlocking as jest.MockedFunction<typeof logAuditEventNonBlocking>;
 const mockedEnqueueTransfer = enqueueBuilderTrendTransfer as jest.MockedFunction<typeof enqueueBuilderTrendTransfer>;
