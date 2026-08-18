@@ -25,6 +25,7 @@ jest.mock("lib/prisma", () => ({
     },
     photo: {
       findMany: jest.fn(),
+      count: jest.fn(),
     },
     $transaction: jest.fn(),
   },
@@ -150,6 +151,59 @@ describe("intakeDraft service", () => {
       if (!result.ok) {
         expect(result.code).toBe("INCOMPLETE_INTAKE");
       }
+    });
+
+    it("returns PHOTOS_MISSING_TAGS when a project photo has no declared modification codes", async () => {
+      (prisma.intakeDraft.findUnique as jest.Mock).mockResolvedValue({
+        id: "draft-1",
+        intakeData: completeIntakeData,
+        guidedData: null,
+        projectId: "project-1",
+      });
+      (prisma.photo.count as jest.Mock).mockResolvedValue(2);
+
+      const result = await promoteIntakeDraft("user-1", { actorUserId: "user-1" });
+
+      expect(prisma.photo.count).toHaveBeenCalledWith({
+        where: { projectId: "project-1", declaredModificationCodes: { isEmpty: true } },
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("PHOTOS_MISSING_TAGS");
+        expect(result.message).toContain("2 photos");
+      }
+      expect(finalizeIntake).not.toHaveBeenCalled();
+    });
+
+    it("proceeds when every project photo has a declared modification code", async () => {
+      (prisma.intakeDraft.findUnique as jest.Mock).mockResolvedValue({
+        id: "draft-1",
+        intakeData: completeIntakeData,
+        guidedData: null,
+        projectId: "project-1",
+      });
+      (prisma.photo.count as jest.Mock).mockResolvedValue(0);
+      (prisma.project.findUnique as jest.Mock).mockResolvedValue({
+        id: "project-1",
+        status: "draft",
+      });
+      (prisma.intakeDraft.upsert as jest.Mock).mockResolvedValue({
+        id: "draft-1",
+        projectId: "project-1",
+      });
+      (prisma.project.update as jest.Mock).mockResolvedValue({ id: "project-1" });
+      (finalizeIntake as jest.Mock).mockResolvedValue({
+        ok: true,
+        projectId: "project-1",
+        status: "submitted",
+        message: "Intake finalized successfully.",
+      });
+      (prisma.intakeDraft.delete as jest.Mock).mockResolvedValue({ id: "draft-1" });
+
+      const result = await promoteIntakeDraft("user-1", { actorUserId: "user-1" });
+
+      expect(result.ok).toBe(true);
+      expect(finalizeIntake).toHaveBeenCalled();
     });
 
     it("merges data, finalizes, and deletes the draft", async () => {

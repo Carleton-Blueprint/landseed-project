@@ -2,7 +2,7 @@
  * Unit tests for IntakeForm: render check (name, email, phone, submit) and validation (required name).
  * Run with: npm run test (or test:watch).
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntakeDraftProvider } from "@/frontend/contexts/IntakeDraftContext";
 
@@ -182,5 +182,63 @@ describe("IntakeForm", () => {
     });
 
     expect(screen.queryByRole("button", { name: /remove photo/i })).not.toBeInTheDocument();
+  });
+
+  it("shows an untagged warning and lets the user tag a saved photo", async () => {
+    const user = userEvent.setup();
+
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/intake-draft" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            draftId: "draft-1",
+            guidedData: null,
+            intakeData: null,
+            projectId: "project-1",
+            photos: [
+              {
+                id: "photo-1",
+                url: "https://example.com/photo.jpg",
+                declaredModificationCodes: [],
+              },
+            ],
+            savedAt: "2026-06-20T12:00:00.000Z",
+          }),
+        });
+      }
+      if (url === "/api/photos/photo-1" && init?.method === "PATCH") {
+        expect(JSON.parse(init.body as string)).toEqual({ modificationItems: ["GRAB_BARS"] });
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            photo: { id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] },
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    renderIntakeForm();
+
+    expect(await screen.findByText(/tag at least one modification for this photo/i)).toBeInTheDocument();
+
+    const photoListItem = (await screen.findByAltText(/saved project photo/i)).closest("li")!;
+    await user.click(within(photoListItem).getByRole("checkbox", { name: "Grab bars" }));
+
+    await waitFor(() => {
+      expect(
+        mockFetch.mock.calls.some(
+          (call) => call[0] === "/api/photos/photo-1" && call[1]?.method === "PATCH"
+        )
+      ).toBe(true);
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/tag at least one modification for this photo/i)
+      ).not.toBeInTheDocument()
+    );
   });
 });
