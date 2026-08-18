@@ -300,7 +300,8 @@ const CONFIDENCE_RANK: Record<PhotoAnalysisConfidence, number> = { LOW: 0, MEDIU
 
 /**
  * Once every photo on the project has reached a terminal state (analyzed, or excluded
- * because it came back infected), reconciles each successfully analyzed photo's
+ * because it came back infected or its virus scan failed), reconciles each successfully
+ * analyzed photo's
  * AI-inferred codes against that SAME photo's client-declared tags (see
  * IntakeForm.tsx's per-photo tag picker). Per-photo tags
  * are the ground truth (the client said what's in this specific photo); AI inference
@@ -326,6 +327,7 @@ async function maybeReconcileProjectModificationCodes(projectId: string): Promis
   const isComplete = photos.every(
     (p) =>
       p.virus_scan_status === "infected" ||
+      p.virus_scan_status === "failed" ||
       p.analysisStatus === "READY" ||
       p.analysisStatus === "FAILED" ||
       p.analysisStatus === "SKIPPED"

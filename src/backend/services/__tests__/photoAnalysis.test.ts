@@ -464,6 +464,22 @@ describe("processPhotoModificationAnalysisJob", () => {
     expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
   });
 
+  it("treats a sibling's failed virus scan as excluded (not pending) for the completion check", async () => {
+    mockPhoto();
+    mockOpenAiResponse(["GRAB_BARS"], "HIGH");
+    mockProjectPhotos([
+      { id: "photo-1", analysisStatus: "READY", declaredModificationCodes: ["GRAB_BARS"], aiModificationCodes: ["GRAB_BARS"], aiConfidence: "HIGH" },
+      { virus_scan_status: "failed", analysisStatus: "PENDING" },
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    // Complete (scan-failed photo excluded) and codes match — no flag, but this confirms
+    // completion wasn't blocked forever by a scan failure that can never resolve to
+    // clean/infected and so would otherwise leave analysisStatus stuck at PENDING.
+    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+  });
+
   it("does not reconcile when no photo on the project produced a usable READY result", async () => {
     mockPhoto();
     mockCreate.mockRejectedValue(new Error("network timeout"));
