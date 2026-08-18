@@ -7,8 +7,6 @@ import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { prisma } from "lib/prisma";
 import { authConfig } from "@/auth.config";
-import { isDevAuthBypassEnabled } from "@/backend/auth/devBypass";
-import { authorizeLegacyCredentials } from "@/backend/auth/legacyCredentials";
 import { authorizePasswordCredentials } from "@/backend/auth/passwordCredentials";
 import { isAdvisoryTeamEmail } from "@/backend/auth/requireRole";
 import { MfaRequiredError, MfaInvalidCodeError, MfaLockedError } from "@/backend/auth/mfaSignInErrors";
@@ -30,10 +28,6 @@ const nextAuthResult = NextAuth({
       },
       async authorize(credentials, request) {
         try {
-          if (isDevAuthBypassEnabled()) {
-            return authorizeLegacyCredentials(credentials ?? {});
-          }
-
           await enforceLoginRateLimit(getClientIp(request));
 
           const user = await authorizePasswordCredentials(credentials ?? {});
