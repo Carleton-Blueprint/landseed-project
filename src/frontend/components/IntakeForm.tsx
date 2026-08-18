@@ -1035,6 +1035,11 @@ export function IntakeForm() {
                       className="h-24 w-full object-cover"
                     />
                   </div>
+                  {photo.declaredModificationCodes.length === 0 && (
+                    <span className="absolute left-1 top-1 rounded bg-destructive/90 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      Not tagged
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={(e) => {
