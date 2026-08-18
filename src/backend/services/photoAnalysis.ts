@@ -14,6 +14,7 @@
  */
 import { getOpenAIClient } from "lib/openai";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
+import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { prisma } from "lib/prisma";
 import { MODIFICATION_CODES, ModificationCode } from "@/backend/eligibility/types";
 import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
@@ -229,7 +230,7 @@ export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalys
   }
 
   try {
-    const signedUrl = photoUrl.includes(".amazonaws.com")
+    const signedUrl = isPrivateS3PhotoUrl(photoUrl)
       ? await getSignedDownloadUrlFromS3Url(photoUrl, 300)
       : photoUrl;
 

@@ -62,7 +62,7 @@ describe("DELETE /api/photos/[id]", () => {
     (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
     (prisma.photo.findUnique as jest.Mock).mockResolvedValue({
       id: "photo-1",
-      url: "https://bucket.s3.ca-central-1.amazonaws.com/projects/p1/photos/a.jpg",
+      url: "https://test-account.r2.cloudflarestorage.com/test-bucket/projects/p1/photos/a.jpg",
       projectId: "project-1",
       project: { status: "submitted" },
     });
@@ -78,7 +78,7 @@ describe("DELETE /api/photos/[id]", () => {
     (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
     (prisma.photo.findUnique as jest.Mock).mockResolvedValue({
       id: "photo-1",
-      url: "https://bucket.s3.ca-central-1.amazonaws.com/projects/p1/photos/a.jpg",
+      url: "https://test-account.r2.cloudflarestorage.com/test-bucket/projects/p1/photos/a.jpg",
       projectId: "project-1",
       project: { status: "draft" },
     });

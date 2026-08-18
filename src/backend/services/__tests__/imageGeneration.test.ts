@@ -120,7 +120,7 @@ describe("generateAccessibilityVisual", () => {
       arrayBuffer: async () => Buffer.from("source-image-bytes").buffer,
     }) as unknown as typeof fetch;
 
-    mockedUploadStreamToS3.mockResolvedValue("https://bucket.s3.ca-central-1.amazonaws.com/accessibility-renditions/project-1/photo-1.png");
+    mockedUploadStreamToS3.mockResolvedValue("https://test-account.r2.cloudflarestorage.com/test-bucket/accessibility-renditions/project-1/photo-1.png");
   });
 
   afterEach(() => {
@@ -163,11 +163,11 @@ describe("generateAccessibilityVisual", () => {
     await generateAccessibilityVisual({
       id: "photo-1",
       projectId: "project-1",
-      url: "https://bucket.s3.ca-central-1.amazonaws.com/original.png",
+      url: "https://test-account.r2.cloudflarestorage.com/test-bucket/original.png",
     });
 
     expect(mockedGetSignedDownloadUrlFromS3Url).toHaveBeenCalledWith(
-      "https://bucket.s3.ca-central-1.amazonaws.com/original.png",
+      "https://test-account.r2.cloudflarestorage.com/test-bucket/original.png",
       300
     );
     expect(global.fetch).toHaveBeenCalledWith("https://signed.example.com/original.png");
@@ -213,7 +213,7 @@ describe("processAccessibilityImageGenerationJob", () => {
       arrayBuffer: async () => Buffer.from("source-image-bytes").buffer,
     }) as unknown as typeof fetch;
 
-    mockedUploadStreamToS3.mockResolvedValue("https://bucket.s3.ca-central-1.amazonaws.com/accessibility-renditions/project-1/photo-1.png");
+    mockedUploadStreamToS3.mockResolvedValue("https://test-account.r2.cloudflarestorage.com/test-bucket/accessibility-renditions/project-1/photo-1.png");
   });
 
   it("throws when the photo does not exist", async () => {

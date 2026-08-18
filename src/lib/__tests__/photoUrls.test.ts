@@ -15,10 +15,10 @@ describe("photoUrls", () => {
   });
 
   describe("isPrivateS3PhotoUrl", () => {
-    it("detects bucket-style S3 URLs", () => {
+    it("detects R2 path-style storage URLs", () => {
       expect(
         isPrivateS3PhotoUrl(
-          "https://my-bucket.s3.ca-central-1.amazonaws.com/projects/p1/photos/a.jpg"
+          "https://test-account.r2.cloudflarestorage.com/test-bucket/projects/p1/photos/a.jpg"
         )
       ).toBe(true);
     });
@@ -35,11 +35,11 @@ describe("photoUrls", () => {
       );
 
       const signed = await signPhotoUrlForDisplay(
-        "https://my-bucket.s3.ca-central-1.amazonaws.com/projects/p1/photos/a.jpg"
+        "https://test-account.r2.cloudflarestorage.com/test-bucket/projects/p1/photos/a.jpg"
       );
 
       expect(getSignedDownloadUrlFromS3Url).toHaveBeenCalledWith(
-        "https://my-bucket.s3.ca-central-1.amazonaws.com/projects/p1/photos/a.jpg",
+        "https://test-account.r2.cloudflarestorage.com/test-bucket/projects/p1/photos/a.jpg",
         3600
       );
       expect(signed).toBe("https://signed.example/photo.jpg?sig=abc");
@@ -61,11 +61,11 @@ describe("photoUrls", () => {
       const signed = await signPhotosForDisplay([
         {
           id: "photo-1",
-          url: "https://my-bucket.s3.ca-central-1.amazonaws.com/projects/p1/photos/1.jpg",
+          url: "https://test-account.r2.cloudflarestorage.com/test-bucket/projects/p1/photos/1.jpg",
         },
         {
           id: "photo-2",
-          url: "https://my-bucket.s3.ca-central-1.amazonaws.com/projects/p1/photos/2.jpg",
+          url: "https://test-account.r2.cloudflarestorage.com/test-bucket/projects/p1/photos/2.jpg",
         },
       ]);
 

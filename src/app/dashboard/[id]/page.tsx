@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
+import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { auth } from "@/auth";
 import { redirectToSignIn } from "lib/auth-redirect";
 import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
@@ -235,11 +236,11 @@ export default async function ProjectDetailPage({
                 modificationCodes: modificationItems,
               }));
 
-        const signedImageUrl = imageUrl?.includes(".amazonaws.com")
+        const signedImageUrl = imageUrl && isPrivateS3PhotoUrl(imageUrl)
           ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
           : imageUrl;
 
-        const signedGeneratedImageUrl = generatedImageUrl?.includes(".amazonaws.com")
+        const signedGeneratedImageUrl = generatedImageUrl && isPrivateS3PhotoUrl(generatedImageUrl)
           ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
           : generatedImageUrl;
 

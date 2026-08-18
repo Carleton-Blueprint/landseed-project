@@ -185,10 +185,10 @@ describe("analyzeProjectPhoto", () => {
       ],
     });
 
-    await analyzeProjectPhoto("https://my-bucket.s3.amazonaws.com/photo.png");
+    await analyzeProjectPhoto("https://test-account.r2.cloudflarestorage.com/test-bucket/photo.png");
 
     expect(getSignedDownloadUrlFromS3Url).toHaveBeenCalledWith(
-      "https://my-bucket.s3.amazonaws.com/photo.png",
+      "https://test-account.r2.cloudflarestorage.com/test-bucket/photo.png",
       300
     );
   });
