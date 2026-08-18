@@ -180,6 +180,52 @@ describe("useIntakeDraftAutosave", () => {
     ).toBe(0);
   });
 
+  it("updatePhotoTags PATCHes the photo and updates local state", async () => {
+    mockFetch.mockImplementationOnce((url: string, init?: RequestInit) => {
+      if (url === "/api/intake-draft" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            draftId: "draft-1",
+            guidedData: null,
+            intakeData: null,
+            projectId: "project-1",
+            photos: [{ id: "photo-1", url: "https://example.com/a.jpg", declaredModificationCodes: [] }],
+            savedAt: "2026-06-20T12:00:00.000Z",
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    mockFetch.mockImplementationOnce((url: string, init?: RequestInit) => {
+      expect(url).toBe("/api/photos/photo-1");
+      expect(init?.method).toBe("PATCH");
+      expect(JSON.parse(init?.body as string)).toEqual({ modificationItems: ["GRAB_BARS"] });
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          success: true,
+          photo: { id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] },
+        }),
+      });
+    });
+
+    const { result } = renderHook(() => useIntakeDraftAutosave());
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+    expect(result.current.photos).toEqual([
+      { id: "photo-1", url: "https://example.com/a.jpg", declaredModificationCodes: [] },
+    ]);
+
+    await act(async () => {
+      await result.current.updatePhotoTags("photo-1", ["GRAB_BARS"]);
+    });
+
+    expect(result.current.photos).toEqual([
+      { id: "photo-1", url: "https://example.com/a.jpg", declaredModificationCodes: ["GRAB_BARS"] },
+    ]);
+  });
+
   it("flushBeaconSave sends keepalive PATCH for unsaved changes", async () => {
     const { result } = renderHook(() => useIntakeDraftAutosave());
 

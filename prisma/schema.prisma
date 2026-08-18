@@ -250,6 +250,12 @@ model Photo {
   analysisModel       String?
   analysisError       String?   @db.Text
   analyzedAt          DateTime?
+
+  // Client-declared modification type(s) this specific photo is for (see
+  // IntakeForm.tsx's per-photo tag picker). This is the primary signal for
+  // image generation and reconciliation — aiModificationCodes is the
+  // cross-check, not the source of truth.
+  declaredModificationCodes String[] @default([])
 }
 
 model Quote {

@@ -17,6 +17,7 @@ export interface MergeIntakeDraftInput {
 export interface IntakeDraftPhoto {
   id: string;
   url: string;
+  declaredModificationCodes: string[];
 }
 
 const EDITABLE_ROLES: ProjectAccessRole[] = [
@@ -120,7 +121,7 @@ export async function loadIntakeDraftWithPhotos(userId: string) {
   if (draft.projectId) {
     const rawPhotos = await prisma.photo.findMany({
       where: { projectId: draft.projectId },
-      select: { id: true, url: true },
+      select: { id: true, url: true, declaredModificationCodes: true },
       orderBy: { createdAt: "asc" },
     });
     photos = await signPhotosForDisplay(rawPhotos);
@@ -191,7 +192,7 @@ export type PromoteIntakeDraftResult =
   | FinalizeIntakeResult
   | {
       ok: false;
-      code: "DRAFT_NOT_FOUND" | "INCOMPLETE_INTAKE";
+      code: "DRAFT_NOT_FOUND" | "INCOMPLETE_INTAKE" | "PHOTOS_MISSING_TAGS";
       message: string;
       details?: unknown;
     };
@@ -217,6 +218,22 @@ export async function promoteIntakeDraft(
       message: "Intake data is incomplete or invalid.",
       details: parsed.error.flatten(),
     };
+  }
+
+  if (draft.projectId) {
+    const untaggedPhotoCount = await prisma.photo.count({
+      where: { projectId: draft.projectId, declaredModificationCodes: { isEmpty: true } },
+    });
+    if (untaggedPhotoCount > 0) {
+      return {
+        ok: false,
+        code: "PHOTOS_MISSING_TAGS",
+        message:
+          untaggedPhotoCount === 1
+            ? "1 photo is missing a modification tag. Please tag every photo before submitting."
+            : `${untaggedPhotoCount} photos are missing a modification tag. Please tag every photo before submitting.`,
+      };
+    }
   }
 
   const intakeData = parsed.data;

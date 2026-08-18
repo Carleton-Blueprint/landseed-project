@@ -25,6 +25,10 @@ import {
 } from "@/frontend/lib/intakeAccount";
 import { getApiErrorMessage } from "@/frontend/lib/apiErrors";
 import { validatePasswordStrength } from "@/shared/passwordPolicy";
+import {
+  MODIFICATION_NORMALIZATION_MAP,
+  normalizeLabel,
+} from "@/backend/eligibility/modificationNormalization";
 
 const provinces = [
   "AB",
@@ -50,6 +54,14 @@ const modificationOptions = [
   "Stair lift",
   "Handrails",
 ] as const;
+
+// Per-photo tag picker reuses the same options, paired with their internal
+// codes (the API validates/stores codes, not labels — see
+// parseDeclaredModificationCodes).
+const photoModificationOptions = modificationOptions.map((label) => ({
+  label,
+  code: MODIFICATION_NORMALIZATION_MAP[normalizeLabel(label)],
+}));
 
 const intakeFieldsSchema = z.object({
     name: z.string().min(1, "Name is required").max(120, "Name is too long"),
@@ -258,6 +270,7 @@ export function IntakeForm() {
     ensureProjectId,
     addPhoto,
     removePhoto,
+    updatePhotoTags,
   } = useIntakeDraft();
   const {
     register,
@@ -364,7 +377,11 @@ export function IntakeForm() {
       if (uploadResponse.ok) {
         const uploadData = await uploadResponse.json();
         if (uploadData.photo?.id && uploadData.photo?.url) {
-          addPhoto({ id: uploadData.photo.id, url: uploadData.photo.url });
+          addPhoto({
+            id: uploadData.photo.id,
+            url: uploadData.photo.url,
+            declaredModificationCodes: uploadData.photo.declaredModificationCodes ?? [],
+          });
           filePhotoIdMapRef.current.set(file, uploadData.photo.id);
         }
         setPhotoError(null);
@@ -423,6 +440,22 @@ export function IntakeForm() {
     }
   };
 
+  const handleTogglePhotoTag = async (photoId: string, code: string, checked: boolean) => {
+    const photo = photos.find((p) => p.id === photoId);
+    if (!photo) return;
+
+    const nextCodes = checked
+      ? Array.from(new Set([...photo.declaredModificationCodes, code]))
+      : photo.declaredModificationCodes.filter((c) => c !== code);
+
+    setPhotoError(null);
+    try {
+      await updatePhotoTags(photoId, nextCodes);
+    } catch {
+      setPhotoError("Failed to update photo tags. Please try again.");
+    }
+  };
+
   const handleCancel = () => {
     reset(defaultValues);
     setPhotoKey((prev) => prev + 1);
@@ -434,6 +467,16 @@ export function IntakeForm() {
   async function onSubmit(_values: IntakeFormValues) {
     if (photos.length < 1) {
       setPhotoError("Please upload at least 1 photo before submitting.");
+      return;
+    }
+
+    const untaggedCount = photos.filter((p) => p.declaredModificationCodes.length === 0).length;
+    if (untaggedCount > 0) {
+      setPhotoError(
+        untaggedCount === 1
+          ? "Please tag 1 photo with at least one modification type before submitting."
+          : `Please tag ${untaggedCount} photos with at least one modification type before submitting.`
+      );
       return;
     }
 
@@ -968,6 +1011,32 @@ export function IntakeForm() {
                   >
                     {removingPhotoId === photo.id ? "Removing…" : "Remove"}
                   </button>
+                </div>
+
+                <div className="flex flex-col gap-1 p-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Modification(s) shown in this photo
+                  </p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    {photoModificationOptions.map(({ label, code }) => (
+                      <label key={code} className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={photo.declaredModificationCodes.includes(code)}
+                          onChange={(e) =>
+                            void handleTogglePhotoTag(photo.id, code, e.target.checked)
+                          }
+                          className="rounded border-input"
+                        />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {photo.declaredModificationCodes.length === 0 && (
+                    <p className="text-xs text-destructive" role="alert">
+                      Tag at least one modification for this photo
+                    </p>
+                  )}
                 </div>
               </li>
             ))}

@@ -6,7 +6,18 @@ import type { GuidedData, IntakeData } from "@/backend/schemas/intakeDraft";
 const AUTOSAVE_DEBOUNCE_MS = 2000;
 const EMPTY_SERIALIZED = stableSerialize(null);
 
-export type DraftPhoto = { id: string; url: string };
+export type DraftPhoto = {
+  id: string;
+  url: string;
+  declaredModificationCodes: string[];
+};
+
+function normalizePhotos(photos: DraftPhoto[] | undefined): DraftPhoto[] {
+  return (photos ?? []).map((photo) => ({
+    ...photo,
+    declaredModificationCodes: photo.declaredModificationCodes ?? [],
+  }));
+}
 
 type IntakeDraftGetResponse =
   | { draft: null }
@@ -85,6 +96,7 @@ export interface IntakeDraftAutosave {
   flushBeaconSave: () => void;
   addPhoto: (photo: DraftPhoto) => void;
   removePhoto: (photoId: string) => Promise<void>;
+  updatePhotoTags: (photoId: string, modificationItems: string[]) => Promise<void>;
 }
 
 export function useIntakeDraftAutosave(): IntakeDraftAutosave {
@@ -128,7 +140,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     (data: IntakeDraftPatchResponse) => {
       setDraftId(data.draftId);
       setProjectId(data.projectId);
-      setPhotos(data.photos ?? []);
+      setPhotos(normalizePhotos(data.photos));
       setLastSaved(new Date(data.savedAt));
       savedGuidedRef.current = stableSerialize(data.guidedData);
       savedIntakeRef.current = stableSerialize(data.intakeData);
@@ -148,7 +160,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     }) => {
       setDraftId(data.draftId);
       setProjectId(data.projectId);
-      setPhotos(data.photos ?? []);
+      setPhotos(normalizePhotos(data.photos));
       setGuidedData(data.guidedData);
       setIntakeData(data.intakeData);
       setLastSaved(new Date(data.savedAt));
@@ -354,6 +366,28 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     setPhotos((prev) => prev.filter((photo) => photo.id !== photoId));
   }, []);
 
+  const updatePhotoTags = useCallback(async (photoId: string, modificationItems: string[]) => {
+    const res = await fetch(`/api/photos/${photoId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modificationItems }),
+    });
+    if (!res.ok) {
+      throw new Error("Failed to update photo tags");
+    }
+
+    const data = (await res.json()) as {
+      photo: { id: string; declaredModificationCodes: string[] };
+    };
+    setPhotos((prev) =>
+      prev.map((photo) =>
+        photo.id === photoId
+          ? { ...photo, declaredModificationCodes: data.photo.declaredModificationCodes }
+          : photo
+      )
+    );
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -414,5 +448,6 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     flushBeaconSave,
     addPhoto,
     removePhoto,
+    updatePhotoTags,
   };
 }
