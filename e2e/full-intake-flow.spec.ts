@@ -11,9 +11,8 @@
  * them the flow will hang forever waiting for virus scan / estimate
  * generation / grant assessment to complete.
  *
- * Uses the dev auth-bypass sign-in form (DEV_AUTH_BYPASS=true), which creates
- * a new User with no password on first sign-in — see
- * src/backend/auth/legacyCredentials.ts and src/backend/auth/devBypass.ts.
+ * Uses the real signup form (/auth/signup) — POSTs to /api/auth/signup, then
+ * signs in with the created password.
  *
  * Estimate generation is scheduled as a delayed BullMQ job
  * (ESTIMATE_GENERATION_DELAY_MINUTES, default 15 min); this repo's .env sets
@@ -62,22 +61,28 @@ test.describe("Full intake-to-grant-assessment flow", () => {
     test.setTimeout(2 * ASYNC_STEP_TIMEOUT_MS + 60_000);
 
     const testEmail = `e2e-full-flow-${Date.now()}@example.com`;
+    const testPassword = "E2eTest!2026";
 
-    // --- Account creation + sign-in (dev bypass: no password) ---
-    await page.goto("/auth/signin");
-    await page.getByLabel("Name").fill("E2E Test User");
-    await page.getByLabel("Email").fill(testEmail);
-    await page.getByLabel("Phone (Optional)").fill("6135550100");
-    await page.getByRole("button", { name: "Enter Portal" }).click();
+    // --- Account creation + sign-in (real signup form) ---
+    await page.goto("/auth/signup");
+    await page.getByLabel("Full Name").fill("E2E Test User");
+    await page.getByLabel("Email Address").fill(testEmail);
+    await page.getByLabel("Phone Number").fill("6135550100");
+    await page.getByLabel("Password", { exact: true }).fill(testPassword);
+    await page.getByLabel("Confirm Password").fill(testPassword);
+    await page.getByRole("button", { name: "Create Client Account" }).click();
+
+    await page.getByRole("button", { name: "Continue to Assessment & Portal" }).click();
     await page.waitForURL("/dashboard");
 
     // --- Intake form ---
     // <SessionProvider> has no SSR session hydration (see
     // src/frontend/providers/Providers.tsx) — useSession() starts
     // unauthenticated on every navigation and only resolves once the client
-    // fetches /api/auth/session. Racing that fetch trips the form's "Please
-    // sign in from the client portal" guard (ensureIntakeAccountBeforeAction
-    // in IntakeForm.tsx), so wait for it explicitly before interacting.
+    // fetches /api/auth/session. Racing that fetch trips
+    // ensureIntakeAccountBeforeAction's unauthenticated branch in
+    // IntakeForm.tsx (it would try to register a second, duplicate account),
+    // so wait for the session fetch explicitly before interacting.
     const sessionResponse = page.waitForResponse((res) => res.url().includes("/api/auth/session"));
     await page.goto("/");
     await sessionResponse;
