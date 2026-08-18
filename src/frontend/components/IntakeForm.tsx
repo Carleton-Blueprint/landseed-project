@@ -292,6 +292,7 @@ export function IntakeForm() {
   const [, setIsSettingUpAccount] = React.useState(false);
   const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
   const [removingPhotoId, setRemovingPhotoId] = React.useState<string | null>(null);
+  const [selectedPhotoId, setSelectedPhotoId] = React.useState<string | null>(null);
   const previousUploadCountRef = React.useRef(0);
   const filePhotoIdMapRef = React.useRef<Map<File, string>>(new Map());
   const photoUploadRef = React.useRef<PhotoUploadInterfaceHandle>(null);
@@ -357,6 +358,8 @@ export function IntakeForm() {
       const projectId = await ensureProjectId();
       if (!projectId) return;
 
+    let lastUploadedPhotoId: string | null = null;
+
     for (const file of newFiles) {
       const formData = new FormData();
       formData.append("file", file);
@@ -376,6 +379,7 @@ export function IntakeForm() {
             declaredModificationCodes: uploadData.photo.declaredModificationCodes ?? [],
           });
           filePhotoIdMapRef.current.set(file, uploadData.photo.id);
+          lastUploadedPhotoId = uploadData.photo.id;
         }
         setPhotoError(null);
       } else {
@@ -387,6 +391,10 @@ export function IntakeForm() {
           getApiErrorMessage(body, "Failed to upload photo. Please try again.")
         );
       }
+    }
+
+    if (lastUploadedPhotoId) {
+      setSelectedPhotoId(lastUploadedPhotoId);
     }
     } finally {
       setIsSettingUpAccount(false);
@@ -414,6 +422,10 @@ export function IntakeForm() {
     try {
       await removePhoto(photoId);
 
+      if (selectedPhotoId === photoId) {
+        setSelectedPhotoId(null);
+      }
+
       let matchedFile: File | null = null;
       for (const [file, id] of filePhotoIdMapRef.current.entries()) {
         if (id === photoId) {
@@ -431,6 +443,10 @@ export function IntakeForm() {
     } finally {
       setRemovingPhotoId(null);
     }
+  };
+
+  const handleSelectPhoto = (photoId: string) => {
+    setSelectedPhotoId((prev) => (prev === photoId ? null : photoId));
   };
 
   const handleTogglePhotoTag = async (photoId: string, code: string, checked: boolean) => {
@@ -514,6 +530,8 @@ export function IntakeForm() {
       setIsSubmittingForm(false);
     }
   }
+
+  const selectedPhoto = photos.find((photo) => photo.id === selectedPhotoId) ?? null;
 
   return (
     <form
@@ -987,17 +1005,42 @@ export function IntakeForm() {
         {photos.length > 0 && (
           <ul className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {photos.map((photo) => (
-              <li key={photo.id} className="overflow-hidden rounded border">
+              <li
+                key={photo.id}
+                className={`overflow-hidden rounded border ${
+                  selectedPhotoId === photo.id
+                    ? "border-primary ring-2 ring-primary ring-offset-1"
+                    : "border-input"
+                }`}
+              >
                 <div className="relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={photo.url}
-                    alt="Saved project photo"
-                    className="h-24 w-full object-cover"
-                  />
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selectedPhotoId === photo.id}
+                    aria-label="Select photo to tag modifications"
+                    onClick={() => handleSelectPhoto(photo.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleSelectPhoto(photo.id);
+                      }
+                    }}
+                    className="cursor-pointer"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo.url}
+                      alt="Saved project photo"
+                      className="h-24 w-full object-cover"
+                    />
+                  </div>
                   <button
                     type="button"
-                    onClick={() => void handleRemovePhoto(photo.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleRemovePhoto(photo.id);
+                    }}
                     disabled={removingPhotoId === photo.id}
                     className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-black/85 disabled:opacity-60"
                     aria-label="Remove photo"
@@ -1005,35 +1048,42 @@ export function IntakeForm() {
                     {removingPhotoId === photo.id ? "Removing…" : "Remove"}
                   </button>
                 </div>
-
-                <div className="flex flex-col gap-1 p-2">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Modification(s) shown in this photo
-                  </p>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1">
-                    {photoModificationOptions.map(({ label, code }) => (
-                      <label key={code} className="flex items-center gap-1 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={photo.declaredModificationCodes.includes(code)}
-                          onChange={(e) =>
-                            void handleTogglePhotoTag(photo.id, code, e.target.checked)
-                          }
-                          className="rounded border-input"
-                        />
-                        <span>{label}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {photo.declaredModificationCodes.length === 0 && (
-                    <p className="text-xs text-destructive" role="alert">
-                      Tag at least one modification for this photo
-                    </p>
-                  )}
-                </div>
               </li>
             ))}
           </ul>
+        )}
+
+        {selectedPhoto && (
+          <div className="mb-3 space-y-3 rounded border border-input p-3">
+            <h3 className="text-sm font-semibold">
+              Select all modifications needed for this photo
+            </h3>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              {photoModificationOptions.map(({ label, code }) => (
+                <label
+                  key={code}
+                  className="flex items-center gap-2 rounded border border-input px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedPhoto.declaredModificationCodes.includes(code)}
+                    onChange={(e) =>
+                      void handleTogglePhotoTag(selectedPhoto.id, code, e.target.checked)
+                    }
+                    className="rounded border-input"
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+
+            {selectedPhoto.declaredModificationCodes.length === 0 && (
+              <p className="text-xs text-destructive" role="alert">
+                Tag at least one modification for this photo
+              </p>
+            )}
+          </div>
         )}
 
         {photos.length < 10 ? (
