@@ -237,7 +237,11 @@ export async function processAccessibilityImageGenerationJob(
     data: { generationStatus: "GENERATING" },
   });
 
-  const modificationCodes = modificationItemsFromDraft(photo.project.draftData);
+  // Client-declared per-photo tags (see IntakeForm.tsx's tag picker) drive
+  // generation. Every photo is guaranteed a
+  // non-empty declaredModificationCodes by intake submit time (see
+  // promoteIntakeDraft's PHOTOS_MISSING_TAGS check), so no fallback is needed.
+  const modificationCodes = photo.declaredModificationCodes;
   const startedAt = Date.now();
 
   try {

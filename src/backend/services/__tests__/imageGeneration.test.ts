@@ -190,12 +190,18 @@ describe("generateAccessibilityVisual", () => {
 });
 
 describe("processAccessibilityImageGenerationJob", () => {
+  // draftData intentionally declares a DIFFERENT modification than the photo's own
+  // declaredModificationCodes, so tests can assert generation reads the per-photo
+  // tag (the client's ground truth) and not the project-level list.
   const basePhoto = {
     id: "photo-1",
     projectId: "project-1",
     url: "https://example.com/original.png",
-    project: { draftData: { modificationItems: ["GRAB_BARS"] } },
+    declaredModificationCodes: ["GRAB_BARS"],
+    project: { draftData: { modificationItems: ["Handrails"] }, isManualMode: false },
   };
+
+  let mockEdit: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -203,8 +209,9 @@ describe("processAccessibilityImageGenerationJob", () => {
     mockedPrisma.photo.findUnique.mockResolvedValue(basePhoto);
     mockedPrisma.photo.update.mockResolvedValue({});
 
+    mockEdit = jest.fn().mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
     mockedGetOpenAIClient.mockReturnValue({
-      images: { edit: jest.fn().mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] }) },
+      images: { edit: mockEdit },
     });
 
     global.fetch = jest.fn().mockResolvedValue({
@@ -238,6 +245,17 @@ describe("processAccessibilityImageGenerationJob", () => {
 
     expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
       expect.objectContaining({ category: "AI_GENERATION", outcome: "SUCCESS", resourceId: "photo-1" })
+    );
+  });
+
+  it("generates from the photo's own declaredModificationCodes, not the project-level draftData list", async () => {
+    await processAccessibilityImageGenerationJob({ photoId: "photo-1" });
+
+    expect(mockEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.stringContaining("Grab Bars") })
+    );
+    expect(mockEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.not.stringContaining("Handrail") })
     );
   });
 
