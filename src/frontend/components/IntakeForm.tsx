@@ -401,20 +401,6 @@ export function IntakeForm() {
     }
   };
 
-  const handleDeleteFile = async (file: File) => {
-    const photoId = filePhotoIdMapRef.current.get(file);
-    if (!photoId) return;
-
-    filePhotoIdMapRef.current.delete(file);
-    setPhotoError(null);
-
-    try {
-      await removePhoto(photoId);
-    } catch {
-      setPhotoError("Failed to remove photo. Please try again.");
-    }
-  };
-
   const handleRemovePhoto = async (photoId: string) => {
     setRemovingPhotoId(photoId);
     setPhotoError(null);
@@ -1096,9 +1082,6 @@ export function IntakeForm() {
           ref={photoUploadRef}
           onUpload={(files) => {
             void handlePhotoUpload(files);
-          }}
-          onDeleteFile={(file) => {
-            void handleDeleteFile(file);
           }}
           maxFiles={Math.max(0, 10 - photos.length)}
           maxSizeMB={10}
