@@ -221,10 +221,14 @@ describe("IntakeForm", () => {
 
     renderIntakeForm();
 
+    await user.click(
+      await screen.findByRole("button", { name: /select photo to tag modifications/i })
+    );
+
     expect(await screen.findByText(/tag at least one modification for this photo/i)).toBeInTheDocument();
 
-    const photoListItem = (await screen.findByAltText(/saved project photo/i)).closest("li")!;
-    await user.click(within(photoListItem).getByRole("checkbox", { name: "Grab bars" }));
+    const photosSection = screen.getByRole("heading", { name: /^photos$/i }).closest("section")!;
+    await user.click(within(photosSection).getByRole("checkbox", { name: "Grab bars" }));
 
     await waitFor(() => {
       expect(

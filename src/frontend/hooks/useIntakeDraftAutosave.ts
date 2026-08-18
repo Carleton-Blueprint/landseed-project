@@ -367,25 +367,45 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
   }, []);
 
   const updatePhotoTags = useCallback(async (photoId: string, modificationItems: string[]) => {
-    const res = await fetch(`/api/photos/${photoId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ modificationItems }),
-    });
-    if (!res.ok) {
-      throw new Error("Failed to update photo tags");
-    }
-
-    const data = (await res.json()) as {
-      photo: { id: string; declaredModificationCodes: string[] };
-    };
+    let previousCodes: string[] | undefined;
     setPhotos((prev) =>
-      prev.map((photo) =>
-        photo.id === photoId
-          ? { ...photo, declaredModificationCodes: data.photo.declaredModificationCodes }
-          : photo
-      )
+      prev.map((photo) => {
+        if (photo.id !== photoId) return photo;
+        previousCodes = photo.declaredModificationCodes;
+        return { ...photo, declaredModificationCodes: modificationItems };
+      })
     );
+
+    try {
+      const res = await fetch(`/api/photos/${photoId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modificationItems }),
+      });
+      if (!res.ok) {
+        throw new Error("Failed to update photo tags");
+      }
+
+      const data = (await res.json()) as {
+        photo: { id: string; declaredModificationCodes: string[] };
+      };
+      setPhotos((prev) =>
+        prev.map((photo) =>
+          photo.id === photoId
+            ? { ...photo, declaredModificationCodes: data.photo.declaredModificationCodes }
+            : photo
+        )
+      );
+    } catch (error) {
+      setPhotos((prev) =>
+        prev.map((photo) =>
+          photo.id === photoId && previousCodes !== undefined
+            ? { ...photo, declaredModificationCodes: previousCodes }
+            : photo
+        )
+      );
+      throw error;
+    }
   }, []);
 
   useEffect(() => {
