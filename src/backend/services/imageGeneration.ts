@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { toFile } from "openai";
 import { getOpenAIClient } from "lib/openai";
 import { getSignedDownloadUrlFromS3Url, uploadStreamToS3 } from "lib/s3";
+import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
@@ -141,7 +142,7 @@ export async function generateAccessibilityVisual(
   photo: { id: string; projectId: string; url: string },
   modificationCodes: string[] = []
 ): Promise<AccessibilityVisualGenerationResult> {
-  const signedSourceUrl = photo.url.includes(".amazonaws.com")
+  const signedSourceUrl = isPrivateS3PhotoUrl(photo.url)
     ? await getSignedDownloadUrlFromS3Url(photo.url, 300)
     : photo.url;
 
