@@ -4,7 +4,7 @@ import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import { isLiveImageGenerationEnabled } from "lib/openai";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { generateMockAccessibilityVisual, modificationItemsFromDraft } from "@/backend/services/imageGeneration";
+import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
@@ -47,8 +47,6 @@ export async function GET(
       );
     }
 
-    const modificationItems = modificationItemsFromDraft(project.draftData);
-
     const photos = await Promise.all(
       project.photos.map(async (photo) => {
         let generatedImageUrl: string | null;
@@ -66,7 +64,7 @@ export async function GET(
           generatedImageUrl = null;
         } else {
           const mockImageUrl = await generateMockAccessibilityVisual(photo.url, {
-            modificationCodes: modificationItems,
+            modificationCodes: photo.declaredModificationCodes,
           });
 
           await prisma.photo.update({

@@ -15,12 +15,12 @@ import {
 /* ------------------------------------------------------------------ */
 
 const MOD_ICON_MAP: Record<string, (props: { size: number; className?: string }) => React.ReactNode> = {
-  "Grab bars":       (p) => <GrabBarIcon {...p} />,
-  "Raised toilet":   (p) => <DropletIcon {...p} />,
-  "Walk-in shower":  (p) => <ShowerIcon {...p} />,
-  "Widened doorway": (p) => <DoorIcon {...p} />,
-  "Stair lift":      (p) => <StairsIcon {...p} />,
-  "Handrails":       (p) => <HandrailIcon {...p} />,
+  GRAB_BARS:       (p) => <GrabBarIcon {...p} />,
+  RAISED_TOILET:   (p) => <DropletIcon {...p} />,
+  WALK_IN_SHOWER:  (p) => <ShowerIcon {...p} />,
+  WIDENED_DOORWAY: (p) => <DoorIcon {...p} />,
+  STAIR_LIFT:      (p) => <StairsIcon {...p} />,
+  HANDRAILS:       (p) => <HandrailIcon {...p} />,
 };
 const FALLBACK_ICON_FN = (p: { size: number; className?: string }) => <WrenchIcon {...p} />;
 
@@ -33,7 +33,7 @@ const MODIFICATION_TIMELINE: Record<
   string,
   { label: string; daysMin: number; daysMax: number; phases: Phase[] }
 > = {
-  "Grab bars": {
+  GRAB_BARS: {
     label: "Grab Bars",
     daysMin: 1,
     daysMax: 2,
@@ -43,7 +43,7 @@ const MODIFICATION_TIMELINE: Record<
       { name: "Inspection", days: 0.5, color: "#fbbf24" },
     ],
   },
-  "Raised toilet": {
+  RAISED_TOILET: {
     label: "Raised Toilet",
     daysMin: 1,
     daysMax: 2,
@@ -54,7 +54,7 @@ const MODIFICATION_TIMELINE: Record<
       { name: "Testing", days: 0.5, color: "#fbbf24" },
     ],
   },
-  "Walk-in shower": {
+  WALK_IN_SHOWER: {
     label: "Walk-In Shower",
     daysMin: 5,
     daysMax: 10,
@@ -67,7 +67,7 @@ const MODIFICATION_TIMELINE: Record<
       { name: "Inspection", days: 0.5, color: "#fbbf24" },
     ],
   },
-  "Widened doorway": {
+  WIDENED_DOORWAY: {
     label: "Widened Doorway",
     daysMin: 2,
     daysMax: 4,
@@ -79,7 +79,7 @@ const MODIFICATION_TIMELINE: Record<
       { name: "Paint & Trim", days: 0.5, color: "#fbbf24" },
     ],
   },
-  "Stair lift": {
+  STAIR_LIFT: {
     label: "Stair Lift",
     daysMin: 3,
     daysMax: 5,
@@ -91,7 +91,7 @@ const MODIFICATION_TIMELINE: Record<
       { name: "Calibration & Safety Test", days: 0.5, color: "#fbbf24" },
     ],
   },
-  "Handrails": {
+  HANDRAILS: {
     label: "Handrails",
     daysMin: 1,
     daysMax: 2,

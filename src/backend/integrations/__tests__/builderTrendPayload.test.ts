@@ -91,9 +91,14 @@ describe("buildBuilderTrendWorkOrderPayload", () => {
       project: {
         id: "proj-1",
         address: "123 Main St",
-        draftData: { modificationItems: ["walk_in_shower", "grab_bars"] },
         user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
-        photos: [{ id: "photo-1", url: "https://example.com/photo1.jpg" }],
+        photos: [
+          {
+            id: "photo-1",
+            url: "https://example.com/photo1.jpg",
+            declaredModificationCodes: ["WALK_IN_SHOWER", "GRAB_BARS"],
+          },
+        ],
       },
       quote: { id: "quote-1", ...baseQuoteRow },
       approvedAt: new Date("2026-07-28T12:00:00.000Z"),
@@ -105,7 +110,7 @@ describe("buildBuilderTrendWorkOrderPayload", () => {
     expect(payload.schemaVersion).toBe(BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION);
     expect(payload.project).toEqual({ id: "proj-1", address: "123 Main St" });
     expect(payload.client).toEqual({ name: "Jane Client", email: "jane@example.com", phone: "555-0100" });
-    expect(payload.modificationType).toEqual(["walk_in_shower", "grab_bars"]);
+    expect(payload.modificationType).toEqual(["Grab Bars", "Walk-In Shower"]);
     expect(payload.quote.id).toBe("quote-1");
     expect(payload.quote.approvedAt).toBe("2026-07-28T12:00:00.000Z");
     expect(payload.quote.pricing.total).toBe(500);
@@ -117,9 +122,8 @@ describe("buildBuilderTrendWorkOrderPayload", () => {
       project: {
         id: "proj-1",
         address: "123 Main St",
-        draftData: null,
         user: { name: null, email: null, phone: null },
-        photos: [{ id: "photo-1", url: "https://cdn.example.com/photo1.jpg" }],
+        photos: [{ id: "photo-1", url: "https://cdn.example.com/photo1.jpg", declaredModificationCodes: [] }],
       },
       quote: { id: "quote-1", ...baseQuoteRow },
       approvedAt: new Date("2026-07-28T12:00:00.000Z"),

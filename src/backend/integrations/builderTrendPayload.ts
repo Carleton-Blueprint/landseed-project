@@ -1,25 +1,8 @@
 import type { RefinedEstimate } from "@/backend/services/refinedEstimate";
 import type { AnyRefinedEstimate, PricingTierKey, TieredRefinedEstimate } from "@/backend/services/pricingTiers";
 import { signPhotosForDisplay } from "lib/photoUrls";
-
-/**
- * Local copy of the draftData.modificationItems extraction in
- * estimateGeneration.ts (kept independent rather than imported: that module
- * pulls in the eligibility-trigger/queue chain, which opens a real Redis
- * connection at import time — unnecessary weight for a payload mapper).
- */
-function getIntakeModificationLabels(draftData: unknown): string[] {
-  const modificationItems =
-    draftData && typeof draftData === "object" && !Array.isArray(draftData)
-      ? (draftData as { modificationItems?: unknown }).modificationItems
-      : undefined;
-
-  if (!Array.isArray(modificationItems)) {
-    return [];
-  }
-
-  return modificationItems.map((item) => (typeof item === "string" ? item : String(item)));
-}
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
+import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 
 /**
  * Internal, provisional contract for "the format required for BuilderTrend
@@ -134,9 +117,8 @@ export async function buildBuilderTrendWorkOrderPayload(input: {
   project: {
     id: string;
     address: string;
-    draftData: unknown;
     user: { name: string | null; email: string | null; phone: string | null };
-    photos: Array<{ id: string; url: string }>;
+    photos: Array<{ id: string; url: string; declaredModificationCodes: string[] }>;
   };
   quote: { id: string; subtotal: DecimalLike; total: DecimalLike; estimateMin: DecimalLike | null; estimateMax: DecimalLike | null };
   approvedAt: Date;
@@ -157,7 +139,9 @@ export async function buildBuilderTrendWorkOrderPayload(input: {
       email: input.project.user.email,
       phone: input.project.user.phone,
     },
-    modificationType: getIntakeModificationLabels(input.project.draftData),
+    modificationType: aggregateDeclaredModificationCodes(input.project.photos).map(
+      (code) => MODIFICATION_COST_CATALOG[code].label
+    ),
     quote: {
       id: input.quote.id,
       approvedAt: input.approvedAt.toISOString(),

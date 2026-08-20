@@ -53,7 +53,6 @@ const completeIntakeData = {
   relationshipToSenior: "",
   caregiverConsentConfirmed: false,
   clientConsentConfirmed: true,
-  modificationItems: ["Grab bars"],
 };
 
 describe("intakeDraft service", () => {
@@ -153,6 +152,45 @@ describe("intakeDraft service", () => {
       }
     });
 
+    it("returns NO_PHOTOS_UPLOADED when the draft has no project yet", async () => {
+      (prisma.intakeDraft.findUnique as jest.Mock).mockResolvedValue({
+        id: "draft-1",
+        intakeData: completeIntakeData,
+        guidedData: null,
+        projectId: null,
+      });
+
+      const result = await promoteIntakeDraft("user-1", { actorUserId: "user-1" });
+
+      expect(prisma.photo.count).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("NO_PHOTOS_UPLOADED");
+      }
+      expect(finalizeIntake).not.toHaveBeenCalled();
+    });
+
+    it("returns NO_PHOTOS_UPLOADED when the project has zero photos", async () => {
+      (prisma.intakeDraft.findUnique as jest.Mock).mockResolvedValue({
+        id: "draft-1",
+        intakeData: completeIntakeData,
+        guidedData: null,
+        projectId: "project-1",
+      });
+      (prisma.photo.count as jest.Mock).mockResolvedValueOnce(0);
+
+      const result = await promoteIntakeDraft("user-1", { actorUserId: "user-1" });
+
+      expect(prisma.photo.count).toHaveBeenCalledWith({
+        where: { projectId: "project-1" },
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("NO_PHOTOS_UPLOADED");
+      }
+      expect(finalizeIntake).not.toHaveBeenCalled();
+    });
+
     it("returns PHOTOS_MISSING_TAGS when a project photo has no declared modification codes", async () => {
       (prisma.intakeDraft.findUnique as jest.Mock).mockResolvedValue({
         id: "draft-1",
@@ -160,7 +198,7 @@ describe("intakeDraft service", () => {
         guidedData: null,
         projectId: "project-1",
       });
-      (prisma.photo.count as jest.Mock).mockResolvedValue(2);
+      (prisma.photo.count as jest.Mock).mockResolvedValueOnce(2).mockResolvedValueOnce(2);
 
       const result = await promoteIntakeDraft("user-1", { actorUserId: "user-1" });
 
@@ -182,7 +220,7 @@ describe("intakeDraft service", () => {
         guidedData: null,
         projectId: "project-1",
       });
-      (prisma.photo.count as jest.Mock).mockResolvedValue(0);
+      (prisma.photo.count as jest.Mock).mockResolvedValueOnce(2).mockResolvedValueOnce(0);
       (prisma.project.findUnique as jest.Mock).mockResolvedValue({
         id: "project-1",
         status: "draft",
@@ -211,16 +249,16 @@ describe("intakeDraft service", () => {
         id: "draft-1",
         intakeData: completeIntakeData,
         guidedData: { mobilityAssistance: "yes" },
-        projectId: null,
+        projectId: "project-1",
       });
+      (prisma.photo.count as jest.Mock).mockResolvedValueOnce(1).mockResolvedValueOnce(0);
       (prisma.intakeDraft.upsert as jest.Mock).mockResolvedValue({
         id: "draft-1",
-        projectId: null,
-      });
-      (prisma.project.create as jest.Mock).mockResolvedValue({ id: "project-1" });
-      (prisma.intakeDraft.update as jest.Mock).mockResolvedValue({
-        id: "draft-1",
         projectId: "project-1",
+      });
+      (prisma.project.findUnique as jest.Mock).mockResolvedValue({
+        id: "project-1",
+        status: "draft",
       });
       (prisma.project.update as jest.Mock).mockResolvedValue({ id: "project-1" });
       (finalizeIntake as jest.Mock).mockResolvedValue({

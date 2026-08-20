@@ -25,7 +25,15 @@ async function main() {
       discoveredGrants: true,
       discoveryProvider: true,
       createdAt: true,
-      project: { select: { id: true, status: true, address: true, draftData: true } },
+      project: {
+        select: {
+          id: true,
+          status: true,
+          address: true,
+          draftData: true,
+          photos: { select: { declaredModificationCodes: true } },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -59,9 +67,9 @@ async function main() {
       grantFrequency[grant.grantId] = entry;
     }
 
-    // Retroactive contradiction check, using the project's *current* draftData
+    // Retroactive contradiction check, using the project's *current* photo tags
     // as an approximation of the modification codes requested at assessment
-    // time (draftData may have changed since — noted as a caveat, not exact).
+    // time (tags may have changed since — noted as a caveat, not exact).
     try {
       const input = assembleEligibilityInput(assessment.project);
       const contradictions = detectCatalogContradictions(grants, input.required.modificationCodes);

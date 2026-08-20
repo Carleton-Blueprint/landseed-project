@@ -26,7 +26,6 @@ export const intakeDataSchema = z.object({
   relationshipToSenior: z.string().max(120).optional().default(""),
   caregiverConsentConfirmed: z.boolean().optional().default(false),
   clientConsentConfirmed: z.boolean().optional().default(false),
-  modificationItems: z.array(z.string()).optional().default([]),
 });
 
 export const patchIntakeDraftSchema = z
@@ -93,7 +92,6 @@ export const promoteIntakeDataSchema = z
     relationshipToSenior: z.string().max(120).optional().or(z.literal("")),
     caregiverConsentConfirmed: z.boolean().default(false),
     clientConsentConfirmed: z.boolean().default(false),
-    modificationItems: z.array(z.string()).min(1, "Select at least one modification item"),
   })
   .superRefine((data, ctx) => {
     if (data.ownershipStatus === "tenant") {

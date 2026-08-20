@@ -228,7 +228,7 @@ describe("IntakeForm", () => {
     expect(await screen.findByText(/tag at least one modification for this photo/i)).toBeInTheDocument();
 
     const photosSection = screen.getByRole("heading", { name: /^photos$/i }).closest("section")!;
-    await user.click(within(photosSection).getByRole("checkbox", { name: "Grab bars" }));
+    await user.click(within(photosSection).getByRole("checkbox", { name: "Grab Bars" }));
 
     await waitFor(() => {
       expect(

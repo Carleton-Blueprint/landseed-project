@@ -35,7 +35,6 @@ const _draftSchema = z.object({
   caregiverRelationship: z.string().max(50).optional().default("child"),
   caregiverConsentConfirmed: z.boolean().optional().default(false),
   clientConsentConfirmed: z.boolean().optional().default(false),
-  modificationItems: z.array(z.string()).optional().default([]),
 });
 
 export type DraftData = z.infer<typeof _draftSchema>;

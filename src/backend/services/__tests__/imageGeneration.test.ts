@@ -4,7 +4,6 @@ import { getOpenAIClient } from "lib/openai";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import {
   buildAccessibilityVisualEditPrompt,
-  modificationItemsFromDraft,
   generateAccessibilityVisual,
   processAccessibilityImageGenerationJob,
   buildAccessibilityRenditionS3Key,
@@ -63,37 +62,6 @@ describe("buildAccessibilityVisualEditPrompt", () => {
   it("humanizes unknown codes", () => {
     const prompt = buildAccessibilityVisualEditPrompt(["CUSTOM_RAMP"]);
     expect(prompt).toContain("CUSTOM RAMP");
-  });
-});
-
-describe("modificationItemsFromDraft", () => {
-  it("returns an empty array for null/non-object draftData", () => {
-    expect(modificationItemsFromDraft(null)).toEqual([]);
-    expect(modificationItemsFromDraft("not-an-object")).toEqual([]);
-    expect(modificationItemsFromDraft(["array", "data"])).toEqual([]);
-  });
-
-  it("returns an empty array when modificationItems is missing or not an array", () => {
-    expect(modificationItemsFromDraft({})).toEqual([]);
-    expect(modificationItemsFromDraft({ modificationItems: "GRAB_BARS" })).toEqual([]);
-  });
-
-  it("filters to only string entries", () => {
-    expect(
-      modificationItemsFromDraft({ modificationItems: ["Grab bars", 42, null, "Stair lift"] })
-    ).toEqual(["GRAB_BARS", "STAIR_LIFT"]);
-  });
-
-  it("normalizes the intake form's human-readable labels into canonical codes", () => {
-    expect(
-      modificationItemsFromDraft({ modificationItems: ["Grab bars", "Walk-in shower"] })
-    ).toEqual(["GRAB_BARS", "WALK_IN_SHOWER"]);
-  });
-
-  it("drops labels that don't match a known modification", () => {
-    expect(modificationItemsFromDraft({ modificationItems: ["Grab bars", "Not a real item"] })).toEqual([
-      "GRAB_BARS",
-    ]);
   });
 });
 
@@ -299,7 +267,7 @@ describe("applyAccessibilityVisualMockFallback", () => {
     id: "photo-1",
     projectId: "project-1",
     url: "https://example.com/original.png",
-    project: { draftData: { modificationItems: ["GRAB_BARS"] } },
+    declaredModificationCodes: ["GRAB_BARS"],
   };
 
   beforeEach(() => {

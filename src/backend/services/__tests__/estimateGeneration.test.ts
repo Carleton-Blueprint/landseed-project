@@ -76,16 +76,16 @@ describe("estimateGeneration delay config", () => {
 });
 
 describe("buildQuoteItems", () => {
-  it("falls back to a default line item when draftData has no modificationItems", () => {
-    expect(buildQuoteItems(null)).toEqual([
+  it("falls back to a default line item when there are no modification codes", () => {
+    expect(buildQuoteItems([])).toEqual([
       { description: "Home modifications (initial intake estimate)", quantity: 1, unitPrice: 150 },
     ]);
   });
 
-  it("maps modificationItems into quote items with catalog-derived pricing and modification codes", () => {
-    expect(buildQuoteItems({ modificationItems: ["Grab bars", "Ramp"] })).toEqual([
-      { description: "Grab bars", quantity: 1, unitPrice: 180, modificationCode: "GRAB_BARS" },
-      { description: "Ramp", quantity: 1, unitPrice: 150 },
+  it("maps modification codes into quote items with catalog-derived pricing", () => {
+    expect(buildQuoteItems(["GRAB_BARS", "WALK_IN_SHOWER"])).toEqual([
+      { description: "Grab Bars", quantity: 1, unitPrice: 180, modificationCode: "GRAB_BARS" },
+      { description: "Walk-In Shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
     ]);
   });
 });
@@ -111,7 +111,7 @@ describe("processScheduledEstimateGeneration", () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
       status: "submitted",
-      draftData: { modificationItems: ["Grab bars"] },
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [{ id: "quote-existing" }],
     });
 
@@ -139,7 +139,7 @@ describe("processScheduledEstimateGeneration", () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-2",
       status: "draft",
-      draftData: { modificationItems: ["Grab bars"] },
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });
 
@@ -149,11 +149,11 @@ describe("processScheduledEstimateGeneration", () => {
     expect(mockedGenerateQuote).not.toHaveBeenCalled();
   });
 
-  it("generates a quote from the current modificationItems and marks estimate ready", async () => {
+  it("generates a quote from the current declared modification codes and marks estimate ready", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-3",
       status: "submitted",
-      draftData: { modificationItems: ["Walk-in shower"] },
+      photos: [{ declaredModificationCodes: ["WALK_IN_SHOWER"] }],
       quotes: [],
     });
 
@@ -195,7 +195,7 @@ describe("processScheduledEstimateGeneration", () => {
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-3",
       items: [
-        { description: "Walk-in shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
+        { description: "Walk-In Shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
       ],
       modificationCodes: ["WALK_IN_SHOWER"],
     });
@@ -214,7 +214,7 @@ describe("processScheduledEstimateGeneration", () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-4",
       status: "submitted",
-      draftData: { modificationItems: ["Grab bars"] },
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });
 

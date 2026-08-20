@@ -22,7 +22,6 @@ const baseIntakeData: IntakeData = {
   relationshipToSenior: "",
   caregiverConsentConfirmed: false,
   clientConsentConfirmed: false,
-  modificationItems: [],
 };
 
 const baseDraftResponse = {

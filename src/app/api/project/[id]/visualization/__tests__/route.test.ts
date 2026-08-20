@@ -84,7 +84,6 @@ describe("GET /api/project/[id]/visualization", () => {
   it("returns 403 when the user lacks project access", async () => {
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
-      draftData: {},
       photos: [],
     });
     (hasProjectAccess as jest.Mock).mockResolvedValue(false);
@@ -99,13 +98,13 @@ describe("GET /api/project/[id]/visualization", () => {
     (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(true);
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
-      draftData: { modificationItems: ["GRAB_BARS"] },
       photos: [
         {
           id: "photo-1",
           url: "https://example.com/original.png",
           generationStatus: "READY",
           generatedImageUrl: "https://bucket.s3.ca-central-1.amazonaws.com/accessibility-renditions/project-1/photo-1.png",
+          declaredModificationCodes: ["GRAB_BARS"],
         },
       ],
     });
@@ -124,7 +123,6 @@ describe("GET /api/project/[id]/visualization", () => {
     (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(true);
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
-      draftData: {},
       photos: [
         { id: "photo-1", url: "https://example.com/original.png", generationStatus: "PENDING", generatedImageUrl: null },
       ],
@@ -142,7 +140,6 @@ describe("GET /api/project/[id]/visualization", () => {
     (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(true);
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
-      draftData: {},
       photos: [
         {
           id: "photo-1",
@@ -166,9 +163,15 @@ describe("GET /api/project/[id]/visualization", () => {
     (generateMockAccessibilityVisual as jest.Mock).mockResolvedValue("https://placehold.co/900x600?text=Mock");
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
-      draftData: {},
       photos: [
-        { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png", generationStatus: "PENDING", generatedImageUrl: null },
+        {
+          id: "photo-1",
+          projectId: "project-1",
+          url: "https://example.com/original.png",
+          generationStatus: "PENDING",
+          generatedImageUrl: null,
+          declaredModificationCodes: ["GRAB_BARS"],
+        },
       ],
     });
 
@@ -177,6 +180,10 @@ describe("GET /api/project/[id]/visualization", () => {
     const body = await res.json();
 
     expect(body.photos[0].generatedImageUrl).toBe("https://placehold.co/900x600?text=Mock");
+    expect(generateMockAccessibilityVisual).toHaveBeenCalledWith(
+      "https://example.com/original.png",
+      { modificationCodes: ["GRAB_BARS"] }
+    );
     expect(prisma.photo.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "photo-1" },

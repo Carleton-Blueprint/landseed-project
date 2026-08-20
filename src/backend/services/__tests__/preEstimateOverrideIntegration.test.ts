@@ -8,9 +8,9 @@
  * live-infra style used elsewhere in this repo). Instead of running a real
  * BullMQ worker, each scenario calls processScheduledEstimateGeneration
  * directly to stand in for "the delayed job fires," which is enough to prove
- * the data contract between the three pieces: the worker always reads
- * modificationItems fresh at execution time, so whatever the override wrote
- * last is what gets quoted.
+ * the data contract between the three pieces: the worker always reads each
+ * photo's declaredModificationCodes fresh at execution time, so whatever the
+ * override wrote last is what gets quoted.
  */
 import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
@@ -51,6 +51,8 @@ jest.mock("@/backend/services/photoAnalysis", () => ({
 }));
 
 const mockedProjectUpdateManyInTransaction = jest.fn();
+const mockedTxProjectFindUnique = jest.fn();
+const mockedTxPhotoUpdate = jest.fn();
 
 jest.mock("lib/prisma", () => ({
   prisma: {
@@ -64,8 +66,14 @@ jest.mock("lib/prisma", () => ({
     photo: {
       findMany: jest.fn().mockResolvedValue([]),
     },
-    $transaction: jest.fn(async (callback: (tx: { project: { updateMany: jest.Mock } }) => unknown) =>
-      callback({ project: { updateMany: mockedProjectUpdateManyInTransaction } })
+    $transaction: jest.fn(async (callback: (tx: unknown) => unknown) =>
+      callback({
+        project: {
+          updateMany: mockedProjectUpdateManyInTransaction,
+          findUnique: mockedTxProjectFindUnique,
+        },
+        photo: { update: mockedTxPhotoUpdate },
+      })
     ),
   },
 }));
@@ -95,6 +103,7 @@ function quoteResult(quoteId: string) {
 describe("FR-4.10: delayed estimate generation + pre-estimate override integration", () => {
   const mockedPrisma = prisma as unknown as {
     project: { findUnique: jest.Mock; updateMany: jest.Mock };
+    photo: { findMany: jest.Mock };
     quote: { findFirst: jest.Mock };
   };
   const mockedQueueAdd = estimateGenerationQueue.add as jest.MockedFunction<typeof estimateGenerationQueue.add>;
@@ -106,15 +115,18 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
   beforeEach(() => {
     jest.clearAllMocks();
     mockedProjectUpdateManyInTransaction.mockReset();
+    mockedTxProjectFindUnique.mockReset();
+    mockedTxPhotoUpdate.mockReset();
+    mockedPrisma.photo.findMany.mockResolvedValue([]);
   });
 
-  it("uses the overridden modificationItems when the worker runs after an in-window override", async () => {
+  it("uses the overridden photo tags when the worker runs after an in-window override", async () => {
     // 1. Client submits intake; finalizeIntake transitions draft -> submitted
     //    and schedules the delayed job instead of quoting inline.
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-1",
       status: "draft",
-      draftData: { modificationItems: ["Grab bars"] },
+      draftData: {},
       quotes: [],
     });
     mockedProjectUpdateManyInTransaction.mockResolvedValue({ count: 1 });
@@ -124,35 +136,34 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     expect(finalizeResult).toMatchObject({ ok: true, status: "submitted" });
     expect(mockedQueueAdd).toHaveBeenCalledTimes(1);
 
-    // 2. Before the delayed job fires, an admin overrides modification scope.
-    mockedPrisma.project.findUnique
-      .mockResolvedValueOnce({
-        id: "proj-int-1",
-        status: "submitted",
-        draftData: { modificationItems: ["Grab bars"] },
-        quotes: [],
-      })
-      .mockResolvedValueOnce({
-        id: "proj-int-1",
-        status: "submitted",
-        draftData: { modificationItems: ["Walk-in shower"] },
-      });
-    mockedPrisma.project.updateMany.mockResolvedValueOnce({ count: 1 });
+    // 2. Before the delayed job fires, an admin overrides modification scope
+    //    on the project's one photo.
+    mockedPrisma.project.findUnique.mockResolvedValueOnce({
+      id: "proj-int-1",
+      status: "submitted",
+      quotes: [],
+      photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
+    });
+    mockedTxProjectFindUnique.mockResolvedValueOnce({ status: "submitted", quotes: [] });
+    mockedTxPhotoUpdate.mockResolvedValueOnce({});
+    mockedPrisma.photo.findMany.mockResolvedValueOnce([
+      { declaredModificationCodes: ["WALK_IN_SHOWER"] },
+    ]);
 
     const overrideResult = await overridePreEstimateModifications({
       projectId: "proj-int-1",
       actorUserId: "admin-1",
-      modificationItems: ["Walk-in shower"],
+      photoModifications: [{ photoId: "photo-1", declaredModificationCodes: ["WALK_IN_SHOWER"] }],
     });
 
-    expect(overrideResult.modificationItems).toEqual(["Walk-in shower"]);
+    expect(overrideResult.modificationCodes).toEqual(["WALK_IN_SHOWER"]);
 
-    // 3. The delayed job now fires and must read the overridden value, not
-    //    the value that was present at submit time.
+    // 3. The delayed job now fires and must read the overridden photo tag,
+    //    not the tag that was present at submit time.
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-1",
       status: "submitted",
-      draftData: { modificationItems: ["Walk-in shower"] },
+      photos: [{ declaredModificationCodes: ["WALK_IN_SHOWER"] }],
       quotes: [],
     });
     mockedGenerateQuote.mockResolvedValueOnce(quoteResult("quote-int-1"));
@@ -172,17 +183,17 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-int-1",
       items: [
-        { description: "Walk-in shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
+        { description: "Walk-In Shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
       ],
       modificationCodes: ["WALK_IN_SHOWER"],
     });
   });
 
-  it("uses the original intake modificationItems when no override happens before the worker runs", async () => {
+  it("uses the original intake photo tags when no override happens before the worker runs", async () => {
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-2",
       status: "draft",
-      draftData: { modificationItems: ["Grab bars"] },
+      draftData: {},
       quotes: [],
     });
     mockedProjectUpdateManyInTransaction.mockResolvedValue({ count: 1 });
@@ -193,7 +204,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-2",
       status: "submitted",
-      draftData: { modificationItems: ["Grab bars"] },
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });
     mockedGenerateQuote.mockResolvedValueOnce(quoteResult("quote-int-2"));
@@ -212,17 +223,17 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     expect(workerResult).toEqual({ projectId: "proj-int-2", status: "generated", quoteId: "quote-int-2" });
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-int-2",
-      items: [{ description: "Grab bars", quantity: 1, unitPrice: 180, modificationCode: "GRAB_BARS" }],
+      items: [{ description: "Grab Bars", quantity: 1, unitPrice: 180, modificationCode: "GRAB_BARS" }],
       modificationCodes: ["GRAB_BARS"],
     });
   });
 
-  it("rejects the override with the FR-4.3 redirect once the worker has already generated a quote", async () => {
+  it("rejects the override once the worker has already generated a quote", async () => {
     // The delayed job fires first and generates a quote.
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-3",
       status: "submitted",
-      draftData: { modificationItems: ["Grab bars"] },
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });
     mockedGenerateQuote.mockResolvedValueOnce(quoteResult("quote-int-3"));
@@ -240,26 +251,25 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     expect(workerResult.status).toBe("generated");
 
     // An admin's override request arrives moments later, after the quote
-    // already exists -> must be rejected with the FR-4.3 redirect, not applied.
+    // already exists -> must be rejected, not applied.
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-3",
       status: "estimate_ready",
-      draftData: { modificationItems: ["Grab bars"] },
       quotes: [{ id: "quote-int-3" }],
+      photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
     });
 
     await expect(
       overridePreEstimateModifications({
         projectId: "proj-int-3",
         actorUserId: "admin-1",
-        modificationItems: ["Walk-in shower"],
+        photoModifications: [{ photoId: "photo-1", declaredModificationCodes: ["WALK_IN_SHOWER"] }],
       })
     ).rejects.toMatchObject({
       code: "ESTIMATE_ALREADY_GENERATED",
       statusCode: 409,
-      redirectTo: "post_estimate_override",
     });
 
-    expect(mockedPrisma.project.updateMany).not.toHaveBeenCalled();
+    expect(mockedTxPhotoUpdate).not.toHaveBeenCalled();
   });
 });

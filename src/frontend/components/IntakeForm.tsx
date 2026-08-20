@@ -24,10 +24,8 @@ import {
 } from "@/frontend/lib/intakeAccount";
 import { getApiErrorMessage } from "@/frontend/lib/apiErrors";
 import { validatePasswordStrength } from "@/shared/passwordPolicy";
-import {
-  MODIFICATION_NORMALIZATION_MAP,
-  normalizeLabel,
-} from "@/backend/eligibility/modificationNormalization";
+import { MODIFICATION_CODES } from "@/backend/eligibility/types";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 
 const provinces = [
   "AB",
@@ -45,21 +43,12 @@ const provinces = [
   "YT",
 ] as const;
 
-const modificationOptions = [
-  "Grab bars",
-  "Raised toilet",
-  "Walk-in shower",
-  "Widened doorway",
-  "Stair lift",
-  "Handrails",
-] as const;
-
-// Per-photo tag picker reuses the same options, paired with their internal
-// codes (the API validates/stores codes, not labels — see
-// parseDeclaredModificationCodes).
-const photoModificationOptions = modificationOptions.map((label) => ({
-  label,
-  code: MODIFICATION_NORMALIZATION_MAP[normalizeLabel(label)],
+// Per-photo tag picker options, derived from the canonical fixed list of
+// modification codes (the single source of truth for what a client can
+// tag a photo with — see MODIFICATION_CODES / MODIFICATION_COST_CATALOG).
+const photoModificationOptions = Object.values(MODIFICATION_CODES).map((code) => ({
+  code,
+  label: MODIFICATION_COST_CATALOG[code].label,
 }));
 
 const intakeFieldsSchema = z.object({
@@ -104,10 +93,6 @@ const intakeFieldsSchema = z.object({
     caregiverConsentConfirmed: z.boolean().default(false),
 
     clientConsentConfirmed: z.boolean().default(false),
-
-    modificationItems: z
-      .array(z.string())
-      .min(1, "Select at least one modification item"),
 });
 
 function buildIntakeSchema(requireAccountFields: boolean) {
@@ -223,7 +208,6 @@ const defaultValues: IntakeFormValues = {
   relationshipToSenior: "",
   caregiverConsentConfirmed: false,
   clientConsentConfirmed: false,
-  modificationItems: [],
 };
 
 function toIntakeData(values: IntakeFormValues): IntakeData {
@@ -245,7 +229,6 @@ function toIntakeData(values: IntakeFormValues): IntakeData {
     relationshipToSenior: values.relationshipToSenior ?? "",
     caregiverConsentConfirmed: values.caregiverConsentConfirmed,
     clientConsentConfirmed: values.clientConsentConfirmed,
-    modificationItems: values.modificationItems,
   };
 }
 
@@ -470,7 +453,7 @@ export function IntakeForm() {
       setPhotoError(
         untaggedCount === 1
           ? "Please tag 1 photo with at least one modification type before submitting."
-          : `Please tag ${untaggedCount} photos with at least one modification type before submitting.`
+          : `Please tag ${untaggedCount} photos with at least one modification type each before submitting.`
       );
       return;
     }
@@ -948,36 +931,6 @@ export function IntakeForm() {
               </p>
             )}
           </div>
-        )}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold mb-3">Modification items</h2>
-        <p className="text-sm text-muted-foreground mb-3">
-          Select all modifications needed for this request.
-        </p>
-
-        <div className="grid gap-2 sm:grid-cols-2">
-          {modificationOptions.map((item) => (
-            <label
-              key={item}
-              className="flex items-center gap-2 rounded border border-input px-3 py-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                value={item}
-                {...register("modificationItems")}
-                className="rounded border-input"
-              />
-              <span>{item}</span>
-            </label>
-          ))}
-        </div>
-
-        {errors.modificationItems && (
-          <p className="mt-1 text-sm text-destructive" role="alert">
-            {errors.modificationItems.message}
-          </p>
         )}
       </section>
 

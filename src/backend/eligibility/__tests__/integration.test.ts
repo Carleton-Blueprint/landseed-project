@@ -29,8 +29,11 @@
 
 import { prisma } from "lib/prisma";
 import { randomUUID } from "crypto";
-import { evaluateProjectEligibility, getLatestEligibilityAssessment } from "@/backend/eligibility/service";
-import type { Project } from "@prisma/client";
+import {
+  evaluateProjectEligibility,
+  getLatestEligibilityAssessment,
+  ProjectWithPhotosForEligibility,
+} from "@/backend/eligibility/service";
 
 jest.setTimeout(30000);
 
@@ -78,8 +81,11 @@ async function createTestUser() {
   });
 }
 
-async function createTestProject(userId: string, draftData: Record<string, unknown> = {}): Promise<Project> {
-  return prisma.project.create({
+async function createTestProject(
+  userId: string,
+  draftData: Record<string, unknown> = {}
+): Promise<ProjectWithPhotosForEligibility> {
+  const project = await prisma.project.create({
     data: {
       address: "123 Integration Test St",
       userId,
@@ -87,11 +93,20 @@ async function createTestProject(userId: string, draftData: Record<string, unkno
         province: "ON",
         ownershipStatus: "owner",
         clientConsentConfirmed: true,
-        modificationItems: ["Grab bars"],
         ...draftData,
       },
     },
   });
+
+  await prisma.photo.create({
+    data: {
+      projectId: project.id,
+      url: "https://example.com/test-photo.jpg",
+      declaredModificationCodes: ["GRAB_BARS"],
+    },
+  });
+
+  return { ...project, photos: [{ declaredModificationCodes: ["GRAB_BARS"] }] };
 }
 
 async function cleanupProject(projectId: string) {
@@ -163,7 +178,7 @@ describe("FR-3.1 Eligibility Integration Tests", () => {
       });
 
       try {
-        const result = await evaluateProjectEligibility(project);
+        const result = await evaluateProjectEligibility({ ...project, photos: [] });
 
         if (!("assessmentId" in result)) {
           throw new Error(`Expected a successful evaluation, got: ${JSON.stringify(result)}`);

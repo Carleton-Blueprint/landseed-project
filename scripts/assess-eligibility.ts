@@ -25,7 +25,10 @@ async function main() {
     process.exit(1);
   }
 
-  const project = await prisma.project.findUnique({ where: { id: projectId } });
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: { photos: { select: { declaredModificationCodes: true } } },
+  });
   if (!project) {
     console.error(`Project not found: ${projectId}`);
     process.exit(1);

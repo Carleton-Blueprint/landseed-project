@@ -1,4 +1,4 @@
-import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
+import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 import {
   ELIGIBILITY_REQUIRED_FIELDS,
   EligibilityAssemblerSourceProject,
@@ -70,28 +70,6 @@ function readOwnershipStatus(
   return null;
 }
 
-function readModificationItems(
-  source: Record<string, unknown>
-): string[] {
-  const value = source.modificationItems;
-
-  if (typeof value === "undefined" || value === null) {
-    return [];
-  }
-
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const stringItems: string[] = [];
-  for (const item of value) {
-    if (typeof item === "string") {
-      stringItems.push(item);
-    }
-  }
-  return stringItems;
-}
-
 function pushMissing(
   fields: EligibilityRequiredField[],
   field: EligibilityRequiredField
@@ -138,7 +116,6 @@ export function assembleEligibilityInput(
   }
 
   checkType("clientConsentConfirmed", "boolean");
-  checkType("modificationItems", "array");
   checkType("name", "string");
   checkType("email", "string");
   checkType("phone", "string");
@@ -162,8 +139,7 @@ export function assembleEligibilityInput(
     "clientConsentConfirmed"
   );
 
-  const modificationItems = readModificationItems(draft);
-  const modificationCodes = normalizeModificationItems(modificationItems);
+  const modificationCodes = aggregateDeclaredModificationCodes(project.photos);
 
   const optional = {
     name: readString(draft, "name"),

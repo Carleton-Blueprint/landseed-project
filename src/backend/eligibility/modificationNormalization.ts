@@ -84,3 +84,30 @@ export function parseDeclaredModificationCodes(input: string[]): ParsedModificat
 
   return { codes, invalidCodes };
 }
+
+export interface ModificationCodeSource {
+  declaredModificationCodes: string[];
+}
+
+/**
+ * Unions and dedupes each photo's already-validated declaredModificationCodes
+ * into a single, canonically-ordered list — the project-level "list of
+ * modification items" consumed by cost estimation, eligibility, grant PDF
+ * generation, and the BuilderTrend payload, now that per-photo tagging is
+ * the source of truth instead of a separate project-level field.
+ */
+export function aggregateDeclaredModificationCodes(
+  photos: ModificationCodeSource[]
+): ModificationCode[] {
+  const seenCodes = new Set<ModificationCode>();
+
+  for (const photo of photos) {
+    for (const code of photo.declaredModificationCodes) {
+      if (VALID_MODIFICATION_CODES.has(code)) {
+        seenCodes.add(code as ModificationCode);
+      }
+    }
+  }
+
+  return Object.values(MODIFICATION_CODES).filter((code) => seenCodes.has(code));
+}
