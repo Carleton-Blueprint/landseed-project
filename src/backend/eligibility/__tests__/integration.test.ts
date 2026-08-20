@@ -34,6 +34,7 @@ import {
   getLatestEligibilityAssessment,
   ProjectWithPhotosForEligibility,
 } from "@/backend/eligibility/service";
+import type { TieredRefinedEstimate } from "@/backend/services/pricingTiers";
 
 jest.setTimeout(30000);
 
@@ -293,6 +294,36 @@ describe("FR-3.1 Eligibility Integration Tests", () => {
         expect(auditTrail.length).toBeGreaterThan(0);
         expect(auditTrail[0].metadata?.eligibilityAssessmentId).toBe(evaluation.assessmentId);
         expect(auditTrail[0].metadata?.outputSource).toBeDefined();
+      } finally {
+        await cleanupProject(project.id);
+      }
+    });
+
+    it("spans estimateMin/estimateMax across all tiers, not just the standard tier, for a tiered quote", async () => {
+      const user = await createTestUser();
+      createdUserIds.push(user.id);
+      const project = await createTestProject(user.id);
+
+      try {
+        const quote = await generateQuote({
+          projectId: project.id,
+          items: [
+            { description: "Walk-in shower", quantity: 1, unitPrice: 4000, modificationCode: "WALK_IN_SHOWER" },
+          ],
+          modificationCodes: ["WALK_IN_SHOWER"],
+        });
+
+        const tiered = quote.refinedEstimate as TieredRefinedEstimate;
+        expect(tiered.tiers).toBeDefined();
+
+        const persisted = await prisma.quote.findUnique({ where: { id: quote.quoteId } });
+        expect(Number(persisted?.estimateMin)).toBe(tiered.tiers.economy.estimateMin);
+        expect(Number(persisted?.estimateMax)).toBe(tiered.tiers.premium.estimateMax);
+        // Sanity check this is actually a wider span than the standard tier
+        // alone would give - otherwise the assertions above wouldn't catch a
+        // regression back to the single-tier behavior.
+        expect(Number(persisted?.estimateMin)).toBeLessThan(tiered.tiers.standard.estimateMin);
+        expect(Number(persisted?.estimateMax)).toBeGreaterThan(tiered.tiers.standard.estimateMax);
       } finally {
         await cleanupProject(project.id);
       }

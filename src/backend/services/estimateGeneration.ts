@@ -7,13 +7,11 @@ import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
-import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
+import {
+  aggregateDeclaredModificationCodes,
+  buildQuoteItems,
+} from "@/backend/eligibility/modificationNormalization";
 import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
-import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
-import type { ModificationCode } from "@/backend/eligibility/types";
-import type { QuoteItem } from "@/backend/services/refinedEstimate";
-
-const NO_MODIFICATIONS_FALLBACK_PRICE = 150; // placeholder used only when a project reaches estimate generation with no tagged modification codes
 
 export const ESTIMATE_GENERATION_DELAY_MINUTES_ENV = "ESTIMATE_GENERATION_DELAY_MINUTES";
 export const DEFAULT_ESTIMATE_GENERATION_DELAY_MINUTES = 15;
@@ -39,29 +37,6 @@ export function getEstimateGenerationDelayMs(): number {
 
 export function buildEstimateGenerationJobId(projectId: string): string {
   return `estimate-generation-${projectId}`;
-}
-
-export function buildQuoteItems(modificationCodes: ModificationCode[]): QuoteItem[] {
-  if (modificationCodes.length === 0) {
-    return [
-      {
-        description: "Home modifications (initial intake estimate)",
-        quantity: 1,
-        unitPrice: NO_MODIFICATIONS_FALLBACK_PRICE,
-      },
-    ];
-  }
-
-  return modificationCodes.map((code) => {
-    const catalogEntry = MODIFICATION_COST_CATALOG[code];
-
-    return {
-      description: catalogEntry.label,
-      quantity: 1,
-      unitPrice: catalogEntry.fallbackUnitPrice,
-      modificationCode: code,
-    };
-  });
 }
 
 export interface ProcessScheduledEstimateGenerationInput {

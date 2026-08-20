@@ -2,6 +2,11 @@ import {
   MODIFICATION_CODES,
   ModificationCode,
 } from "@/backend/eligibility/types";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
+import type { QuoteItem } from "@/backend/services/refinedEstimate";
+
+// Placeholder used only when a project reaches quote generation with no tagged modification codes.
+const NO_MODIFICATIONS_FALLBACK_PRICE = 150;
 
 const INTAKE_MODIFICATION_LABEL_TO_CODE: Record<string, ModificationCode> = {
   "grab bars": MODIFICATION_CODES.GRAB_BARS,
@@ -110,4 +115,33 @@ export function aggregateDeclaredModificationCodes(
   }
 
   return Object.values(MODIFICATION_CODES).filter((code) => seenCodes.has(code));
+}
+
+/**
+ * Builds catalog-priced quote line items from a project's modification codes.
+ * Shared by the delayed estimate-generation worker and eligibility
+ * evaluation's auto-quote fallback, so both produce real, priced quotes
+ * from the same data rather than one of them using a placeholder.
+ */
+export function buildQuoteItems(modificationCodes: ModificationCode[]): QuoteItem[] {
+  if (modificationCodes.length === 0) {
+    return [
+      {
+        description: "Home modifications (initial intake estimate)",
+        quantity: 1,
+        unitPrice: NO_MODIFICATIONS_FALLBACK_PRICE,
+      },
+    ];
+  }
+
+  return modificationCodes.map((code) => {
+    const catalogEntry = MODIFICATION_COST_CATALOG[code];
+
+    return {
+      description: catalogEntry.label,
+      quantity: 1,
+      unitPrice: catalogEntry.fallbackUnitPrice,
+      modificationCode: code,
+    };
+  });
 }

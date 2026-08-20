@@ -48,6 +48,21 @@ function getPrimaryEstimate(refinedEstimate: AnyRefinedEstimate): RefinedEstimat
     : refinedEstimate;
 }
 
+// Tiers are strictly ordered economy < standard < premium (fixed multiplier
+// config in pricingTiers.ts), so economy's floor and premium's ceiling span the
+// full price range regardless of which tier the client ends up selecting -
+// unlike subtotal/total, a single tier's range isn't representative here.
+function getEstimateRange(refinedEstimate: AnyRefinedEstimate): { estimateMin: number; estimateMax: number } {
+  if (isTieredEstimate(refinedEstimate)) {
+    return {
+      estimateMin: refinedEstimate.tiers.economy.estimateMin,
+      estimateMax: refinedEstimate.tiers.premium.estimateMax,
+    };
+  }
+
+  return { estimateMin: refinedEstimate.estimateMin, estimateMax: refinedEstimate.estimateMax };
+}
+
 interface PricingDecisionAuditTrailEntry {
   auditEventId: string;
   action: string;
@@ -80,14 +95,15 @@ export async function generateQuote(
 
   const refinedEstimate = await generateMockRefinedEstimate(input.items, input.modificationCodes ?? []);
   const primaryEstimate = getPrimaryEstimate(refinedEstimate);
+  const estimateRange = getEstimateRange(refinedEstimate);
 
   const quote = await prisma.quote.create({
     data: {
       projectId: input.projectId,
       subtotal: new Prisma.Decimal(primaryEstimate.subtotal),
       total: new Prisma.Decimal(primaryEstimate.total),
-      estimateMin: new Prisma.Decimal(primaryEstimate.estimateMin),
-      estimateMax: new Prisma.Decimal(primaryEstimate.estimateMax),
+      estimateMin: new Prisma.Decimal(estimateRange.estimateMin),
+      estimateMax: new Prisma.Decimal(estimateRange.estimateMax),
       refinedEstimate: refinedEstimate as unknown as Prisma.InputJsonValue,
       lastClientActivityAt: new Date(),
       eligibilityAssessmentId: latestEligibility?.assessmentId,
