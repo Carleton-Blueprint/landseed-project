@@ -173,7 +173,7 @@ export async function evaluateProjectEligibility(
     // evaluation runs *before* that real quote exists, which happens via:
     //   1. estimateGeneration.ts's catch block - if generateQuote() itself throws,
     //      queueEligibilityEvaluation() still fires with no quote on record.
-    //   2. modificationOverride.ts -> triggerEvaluationAfterDraftUpdate() - fires
+    //   2. modificationOverride.ts -> queueEligibilityEvaluation() - fires
     //      during the FR-4.10 admin pre-estimate override window, which is by design
     //      *before* the delayed estimate-generation worker has run.
     // In case 2 this also permanently blocks the real quote: processScheduledEstimateGeneration
