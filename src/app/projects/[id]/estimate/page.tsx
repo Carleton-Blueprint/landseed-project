@@ -23,13 +23,7 @@ import {
   type TieredRefinedEstimate,
 } from "@/backend/services/pricingTiers";
 import type { EstimateLineItemGroup, EstimateTierOption } from "./EstimateClientComponent";
-
-function modificationItemsFromDraft(draftData: unknown): string[] {
-  if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) return [];
-  const raw = (draftData as Record<string, unknown>).modificationItems;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((x): x is string => typeof x === "string");
-}
+import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 
 // Presentational grouping only — never persisted. modificationTotals (already computed
 // and persisted on RefinedEstimate) supplies the totals and group order; this just
@@ -77,6 +71,9 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
         projectAccess: {
           where: { userId: session.user.id },
         },
+        photos: {
+          select: { declaredModificationCodes: true },
+        },
       },
     });
   } catch {
@@ -88,9 +85,10 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
         userId: "dev-user-id",
         createdAt: new Date(),
         updatedAt: new Date(),
-        draftData: {
-          modificationItems: ["Grab bars", "Walk-in shower", "Stair lift"],
-        },
+        draftData: {},
+        photos: [
+          { declaredModificationCodes: ["GRAB_BARS", "WALK_IN_SHOWER", "STAIR_LIFT"] },
+        ],
         quotes: [
           {
             id: "dev-quote-1",
@@ -383,7 +381,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
         ) : null}
 
         {/* Project Timeline */}
-        <ProjectTimeline modificationItems={modificationItemsFromDraft(project.draftData)} />
+        <ProjectTimeline modificationItems={aggregateDeclaredModificationCodes(project.photos)} />
 
         {/* Accept/Decline Component */}
         <EstimateClientComponent

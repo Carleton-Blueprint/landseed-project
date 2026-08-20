@@ -15,6 +15,8 @@ import { ConsultationScheduler } from "@/frontend/components/ConsultationSchedul
 import { getLatestGrantDocumentGenerationInfo } from "@/backend/services/grantDocument";
 import { GrantDocumentCard } from "./GrantDocumentCard";
 import { listInformationRequestsForProject } from "@/backend/services/informationRequests";
+import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -78,36 +80,26 @@ function getInformationRequestTypeLabel(requestType: string): string {
   }
 }
 
-function modificationItemsFromDraft(draftData: unknown): string[] {
-  if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) {
-    return [];
-  }
-  const raw = (draftData as Record<string, unknown>).modificationItems;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((x): x is string => typeof x === "string");
-}
-
 /* ------------------------------------------------------------------ */
 /* Modification codes → human-readable labels                         */
 /* ------------------------------------------------------------------ */
 
-const MODIFICATION_LABELS: Record<string, { label: string; icon: string }> = {
-  GRAB_BARS: { label: "Grab Bars", icon: "GB" },
-  RAISED_TOILET: { label: "Raised Toilet", icon: "RT" },
-  WALK_IN_SHOWER: { label: "Walk-In Shower", icon: "WS" },
-  WIDENED_DOORWAY: { label: "Widened Doorway", icon: "WD" },
-  STAIR_LIFT: { label: "Stair Lift", icon: "SL" },
-  HANDRAILS: { label: "Handrails", icon: "HR" },
+// Purely cosmetic 2-letter badges — MODIFICATION_COST_CATALOG is the
+// canonical source for the label itself.
+const MOD_ICON_ABBREVIATIONS: Record<string, string> = {
+  GRAB_BARS: "GB",
+  RAISED_TOILET: "RT",
+  WALK_IN_SHOWER: "WS",
+  WIDENED_DOORWAY: "WD",
+  STAIR_LIFT: "SL",
+  HANDRAILS: "HR",
 };
 
 function getModLabel(item: string) {
-  const entry = MODIFICATION_LABELS[item];
-  if (entry) return entry;
+  const catalogEntry = MODIFICATION_COST_CATALOG[item as keyof typeof MODIFICATION_COST_CATALOG];
   return {
-    label: item
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase()),
-    icon: "CM",
+    label: catalogEntry?.label ?? item.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    icon: MOD_ICON_ABBREVIATIONS[item] ?? "CM",
   };
 }
 
@@ -170,13 +162,12 @@ export default async function ProjectDetailPage({
         userId: "dev-user-id",
         createdAt: new Date(),
         updatedAt: new Date(),
-        draftData: {
-          modificationItems: ["GRAB_BARS", "WALK_IN_SHOWER", "STAIR_LIFT"],
-        },
+        draftData: {},
         photos: [
           {
             id: "photo-1",
             url: "https://placehold.co/800x600?text=Original+Bathroom",
+            declaredModificationCodes: ["GRAB_BARS", "WALK_IN_SHOWER", "STAIR_LIFT"],
           }
         ],
         projectAccess: [
@@ -190,7 +181,7 @@ export default async function ProjectDetailPage({
   if (!project) return notFound();
   if (project.projectAccess.length === 0) return notFound();
 
-  const modificationItems = modificationItemsFromDraft(project.draftData);
+  const modificationItems = aggregateDeclaredModificationCodes(project.photos);
 
   const estimateSummary = getEstimateSummary({ status: project.status, quotes: project.quotes });
 
@@ -232,7 +223,7 @@ export default async function ProjectDetailPage({
           (isLiveImageGenerationEnabled()
             ? null
             : await generateMockAccessibilityVisual(photo.url, {
-                modificationCodes: modificationItems,
+                modificationCodes: photo.declaredModificationCodes ?? [],
               }));
 
         const signedImageUrl = imageUrl?.includes(".amazonaws.com")
