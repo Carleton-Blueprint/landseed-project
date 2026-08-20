@@ -47,6 +47,7 @@ export async function POST(request: Request) {
     // Get project and user
     const project = await prisma.project.findUnique({
       where: { id: projectId },
+      include: { photos: { select: { declaredModificationCodes: true } } },
     });
 
     if (!project) {

@@ -176,12 +176,21 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
             province: "ON",
             ownershipStatus: "owner",
             clientConsentConfirmed: false,
-            modificationItems: ["grab bars"],
           },
         },
       });
+      await prisma.photo.create({
+        data: {
+          projectId: project.id,
+          url: "https://example.com/test-photo.jpg",
+          declaredModificationCodes: ["GRAB_BARS"],
+        },
+      });
 
-      const result = await evaluateProjectEligibility(project);
+      const result = await evaluateProjectEligibility({
+        ...project,
+        photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      });
 
       expect(result).toBeDefined();
       if (!("assessmentId" in result)) {
@@ -218,13 +227,22 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
             province: "ON",
             ownershipStatus: "owner",
             clientConsentConfirmed: true,
-            modificationItems: ["grab bars"],
           },
+        },
+      });
+      await prisma.photo.create({
+        data: {
+          projectId: project.id,
+          url: "https://example.com/test-photo.jpg",
+          declaredModificationCodes: ["GRAB_BARS"],
         },
       });
 
       // Execute eligibility evaluation
-      const result = await evaluateProjectEligibility(project);
+      const result = await evaluateProjectEligibility({
+        ...project,
+        photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      });
 
       expect(result).toBeDefined();
 

@@ -99,7 +99,7 @@ export async function POST(
             },
             photos: {
               where: { virus_scan_status: "clean" },
-              select: { id: true, url: true }
+              select: { id: true, url: true, declaredModificationCodes: true }
             }
           }
         }
@@ -178,7 +178,6 @@ export async function POST(
             project: {
               id: quote.project.id,
               address: quote.project.address,
-              draftData: quote.project.draftData,
               user: quote.project.user,
               photos: quote.project.photos,
             },

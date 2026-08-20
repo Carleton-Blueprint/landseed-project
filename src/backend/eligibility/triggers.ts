@@ -12,8 +12,12 @@
  */
 
 import { Project } from '@prisma/client';
-import { evaluateProjectEligibility } from './service';
+import { evaluateProjectEligibility, ProjectWithPhotosForEligibility } from './service';
 import { prisma } from 'lib/prisma';
+
+const PROJECT_WITH_PHOTOS_INCLUDE = {
+  photos: { select: { declaredModificationCodes: true } },
+} as const;
 
 const EVALUATION_COOLDOWN_SECONDS = 30;
 
@@ -39,7 +43,6 @@ function hasDraftDataChanged(oldDraft: unknown, newDraft: unknown): boolean {
     'province',
     'ownershipStatus',
     'clientConsentConfirmed',
-    'modificationItems',
     'estimatedHouseholdIncome',
     'age',
     'propertyYearBuilt',
@@ -76,7 +79,9 @@ async function shouldEvaluateNow(projectId: string): Promise<boolean> {
  * Trigger eligibility evaluation after project creation
  * Non-blocking: returns immediately, evaluation happens in background
  */
-export async function triggerEvaluationAfterProjectCreation(project: Project): Promise<void> {
+export async function triggerEvaluationAfterProjectCreation(
+  project: ProjectWithPhotosForEligibility
+): Promise<void> {
   if (project.isManualMode) {
     return;
   }
@@ -127,6 +132,7 @@ export async function triggerEvaluationAfterDraftUpdate(
       // Refresh project with updated draftData
       const updatedProject = await prisma.project.findUnique({
         where: { id: project.id },
+        include: PROJECT_WITH_PHOTOS_INCLUDE,
       });
 
       if (updatedProject) {
@@ -148,6 +154,7 @@ export async function queueEligibilityEvaluation(projectId: string): Promise<voi
     try {
       const project = await prisma.project.findUnique({
         where: { id: projectId },
+        include: PROJECT_WITH_PHOTOS_INCLUDE,
       });
 
       if (!project) {

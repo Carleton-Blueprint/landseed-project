@@ -22,6 +22,10 @@ import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { produceManualReviewFlagJob } from './manualReviewProducer';
 import type { AiOutputSource, AiProvenanceMetadata } from '@/backend/audit/aiProvenance';
 
+export type ProjectWithPhotosForEligibility = Project & {
+  photos: { declaredModificationCodes: string[] }[];
+};
+
 function outputSourceForDiscoveryProvider(provider: GrantDiscoveryMetadata['provider']): AiOutputSource {
   if (provider === 'OPENAI') return 'LIVE';
   if (provider === 'MOCK') return 'MOCK';
@@ -52,7 +56,7 @@ export interface EvaluateEligibilityServiceError {
  * Main service function: evaluate and persist eligibility assessment
  */
 export async function evaluateProjectEligibility(
-  project: Project,
+  project: ProjectWithPhotosForEligibility,
   performedBy?: User
 ): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceError> {
   try {

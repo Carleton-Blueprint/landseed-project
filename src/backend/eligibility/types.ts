@@ -73,6 +73,7 @@ export interface EligibilityAssemblerSourceProject {
   status: string;
   address: string;
   draftData: unknown;
+  photos: { declaredModificationCodes: string[] }[];
 }
 
 export interface EligibilityInputProjectSection {
