@@ -1,4 +1,4 @@
-import { getMaterialPrice } from "@/backend/services/pricing";
+import { getMaterialPriceCandidates, pickBestCandidate, type PriceCandidatesResult } from "@/backend/services/pricing";
 import { MODIFICATION_CODES, type ModificationCode } from "@/backend/eligibility/types";
 import {
   MODIFICATION_COST_CATALOG,
@@ -106,7 +106,11 @@ function formatQuery(item: QuoteItem): string {
   return item.description.trim();
 }
 
-type PriceResultLike = Awaited<ReturnType<typeof getMaterialPrice>> | null;
+// Reject SERP matches priced below 40% of the catalog anchor (or item.unitPrice, for
+// line items with no modificationCode) as implausible mismatches for that item.
+const FLOOR_RATIO = 0.4;
+
+type PriceCandidatesResultLike = PriceCandidatesResult | null;
 export interface QuoteItem {
   description: string;
   quantity: number;
@@ -114,12 +118,18 @@ export interface QuoteItem {
   modificationCode?: ModificationCode;
 }
 
-async function fetchPriceResults(items: QuoteItem[]): Promise<PriceResultLike[]> {
-  const results: PriceResultLike[] = [];
+function catalogAnchorPrice(item: QuoteItem): number {
+  const catalogEntry = item.modificationCode ? MODIFICATION_COST_CATALOG[item.modificationCode] : undefined;
+  return catalogEntry?.fallbackUnitPrice ?? item.unitPrice ?? 150;
+}
+
+async function fetchPriceResults(items: QuoteItem[]): Promise<PriceCandidatesResultLike[]> {
+  const results: PriceCandidatesResultLike[] = [];
 
   for (const item of items) {
     try {
-      results.push(await getMaterialPrice(formatQuery(item)));
+      const floorPrice = roundToCents(catalogAnchorPrice(item) * FLOOR_RATIO);
+      results.push(await getMaterialPriceCandidates(formatQuery(item), { floorPrice }));
     } catch {
       results.push(null);
     }
@@ -130,25 +140,26 @@ async function fetchPriceResults(items: QuoteItem[]): Promise<PriceResultLike[]>
 
 function buildLineItemForTier(
   item: QuoteItem,
-  priceResult: PriceResultLike,
+  priceCandidates: PriceCandidatesResultLike,
   tierAdjustment: PricingTierAdjustment
 ): RefinedEstimateLineItem {
-  const usedSerpPrice = priceResult?.status === "ok" && priceResult.price !== null;
+  const best = priceCandidates ? pickBestCandidate(priceCandidates.candidates) : null;
+  const usedSerpPrice = priceCandidates?.status === "ok" && best !== null;
   const catalogEntry = item.modificationCode ? MODIFICATION_COST_CATALOG[item.modificationCode] : undefined;
   const query = formatQuery(item);
-  const fallbackUnitPrice = catalogEntry?.fallbackUnitPrice ?? item.unitPrice ?? 150;
+  const fallbackUnitPrice = catalogAnchorPrice(item);
 
   if (!usedSerpPrice) {
     logFallbackPricingUsed({
       description: item.description,
       modificationCode: item.modificationCode,
       query,
-      serpStatus: priceResult?.status ?? "no_result",
+      serpStatus: priceCandidates?.status ?? "no_result",
       fallbackUnitPrice,
     });
   }
 
-  const baseUnitCost = roundToCents(usedSerpPrice ? priceResult!.price! : fallbackUnitPrice);
+  const baseUnitCost = roundToCents(usedSerpPrice ? best!.price : fallbackUnitPrice);
   const materialUnitCost = roundToCents(baseUnitCost * tierAdjustment.materialMultiplier);
   const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, baseUnitCost);
   const laborRate = roundToCents(baseLaborRate * tierAdjustment.laborMultiplier);
@@ -163,8 +174,8 @@ function buildLineItemForTier(
     description: item.description,
     quantity: item.quantity,
     pricingQuery: query,
-    pricingSource: usedSerpPrice ? (priceResult!.store ?? priceResult!.name) : "fallback",
-    pricingLink: usedSerpPrice ? priceResult!.link : null,
+    pricingSource: usedSerpPrice ? (best!.store ?? best!.name) : "fallback",
+    pricingLink: usedSerpPrice ? best!.link : null,
     modificationCode: item.modificationCode ?? null,
     modificationLabel: catalogEntry?.label ?? null,
     materialUnitCost,
@@ -180,7 +191,7 @@ function buildLineItemForTier(
 
 function buildEstimateForTier(
   items: QuoteItem[],
-  priceResults: PriceResultLike[],
+  priceResults: PriceCandidatesResultLike[],
   tierAdjustment: PricingTierAdjustment
 ): RefinedEstimate {
   const lineItems = items.map((item, index) =>

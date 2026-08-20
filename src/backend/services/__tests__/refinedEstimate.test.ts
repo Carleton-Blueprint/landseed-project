@@ -1,43 +1,46 @@
 import { MODIFICATION_CODES } from "@/backend/eligibility/types";
 import { isTieredEstimate } from "@/backend/services/pricingTiers";
 
-jest.mock("@/backend/services/pricing", () => ({
-  getMaterialPrice: jest.fn(),
-}));
+jest.mock("@/backend/services/pricing", () => {
+  const actual = jest.requireActual("@/backend/services/pricing");
+  return {
+    ...actual,
+    getMaterialPriceCandidates: jest.fn(),
+  };
+});
 
-import { getMaterialPrice } from "@/backend/services/pricing";
+import { getMaterialPriceCandidates, type PriceCandidatesResult } from "@/backend/services/pricing";
 import { generateMockRefinedEstimate } from "@/backend/services/refinedEstimate";
 
-const mockedGetMaterialPrice = getMaterialPrice as jest.MockedFunction<typeof getMaterialPrice>;
+const mockedGetMaterialPriceCandidates = getMaterialPriceCandidates as jest.MockedFunction<
+  typeof getMaterialPriceCandidates
+>;
 
-const priceResult = {
+function candidatesResult(
+  query: string,
+  candidates: PriceCandidatesResult["candidates"],
+  status: PriceCandidatesResult["status"] = "ok"
+): PriceCandidatesResult {
+  return { query, status, candidates, fetchedAt: "2026-06-15T10:00:00.000Z" };
+}
+
+const homeDepotCandidate = {
   name: "Grab bar",
   price: 200,
   currency: "$200",
   store: "Home Depot",
   link: "https://example.com",
   thumbnail: null,
-  query: "Grab bars",
-  fetchedAt: "2026-06-15T10:00:00.000Z",
-  status: "ok" as const,
+  isPreferredStore: true,
 };
 
-const emptyPriceResult = {
-  name: "Grab bars",
-  price: null,
-  currency: null,
-  store: null,
-  link: null,
-  thumbnail: null,
-  query: "Grab bars",
-  fetchedAt: "2026-06-15T10:00:00.000Z",
-  status: "empty" as const,
-};
+const okResult = candidatesResult("Grab bars", [homeDepotCandidate]);
+const emptyResult = candidatesResult("Grab bars", [], "empty");
 
 describe("generateMockRefinedEstimate", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockedGetMaterialPrice.mockResolvedValue(priceResult);
+    mockedGetMaterialPriceCandidates.mockResolvedValue(okResult);
   });
 
   it("tags the line item pricingSource as the store when SerpAPI returns a real price", async () => {
@@ -52,8 +55,8 @@ describe("generateMockRefinedEstimate", () => {
     }
   });
 
-  it("falls back to the item's unitPrice and tags pricingSource as fallback when SerpAPI has no price", async () => {
-    mockedGetMaterialPrice.mockResolvedValue(emptyPriceResult);
+  it("falls back to the item's unitPrice and tags pricingSource as fallback when SerpAPI has no usable candidates", async () => {
+    mockedGetMaterialPriceCandidates.mockResolvedValue(emptyResult);
 
     const result = await generateMockRefinedEstimate([
       { description: "Grab bars", quantity: 1, unitPrice: 150 },
@@ -67,16 +70,19 @@ describe("generateMockRefinedEstimate", () => {
     }
   });
 
-  it("queries SerpAPI with the catalog search query when a modificationCode is present", async () => {
+  it("queries SerpAPI with the catalog search query and a floor price of 40% of the catalog anchor", async () => {
     await generateMockRefinedEstimate([
       { description: "Grab bars", quantity: 1, unitPrice: 150, modificationCode: MODIFICATION_CODES.GRAB_BARS },
     ]);
 
-    expect(mockedGetMaterialPrice).toHaveBeenCalledWith("ADA grab bar bathroom safety rail");
+    // MODIFICATION_COST_CATALOG.GRAB_BARS.fallbackUnitPrice is 180 -> floor = 180 * 0.4 = 72
+    expect(mockedGetMaterialPriceCandidates).toHaveBeenCalledWith("ADA grab bar bathroom safety rail", {
+      floorPrice: 72,
+    });
   });
 
-  it("falls back to the catalog price (not item.unitPrice) and logs a warning when SerpAPI has no price and a modificationCode is present", async () => {
-    mockedGetMaterialPrice.mockResolvedValue(emptyPriceResult);
+  it("falls back to the catalog price (not item.unitPrice) and logs a warning when SerpAPI has no usable candidates and a modificationCode is present", async () => {
+    mockedGetMaterialPriceCandidates.mockResolvedValue(emptyResult);
     const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const result = await generateMockRefinedEstimate([
@@ -157,7 +163,7 @@ describe("generateMockRefinedEstimate", () => {
 describe("modificationTotals", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockedGetMaterialPrice.mockResolvedValue(priceResult);
+    mockedGetMaterialPriceCandidates.mockResolvedValue(okResult);
   });
 
   it("rolls up lineTotal by modificationCode and sums to the estimate total (non-tiered)", async () => {

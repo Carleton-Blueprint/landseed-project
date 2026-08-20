@@ -1,4 +1,4 @@
-import { getMaterialPrice } from "@/backend/services/pricing";
+import { getMaterialPrice, getMaterialPriceCandidates } from "@/backend/services/pricing";
 
 const mockFetch = jest.fn();
 
@@ -126,6 +126,94 @@ describe("getMaterialPrice", () => {
 
   it("rejects for an empty or whitespace-only query without calling fetch", async () => {
     await expect(getMaterialPrice("   ")).rejects.toThrow("Invalid query");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("getMaterialPriceCandidates", () => {
+  const originalApiKey = process.env.SERP_API_KEY;
+  let consoleLogSpy: jest.SpyInstance;
+  let consoleErrorSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.SERP_API_KEY = "test-key";
+    global.fetch = mockFetch as typeof fetch;
+    consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    process.env.SERP_API_KEY = originalApiKey;
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("returns every parseable result, price-ascending, with a preferred-store flag", async () => {
+    mockFetch.mockResolvedValue(
+      shoppingResponse([
+        { title: "Grab bar (AliExpress)", price: "$8.79", source: "AliExpress", product_link: "https://a.example" },
+        { title: "Grab bar (Amazon)", price: "$11.88", source: "Amazon CA", product_link: "https://b.example" },
+        { title: "Grab bar (Home Depot)", price: "$16.09", source: "Home Depot", product_link: "https://c.example" },
+      ])
+    );
+
+    const result = await getMaterialPriceCandidates("grab bars");
+
+    expect(result.status).toBe("ok");
+    expect(result.candidates.map((c) => c.price)).toEqual([8.79, 11.88, 16.09]);
+    expect(result.candidates.map((c) => c.isPreferredStore)).toEqual([false, false, true]);
+  });
+
+  it("drops candidates priced below floorPrice", async () => {
+    mockFetch.mockResolvedValue(
+      shoppingResponse([
+        { title: "Suspiciously cheap grab bar", price: "$4.00", source: "AliExpress", product_link: "https://a.example" },
+        { title: "Grab bar (Amazon)", price: "$11.88", source: "Amazon CA", product_link: "https://b.example" },
+        { title: "Grab bar (Home Depot)", price: "$16.09", source: "Home Depot", product_link: "https://c.example" },
+      ])
+    );
+
+    const result = await getMaterialPriceCandidates("grab bars", { floorPrice: 10 });
+
+    expect(result.status).toBe("ok");
+    expect(result.candidates.map((c) => c.price)).toEqual([11.88, 16.09]);
+  });
+
+  it("returns an empty status when every candidate falls below floorPrice", async () => {
+    mockFetch.mockResolvedValue(
+      shoppingResponse([
+        { title: "Suspiciously cheap grab bar", price: "$4.00", source: "AliExpress", product_link: "https://a.example" },
+      ])
+    );
+
+    const result = await getMaterialPriceCandidates("grab bars", { floorPrice: 10 });
+
+    expect(result.status).toBe("empty");
+    expect(result.candidates).toEqual([]);
+  });
+
+  it("returns an empty status when shopping_results is empty", async () => {
+    mockFetch.mockResolvedValue(shoppingResponse([]));
+
+    const result = await getMaterialPriceCandidates("nonexistent material");
+
+    expect(result.status).toBe("empty");
+    expect(result.candidates).toEqual([]);
+  });
+
+  it("returns an error status when the request fails", async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
+
+    const result = await getMaterialPriceCandidates("grab bars");
+
+    expect(result.status).toBe("error");
+    expect(result.candidates).toEqual([]);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  it("rejects for an empty or whitespace-only query without calling fetch", async () => {
+    await expect(getMaterialPriceCandidates("   ")).rejects.toThrow("Invalid query");
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });
