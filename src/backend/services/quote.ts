@@ -42,10 +42,12 @@ interface QuoteResult {
   refinedEstimate: AnyRefinedEstimate;
 }
 
+// generateQuote always calls this on an estimate it just generated, before any
+// tier has been selected (selection happens later, in the accept flow at
+// src/app/api/quote/[id]/respond/route.ts, on a separate request against the
+// persisted quote) - so there's no selectedTier to honor here yet.
 function getPrimaryEstimate(refinedEstimate: AnyRefinedEstimate): RefinedEstimate {
-  return isTieredEstimate(refinedEstimate)
-    ? refinedEstimate.tiers[refinedEstimate.selectedTier ?? DEFAULT_PRICING_TIER]
-    : refinedEstimate;
+  return isTieredEstimate(refinedEstimate) ? refinedEstimate.tiers[DEFAULT_PRICING_TIER] : refinedEstimate;
 }
 
 // Tiers are ordered economy <= standard <= premium by construction (each tier's
