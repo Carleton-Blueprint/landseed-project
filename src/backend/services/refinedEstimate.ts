@@ -21,11 +21,18 @@ import {
 
 const REFINED_ESTIMATE_DEBUG = (process.env.PRICING_DEBUG ?? "true").toLowerCase() !== "false";
 
+// Mirrors the eligibility HEURISTIC-fallback pattern (src/backend/eligibility/service.ts,
+// Step 3.5): distinguishes *why* a line item fell back to catalog pricing, so the audit
+// trail (see quote.ts's fallbackLineItems) doesn't lump "SerpAPI had nothing" together
+// with "SerpAPI had results, but not enough real spread to trust them for tiering."
+export type PricingFallbackReason = "no_usable_price" | "implausible_tier_spread";
+
 function logFallbackPricingUsed(details: {
   description: string;
   modificationCode?: ModificationCode;
   query: string;
   serpStatus: string;
+  reason: PricingFallbackReason;
   fallbackUnitPrice: number;
 }): void {
   if (!REFINED_ESTIMATE_DEBUG) return;
@@ -33,7 +40,7 @@ function logFallbackPricingUsed(details: {
   console.warn(
     `[PRICING:FALLBACK] ${ts} — Using fallback price for "${details.description}" ` +
       `(modificationCode=${details.modificationCode ?? "UNSPECIFIED"}, query="${details.query}", ` +
-      `serpStatus=${details.serpStatus}) — fallbackUnitPrice=$${details.fallbackUnitPrice}`
+      `serpStatus=${details.serpStatus}, reason=${details.reason}) — fallbackUnitPrice=$${details.fallbackUnitPrice}`
   );
 }
 
@@ -53,6 +60,7 @@ export interface RefinedEstimateLineItem {
   markupPercentage: number;
   markupTotal: number;
   lineTotal: number;
+  fallbackReason?: PricingFallbackReason | null;
 }
 
 export interface ModificationSubtotal {
@@ -151,6 +159,10 @@ interface TierPriceSelection {
   economy: PriceCandidate | null;
   standard: PriceCandidate | null;
   premium: PriceCandidate | null;
+  // Set (and economy/standard/premium all null) whenever this item can't be tiered
+  // from real SerpAPI data, so buildLineItemForTier knows both that it must fall
+  // back to catalog pricing and why, for the audit trail.
+  fallbackReason: PricingFallbackReason | null;
 }
 
 // Picks three distinct, genuinely different-priced products straight off the same
@@ -162,29 +174,46 @@ interface TierPriceSelection {
 //  - standard: the median of that same capped window, so it always falls between
 //    economy and premium and — like them — is a real candidate, not an average.
 // `candidates` is price-ascending (see pricing.ts), which every step here relies on.
+//
+// If fewer than two candidates survive the premium cap (no candidates at all, or
+// only the economy pick itself), there isn't enough real spread to trust for
+// tiering, so every tier falls back to catalog pricing together instead of the
+// line item showing three "different" prices that are secretly the same product —
+// mirrors the eligibility HEURISTIC-fallback pattern (Step 3.5 in
+// src/backend/eligibility/service.ts): fall back and record why, rather than
+// silently accepting a bad spread.
 function selectTierPrices(priceResult: PriceCandidatesResultLike): TierPriceSelection {
   const candidates = priceResult?.candidates ?? [];
   const economy = pickBestCandidate(candidates);
 
   if (!economy) {
-    return { economy: null, standard: null, premium: null };
+    return { economy: null, standard: null, premium: null, fallbackReason: "no_usable_price" };
   }
 
   const premiumCap = economy.price * PREMIUM_CAP_MULTIPLIER;
   const usable = candidates.filter((candidate) => candidate.price >= economy.price && candidate.price <= premiumCap);
 
+  // < 2, not < 3: this guards against total collapse (premium === economy), not
+  // against "fewer than 3 distinct products." At exactly 2 usable candidates,
+  // standard's lower-median pick below coincides with economy (same product,
+  // different labor rate only) — accepted deliberately, so a line item still
+  // gets *some* real differentiation instead of falling back to synthetic
+  // catalog pricing every time SerpAPI returns only two plausible matches.
+  if (usable.length < 2) {
+    return { economy: null, standard: null, premium: null, fallbackReason: "implausible_tier_spread" };
+  }
+
   const premium = usable[usable.length - 1];
   const standard = usable[Math.floor((usable.length - 1) / 2)];
 
-  return { economy, standard, premium };
+  return { economy, standard, premium, fallbackReason: null };
 }
 
-// Used only when a line item has no usable SerpAPI candidates at all (SERP failed,
-// returned nothing, or the floor rejected every result). Spreads the single
-// catalog/unitPrice anchor into three price points with the same ratios the old
-// per-tier materialMultiplier used, purely so fallback tiers still differ from one
-// another — this is NOT the removed materialMultiplier field and isn't used once
-// real candidates are available.
+// Used only when a line item falls back to catalog pricing (see TierPriceSelection
+// above). Spreads the single catalog/unitPrice anchor into three price points with
+// the same ratios the old per-tier materialMultiplier used, purely so fallback
+// tiers still differ from one another — this is NOT the removed materialMultiplier
+// field and isn't used once real candidates are available.
 const FALLBACK_TIER_RATIO: Record<PricingTierKey, number> = {
   economy: 0.85,
   standard: 1,
@@ -193,15 +222,17 @@ const FALLBACK_TIER_RATIO: Record<PricingTierKey, number> = {
 
 function buildLineItemForTier(
   item: QuoteItem,
-  selectedCandidate: PriceCandidate | null,
+  tierSelection: TierPriceSelection,
   serpStatus: string,
   tierKey: PricingTierKey,
   tierAdjustment: PricingTierAdjustment
 ): RefinedEstimateLineItem {
+  const selectedCandidate = tierSelection[tierKey];
   const usedSerpPrice = selectedCandidate !== null;
   const catalogEntry = item.modificationCode ? MODIFICATION_COST_CATALOG[item.modificationCode] : undefined;
   const query = formatQuery(item);
   const fallbackUnitPrice = roundToCents(catalogAnchorPrice(item) * FALLBACK_TIER_RATIO[tierKey]);
+  const fallbackReason = tierSelection.fallbackReason ?? "no_usable_price";
 
   if (!usedSerpPrice) {
     logFallbackPricingUsed({
@@ -209,6 +240,7 @@ function buildLineItemForTier(
       modificationCode: item.modificationCode,
       query,
       serpStatus,
+      reason: fallbackReason,
       fallbackUnitPrice,
     });
   }
@@ -239,6 +271,7 @@ function buildLineItemForTier(
     markupPercentage,
     markupTotal: markupTotalForLine,
     lineTotal,
+    fallbackReason: usedSerpPrice ? null : fallbackReason,
   };
 }
 
@@ -252,7 +285,7 @@ function buildEstimateForTier(
   const lineItems = items.map((item, index) =>
     buildLineItemForTier(
       item,
-      tierSelections[index][tierKey],
+      tierSelections[index],
       priceResults[index]?.status ?? "no_result",
       tierKey,
       tierAdjustment

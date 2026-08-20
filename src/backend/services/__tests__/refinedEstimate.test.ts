@@ -34,7 +34,20 @@ const homeDepotCandidate = {
   isPreferredStore: true,
 };
 
-const okResult = candidatesResult("Grab bars", [homeDepotCandidate]);
+// A second, pricier candidate so the default mock has enough real spread to
+// avoid tripping the implausible-tier-spread fallback (see the dedicated test
+// for that below) — a single candidate can no longer differentiate three tiers.
+const secondaryCandidate = {
+  name: "Grab bar (Overstock)",
+  price: 250,
+  currency: "$250",
+  store: "Overstock",
+  link: "https://example.com/overstock",
+  thumbnail: null,
+  isPreferredStore: false,
+};
+
+const okResult = candidatesResult("Grab bars", [homeDepotCandidate, secondaryCandidate]);
 const emptyResult = candidatesResult("Grab bars", [], "empty");
 
 function candidate(price: number, store: string, isPreferredStore = false) {
@@ -223,6 +236,33 @@ describe("generateMockRefinedEstimate", () => {
     expect(result.tiers.standard.lineItems[0].materialUnitCost).toBe(180);
     expect(result.tiers.premium.lineItems[0].materialUnitCost).toBe(225);
     expect(result.tiers.economy.lineItems[0].pricingSource).toBe("fallback");
+    expect(result.tiers.economy.lineItems[0].fallbackReason).toBe("no_usable_price");
+  });
+
+  it("falls back to catalog pricing for every tier when only one candidate survives the premium cap, tagging the reason as implausible_tier_spread", async () => {
+    mockedGetMaterialPriceCandidates.mockResolvedValue(
+      candidatesResult("Grab bars", [candidate(200, "Home Depot", true)])
+    );
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await generateMockRefinedEstimate(
+      [{ description: "Grab bars", quantity: 1, unitPrice: 999, modificationCode: MODIFICATION_CODES.GRAB_BARS }],
+      [MODIFICATION_CODES.GRAB_BARS]
+    );
+
+    expect(isTieredEstimate(result)).toBe(true);
+    if (!isTieredEstimate(result)) return;
+
+    // MODIFICATION_COST_CATALOG.GRAB_BARS.fallbackUnitPrice is 180 — the single real
+    // $200 match isn't reused across all three tiers; it's discarded in favor of the
+    // catalog-anchored fallback spread, since one product can't differentiate three tiers.
+    expect(result.tiers.economy.lineItems[0].pricingSource).toBe("fallback");
+    expect(result.tiers.economy.lineItems[0].fallbackReason).toBe("implausible_tier_spread");
+    expect(result.tiers.economy.lineItems[0].materialUnitCost).toBe(153);
+    expect(result.tiers.standard.lineItems[0].materialUnitCost).toBe(180);
+    expect(result.tiers.premium.lineItems[0].materialUnitCost).toBe(225);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("reason=implausible_tier_spread"));
+    warnSpy.mockRestore();
   });
 
   it("produces tiers when at least one of several modification codes supports tiering", async () => {

@@ -127,6 +127,7 @@ export async function generateQuote(
       description: item.description,
       query: item.pricingQuery,
       fallbackUnitPrice: item.materialUnitCost,
+      reason: item.fallbackReason ?? undefined,
     }));
 
   await logPricingDecisionAuditNonBlocking({
