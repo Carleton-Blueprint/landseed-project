@@ -504,6 +504,9 @@ model EligibilityAssessment {
   @@index([projectId])
   @@index([projectId, isLatest])
   @@index([createdAt])
+  // Also enforced in the DB (not expressible in this DSL): a partial unique
+  // index on (projectId) WHERE isLatest = true - see migration
+  // 20260820150000_add_eligibility_assessment_latest_unique_index.
 }
 
 model NotificationDelivery {
