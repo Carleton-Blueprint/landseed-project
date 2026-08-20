@@ -48,10 +48,11 @@ function getPrimaryEstimate(refinedEstimate: AnyRefinedEstimate): RefinedEstimat
     : refinedEstimate;
 }
 
-// Tiers are strictly ordered economy < standard < premium (fixed multiplier
-// config in pricingTiers.ts), so economy's floor and premium's ceiling span the
-// full price range regardless of which tier the client ends up selecting -
-// unlike subtotal/total, a single tier's range isn't representative here.
+// Tiers are ordered economy <= standard <= premium by construction (each tier's
+// per-item price is the min/median/capped-max of the same fetched candidate list -
+// see refinedEstimate.ts's selectTierPrices), so economy's floor and premium's
+// ceiling span the full price range regardless of which tier the client ends up
+// selecting - unlike subtotal/total, a single tier's range isn't representative here.
 function getEstimateRange(refinedEstimate: AnyRefinedEstimate): { estimateMin: number; estimateMax: number } {
   if (isTieredEstimate(refinedEstimate)) {
     return {

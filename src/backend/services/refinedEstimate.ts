@@ -1,4 +1,9 @@
-import { getMaterialPriceCandidates, pickBestCandidate, type PriceCandidatesResult } from "@/backend/services/pricing";
+import {
+  getMaterialPriceCandidates,
+  pickBestCandidate,
+  type PriceCandidate,
+  type PriceCandidatesResult,
+} from "@/backend/services/pricing";
 import { MODIFICATION_CODES, type ModificationCode } from "@/backend/eligibility/types";
 import {
   MODIFICATION_COST_CATALOG,
@@ -138,30 +143,78 @@ async function fetchPriceResults(items: QuoteItem[]): Promise<PriceCandidatesRes
   return results;
 }
 
+// Caps how far the premium pick can sit above the economy pick, so a wild outlier
+// in the SerpAPI results can't become "premium" on its own.
+const PREMIUM_CAP_MULTIPLIER = 2.5;
+
+interface TierPriceSelection {
+  economy: PriceCandidate | null;
+  standard: PriceCandidate | null;
+  premium: PriceCandidate | null;
+}
+
+// Picks three distinct, genuinely different-priced products straight off the same
+// fetched (and floor-filtered) candidate list, instead of one match marked up by a
+// fixed multiplier:
+//  - economy: the same cheapest/preferred-store pick used everywhere else.
+//  - premium: the most expensive candidate at or below economy's price x
+//    PREMIUM_CAP_MULTIPLIER, so it's capped rather than able to land on an outlier.
+//  - standard: the median of that same capped window, so it always falls between
+//    economy and premium and — like them — is a real candidate, not an average.
+// `candidates` is price-ascending (see pricing.ts), which every step here relies on.
+function selectTierPrices(priceResult: PriceCandidatesResultLike): TierPriceSelection {
+  const candidates = priceResult?.candidates ?? [];
+  const economy = pickBestCandidate(candidates);
+
+  if (!economy) {
+    return { economy: null, standard: null, premium: null };
+  }
+
+  const premiumCap = economy.price * PREMIUM_CAP_MULTIPLIER;
+  const usable = candidates.filter((candidate) => candidate.price >= economy.price && candidate.price <= premiumCap);
+
+  const premium = usable[usable.length - 1];
+  const standard = usable[Math.floor((usable.length - 1) / 2)];
+
+  return { economy, standard, premium };
+}
+
+// Used only when a line item has no usable SerpAPI candidates at all (SERP failed,
+// returned nothing, or the floor rejected every result). Spreads the single
+// catalog/unitPrice anchor into three price points with the same ratios the old
+// per-tier materialMultiplier used, purely so fallback tiers still differ from one
+// another — this is NOT the removed materialMultiplier field and isn't used once
+// real candidates are available.
+const FALLBACK_TIER_RATIO: Record<PricingTierKey, number> = {
+  economy: 0.85,
+  standard: 1,
+  premium: 1.25,
+};
+
 function buildLineItemForTier(
   item: QuoteItem,
-  priceCandidates: PriceCandidatesResultLike,
+  selectedCandidate: PriceCandidate | null,
+  serpStatus: string,
+  tierKey: PricingTierKey,
   tierAdjustment: PricingTierAdjustment
 ): RefinedEstimateLineItem {
-  const best = priceCandidates ? pickBestCandidate(priceCandidates.candidates) : null;
-  const usedSerpPrice = priceCandidates?.status === "ok" && best !== null;
+  const usedSerpPrice = selectedCandidate !== null;
   const catalogEntry = item.modificationCode ? MODIFICATION_COST_CATALOG[item.modificationCode] : undefined;
   const query = formatQuery(item);
-  const fallbackUnitPrice = catalogAnchorPrice(item);
+  const fallbackUnitPrice = roundToCents(catalogAnchorPrice(item) * FALLBACK_TIER_RATIO[tierKey]);
 
   if (!usedSerpPrice) {
     logFallbackPricingUsed({
       description: item.description,
       modificationCode: item.modificationCode,
       query,
-      serpStatus: priceCandidates?.status ?? "no_result",
+      serpStatus,
       fallbackUnitPrice,
     });
   }
 
-  const baseUnitCost = roundToCents(usedSerpPrice ? best!.price : fallbackUnitPrice);
-  const materialUnitCost = roundToCents(baseUnitCost * tierAdjustment.materialMultiplier);
-  const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, baseUnitCost);
+  const materialUnitCost = roundToCents(usedSerpPrice ? selectedCandidate!.price : fallbackUnitPrice);
+  const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, materialUnitCost);
   const laborRate = roundToCents(baseLaborRate * tierAdjustment.laborMultiplier);
   const materialTotal = roundToCents(materialUnitCost * item.quantity);
   const laborTotalForLine = roundToCents(laborHours * laborRate);
@@ -174,8 +227,8 @@ function buildLineItemForTier(
     description: item.description,
     quantity: item.quantity,
     pricingQuery: query,
-    pricingSource: usedSerpPrice ? (best!.store ?? best!.name) : "fallback",
-    pricingLink: usedSerpPrice ? best!.link : null,
+    pricingSource: usedSerpPrice ? (selectedCandidate!.store ?? selectedCandidate!.name) : "fallback",
+    pricingLink: usedSerpPrice ? selectedCandidate!.link : null,
     modificationCode: item.modificationCode ?? null,
     modificationLabel: catalogEntry?.label ?? null,
     materialUnitCost,
@@ -192,10 +245,18 @@ function buildLineItemForTier(
 function buildEstimateForTier(
   items: QuoteItem[],
   priceResults: PriceCandidatesResultLike[],
+  tierSelections: TierPriceSelection[],
+  tierKey: PricingTierKey,
   tierAdjustment: PricingTierAdjustment
 ): RefinedEstimate {
   const lineItems = items.map((item, index) =>
-    buildLineItemForTier(item, priceResults[index] ?? null, tierAdjustment)
+    buildLineItemForTier(
+      item,
+      tierSelections[index][tierKey],
+      priceResults[index]?.status ?? "no_result",
+      tierKey,
+      tierAdjustment
+    )
   );
 
   let subtotal = 0;
@@ -232,15 +293,22 @@ export async function generateMockRefinedEstimate(
   modificationCodes: ModificationCode[] = []
 ): Promise<AnyRefinedEstimate> {
   const priceResults = await fetchPriceResults(items);
+  const tierSelections = priceResults.map(selectTierPrices);
   const applicableTiers = getApplicableTiers(modificationCodes);
 
   if (applicableTiers.length === 0) {
-    return buildEstimateForTier(items, priceResults, PRICING_TIER_CONFIG[DEFAULT_PRICING_TIER]);
+    return buildEstimateForTier(
+      items,
+      priceResults,
+      tierSelections,
+      DEFAULT_PRICING_TIER,
+      PRICING_TIER_CONFIG[DEFAULT_PRICING_TIER]
+    );
   }
 
   const tiers = {} as Record<PricingTierKey, RefinedEstimate>;
   for (const tier of applicableTiers) {
-    tiers[tier] = buildEstimateForTier(items, priceResults, PRICING_TIER_CONFIG[tier]);
+    tiers[tier] = buildEstimateForTier(items, priceResults, tierSelections, tier, PRICING_TIER_CONFIG[tier]);
   }
 
   const tieredEstimate: TieredRefinedEstimate = { tiers };

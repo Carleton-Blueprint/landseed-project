@@ -8,7 +8,6 @@ export type PricingTierKey = (typeof PRICING_TIER_KEYS)[number];
 export const DEFAULT_PRICING_TIER: PricingTierKey = "standard";
 
 export interface PricingTierAdjustment {
-  materialMultiplier: number;
   laborMultiplier: number;
   markupPercentage: number;
 }
@@ -17,10 +16,15 @@ export interface PricingTierAdjustment {
 // does not take a margin on top of actual cost from seniors. The field stays
 // on the config (rather than being removed) in case it's needed later for
 // internal cost/overhead modeling.
+//
+// No materialMultiplier here: each tier now sources a genuinely different
+// product directly from the same fetched SerpAPI candidate list (see
+// refinedEstimate.ts's selectTierPrices) instead of marking up one fetched
+// price, so a material-price multiplier would be redundant.
 export const PRICING_TIER_CONFIG: Record<PricingTierKey, PricingTierAdjustment> = {
-  economy: { materialMultiplier: 0.85, laborMultiplier: 0.9, markupPercentage: 0 },
-  standard: { materialMultiplier: 1, laborMultiplier: 1, markupPercentage: 0 },
-  premium: { materialMultiplier: 1.25, laborMultiplier: 1.15, markupPercentage: 0 },
+  economy: { laborMultiplier: 0.9, markupPercentage: 0 },
+  standard: { laborMultiplier: 1, markupPercentage: 0 },
+  premium: { laborMultiplier: 1.15, markupPercentage: 0 },
 };
 
 export const PRICING_TIER_LABELS: Record<PricingTierKey, string> = {

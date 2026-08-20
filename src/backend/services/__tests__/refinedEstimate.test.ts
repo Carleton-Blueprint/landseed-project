@@ -37,6 +37,18 @@ const homeDepotCandidate = {
 const okResult = candidatesResult("Grab bars", [homeDepotCandidate]);
 const emptyResult = candidatesResult("Grab bars", [], "empty");
 
+function candidate(price: number, store: string, isPreferredStore = false) {
+  return {
+    name: `Grab bar (${store})`,
+    price,
+    currency: `$${price}`,
+    store,
+    link: `https://example.com/${store}`,
+    thumbnail: null,
+    isPreferredStore,
+  };
+}
+
 describe("generateMockRefinedEstimate", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -145,6 +157,72 @@ describe("generateMockRefinedEstimate", () => {
       expect(result.tiers.economy.total).toBeLessThan(result.tiers.standard.total);
       expect(result.tiers.standard.total).toBeLessThan(result.tiers.premium.total);
     }
+  });
+
+  it("selects three distinct real candidates for economy/standard/premium instead of marking up one price", async () => {
+    mockedGetMaterialPriceCandidates.mockResolvedValue(
+      candidatesResult("Grab bars", [
+        candidate(50, "AliExpress"),
+        candidate(70, "Amazon"),
+        candidate(100, "Wayfair"),
+        candidate(110, "Overstock"),
+      ])
+    );
+
+    const result = await generateMockRefinedEstimate(
+      [{ description: "Grab bars", quantity: 1, unitPrice: 150 }],
+      [MODIFICATION_CODES.GRAB_BARS]
+    );
+
+    expect(isTieredEstimate(result)).toBe(true);
+    if (!isTieredEstimate(result)) return;
+
+    expect(result.tiers.economy.lineItems[0].materialUnitCost).toBe(50);
+    expect(result.tiers.economy.lineItems[0].pricingSource).toBe("AliExpress");
+    expect(result.tiers.standard.lineItems[0].materialUnitCost).toBe(70);
+    expect(result.tiers.standard.lineItems[0].pricingSource).toBe("Amazon");
+    expect(result.tiers.premium.lineItems[0].materialUnitCost).toBe(110);
+    expect(result.tiers.premium.lineItems[0].pricingSource).toBe("Overstock");
+  });
+
+  it("caps the premium pick so a wild outlier candidate can't become premium", async () => {
+    mockedGetMaterialPriceCandidates.mockResolvedValue(
+      candidatesResult("Grab bars", [
+        candidate(50, "AliExpress"),
+        candidate(60, "Amazon"),
+        candidate(70, "Wayfair"),
+        candidate(5000, "LuxeSupply"),
+      ])
+    );
+
+    const result = await generateMockRefinedEstimate(
+      [{ description: "Grab bars", quantity: 1, unitPrice: 150 }],
+      [MODIFICATION_CODES.GRAB_BARS]
+    );
+
+    expect(isTieredEstimate(result)).toBe(true);
+    if (!isTieredEstimate(result)) return;
+
+    expect(result.tiers.premium.lineItems[0].materialUnitCost).toBe(70);
+    expect(result.tiers.premium.lineItems[0].pricingSource).not.toBe("LuxeSupply");
+  });
+
+  it("spreads the catalog fallback price across tiers with distinct ratios when no candidates are usable", async () => {
+    mockedGetMaterialPriceCandidates.mockResolvedValue(emptyResult);
+
+    const result = await generateMockRefinedEstimate(
+      [{ description: "Grab bars", quantity: 1, unitPrice: 999, modificationCode: MODIFICATION_CODES.GRAB_BARS }],
+      [MODIFICATION_CODES.GRAB_BARS]
+    );
+
+    expect(isTieredEstimate(result)).toBe(true);
+    if (!isTieredEstimate(result)) return;
+
+    // MODIFICATION_COST_CATALOG.GRAB_BARS.fallbackUnitPrice is 180
+    expect(result.tiers.economy.lineItems[0].materialUnitCost).toBe(153);
+    expect(result.tiers.standard.lineItems[0].materialUnitCost).toBe(180);
+    expect(result.tiers.premium.lineItems[0].materialUnitCost).toBe(225);
+    expect(result.tiers.economy.lineItems[0].pricingSource).toBe("fallback");
   });
 
   it("produces tiers when at least one of several modification codes supports tiering", async () => {
