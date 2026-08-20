@@ -239,9 +239,8 @@ export async function overridePreEstimateModifications(
     userAgent: input.userAgent,
   });
 
-  // Photo tags aren't part of draftData, so triggerEvaluationAfterDraftUpdate's
-  // diff-based gate wouldn't fire here — queue evaluation directly since we
-  // know a relevant change just happened.
+  // Photo tags changed, so re-evaluate eligibility now rather than waiting
+  // for the delayed estimate-generation job.
   await queueEligibilityEvaluation(project.id);
 
   return {

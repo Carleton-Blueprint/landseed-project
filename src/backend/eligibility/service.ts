@@ -20,6 +20,7 @@ import {
 import { prisma } from 'lib/prisma';
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { produceManualReviewFlagJob } from './manualReviewProducer';
+import { aggregateDeclaredModificationCodes, buildQuoteItems } from './modificationNormalization';
 import type { AiOutputSource, AiProvenanceMetadata } from '@/backend/audit/aiProvenance';
 
 export type ProjectWithPhotosForEligibility = Project & {
@@ -169,21 +170,20 @@ export async function evaluateProjectEligibility(
     // already exists by the time eligibility evaluation runs, so `existingQuote`
     // below is set and this returns early.
     //
-    // It only actually creates a quote (this flat $5000 placeholder) when eligibility
-    // evaluation runs *before* that real quote exists, which happens via:
+    // It only actually creates a quote here when eligibility evaluation runs
+    // *before* that real quote exists, which happens via:
     //   1. estimateGeneration.ts's catch block - if generateQuote() itself throws,
     //      queueEligibilityEvaluation() still fires with no quote on record.
-    //   2. modificationOverride.ts -> triggerEvaluationAfterDraftUpdate() - fires
+    //   2. modificationOverride.ts -> queueEligibilityEvaluation() - fires
     //      during the FR-4.10 admin pre-estimate override window, which is by design
     //      *before* the delayed estimate-generation worker has run.
-    // In case 2 this also permanently blocks the real quote: processScheduledEstimateGeneration
-    // skips generation entirely once any quote exists for the project (see its
-    // `existingQuote` check), so the project gets stuck on this $5000 placeholder.
-    //
-    // Left as-is for now rather than removed: /api/admin/eligibility/assess lets an
-    // admin manually trigger evaluateProjectEligibility() for a project that never
-    // went through intake finalize (no delayed job ever queued) - this auto-quote is
-    // currently the only thing that gives such a project a quote at all.
+    //   3. /api/admin/eligibility/assess - recovery path for a project that
+    //      never had a delayed estimate-generation job queued at all.
+    // Since processScheduledEstimateGeneration skips generation entirely once any
+    // quote exists for the project, whichever quote lands first here has to be a
+    // real one - this uses the same catalog-priced buildQuoteItems path (built
+    // from the project's actual declared modification codes) as the normal flow,
+    // not a placeholder.
     setImmediate(async () => {
       try {
         const existingQuote = await prisma.quote.findFirst({
@@ -197,19 +197,15 @@ export async function evaluateProjectEligibility(
           return;
         }
 
+        const modificationCodes = aggregateDeclaredModificationCodes(project.photos);
+        const quoteItems = buildQuoteItems(modificationCodes);
+
         // Dynamically import to avoid circular dependencies
         const { generateQuote } = await import('@/backend/services/quote');
         await generateQuote({
           projectId: project.id,
-          items: [
-            // TODO: Replace placeholder pricing with BuilderTrend-derived scope item pricing.
-            
-            {
-              description: 'Home modifications (auto-quoted from eligibility assessment)',
-              quantity: 1,
-              unitPrice: 5000,
-            },
-          ],
+          items: quoteItems,
+          modificationCodes,
         });
         console.log(`Auto-generated quote after eligibility assessment for project ${project.id}`);
         // Auto-generate the pre-filled grant PDF when the project is eligible.

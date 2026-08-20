@@ -60,6 +60,7 @@ const baseProject = {
   userId: 'user-1',
   address: '123 Main St',
   draftData: {},
+  photos: [],
 } as never;
 
 function baseEvaluation(overallDecision: 'ELIGIBLE' | 'INELIGIBLE') {
@@ -117,6 +118,36 @@ describe('evaluateProjectEligibility grant PDF trigger', () => {
 
     expect(generateAndStoreGrantDocument).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 'proj-1' })
+    );
+  });
+
+  it('builds the auto-quote from the project\'s real declared modification codes, not a flat placeholder', async () => {
+    (discoverAndEvaluateGrants as jest.Mock).mockResolvedValue(baseEvaluation('ELIGIBLE'));
+    const { generateQuote } = require('@/backend/services/quote');
+
+    const projectWithPhotos = {
+      id: 'proj-1',
+      userId: 'user-1',
+      address: '123 Main St',
+      draftData: {},
+      photos: [{ declaredModificationCodes: ['GRAB_BARS'] }],
+    } as never;
+
+    await evaluateProjectEligibility(projectWithPhotos);
+    await flushBackgroundJobs();
+
+    expect(generateQuote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'proj-1',
+        modificationCodes: ['GRAB_BARS'],
+        items: [
+          expect.objectContaining({
+            description: 'Grab Bars',
+            modificationCode: 'GRAB_BARS',
+            unitPrice: 180,
+          }),
+        ],
+      })
     );
   });
 

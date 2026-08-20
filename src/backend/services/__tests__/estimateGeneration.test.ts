@@ -2,11 +2,11 @@ import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
+import { buildQuoteItems } from "@/backend/eligibility/modificationNormalization";
 import {
   getEstimateGenerationDelayMinutes,
   getEstimateGenerationDelayMs,
   buildEstimateGenerationJobId,
-  buildQuoteItems,
   processScheduledEstimateGeneration,
   ESTIMATE_GENERATION_DELAY_MINUTES_ENV,
   DEFAULT_ESTIMATE_GENERATION_DELAY_MINUTES,

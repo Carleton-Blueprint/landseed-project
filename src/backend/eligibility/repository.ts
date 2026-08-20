@@ -50,6 +50,14 @@ export async function createEligibilityAssessmentSnapshot(
   const assessmentId = randomUUID();
 
   return prisma.$transaction(async (tx) => {
+    // Serializes concurrent snapshot creation for the same project (e.g. the
+    // automatic post-estimate-generation trigger racing an admin's manual
+    // re-assess). Without this, two concurrent transactions can each read
+    // "no isLatest row yet" under READ COMMITTED and both insert one, leaving
+    // two rows marked isLatest = true. Transaction-scoped, so it releases
+    // automatically on commit/rollback.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))`;
+
     await tx.$executeRaw(
       Prisma.sql`
         UPDATE "EligibilityAssessment"
