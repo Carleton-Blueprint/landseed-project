@@ -453,7 +453,7 @@ export function IntakeForm() {
       setPhotoError(
         untaggedCount === 1
           ? "Please tag 1 photo with at least one modification type before submitting."
-          : `Please tag ${untaggedCount} photos with at least one modification type before submitting.`
+          : `Please tag ${untaggedCount} photos with at least one modification type each before submitting.`
       );
       return;
     }
