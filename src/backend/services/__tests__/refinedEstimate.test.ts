@@ -105,16 +105,17 @@ describe("generateMockRefinedEstimate", () => {
     }
   });
 
-  it("returns a single estimate (no tiers) when no modification code supports tiering", async () => {
+  it("returns three itemized tiers for any declared modification code, since all support tiering by default", async () => {
     const result = await generateMockRefinedEstimate(
       [{ description: "Grab bars", quantity: 2, unitPrice: 150 }],
       [MODIFICATION_CODES.GRAB_BARS]
     );
 
-    expect(isTieredEstimate(result)).toBe(false);
-    if (!isTieredEstimate(result)) {
-      expect(result.lineItems).toHaveLength(1);
-      expect(result.total).toBeGreaterThan(0);
+    expect(isTieredEstimate(result)).toBe(true);
+    if (isTieredEstimate(result)) {
+      expect(Object.keys(result.tiers).sort()).toEqual(["economy", "premium", "standard"]);
+      expect(result.tiers.standard.lineItems).toHaveLength(1);
+      expect(result.tiers.standard.total).toBeGreaterThan(0);
     }
   });
 
