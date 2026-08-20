@@ -24,6 +24,12 @@ jest.mock("@/backend/eligibility/service", () => ({
   evaluateProjectEligibility: jest.fn(),
 }));
 
+jest.mock("@/backend/queue", () => ({
+  estimateGenerationQueue: {
+    getJob: jest.fn<() => Promise<unknown>>(),
+  },
+}));
+
 jest.mock("@/backend/audit/requestContext", () => ({
   getRequestAuditContext: jest.fn(() => ({ ipAddress: "198.51.100.2", userAgent: "jest" })),
 }));
@@ -52,6 +58,12 @@ const { hasProjectAccess } = require("@/backend/auth/projectAccess") as {
 };
 const { logDeniedAdminAccessAttempt } = require("@/backend/audit/adminAccess") as {
   logDeniedAdminAccessAttempt: jest.Mock;
+};
+const { evaluateProjectEligibility } = require("@/backend/eligibility/service") as {
+  evaluateProjectEligibility: jest.Mock;
+};
+const { estimateGenerationQueue } = require("@/backend/queue") as {
+  estimateGenerationQueue: { getJob: jest.Mock };
 };
 const mockedAuth = auth as jest.MockedFunction<() => Promise<unknown>>;
 const mockedLogDeniedAdminAccessAttempt = logDeniedAdminAccessAttempt as jest.MockedFunction<() => Promise<void>>;
@@ -106,5 +118,59 @@ describe("POST /api/admin/eligibility/assess", () => {
         projectId: "project-1",
       })
     );
+  });
+
+  it("rejects with 409 when a delayed estimate-generation job is still pending", async () => {
+    mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
+    prisma.project.findUnique.mockImplementation(() => Promise.resolve({ id: "project-1", userId: "user-1" }));
+    estimateGenerationQueue.getJob.mockImplementation(() =>
+      Promise.resolve({ getState: () => Promise.resolve("delayed") })
+    );
+
+    const response = await POST(buildJsonRequest({ projectId: "project-1" }));
+
+    expect(response.status).toBe(409);
+    expect(evaluateProjectEligibility).not.toHaveBeenCalled();
+  });
+
+  it("rejects with 409 when the delayed estimate-generation job failed", async () => {
+    mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
+    prisma.project.findUnique.mockImplementation(() => Promise.resolve({ id: "project-1", userId: "user-1" }));
+    estimateGenerationQueue.getJob.mockImplementation(() =>
+      Promise.resolve({ getState: () => Promise.resolve("failed") })
+    );
+
+    const response = await POST(buildJsonRequest({ projectId: "project-1" }));
+
+    expect(response.status).toBe(409);
+    expect(evaluateProjectEligibility).not.toHaveBeenCalled();
+  });
+
+  it("proceeds when no delayed estimate-generation job exists", async () => {
+    mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
+    prisma.project.findUnique.mockImplementation(() => Promise.resolve({ id: "project-1", userId: "user-1" }));
+    prisma.user.findUnique.mockImplementation(() => Promise.resolve({ id: "user-1" }));
+    estimateGenerationQueue.getJob.mockImplementation(() => Promise.resolve(undefined));
+    evaluateProjectEligibility.mockImplementation(() => Promise.resolve({ assessmentId: "assessment-1" }));
+
+    const response = await POST(buildJsonRequest({ projectId: "project-1" }));
+
+    expect(response.status).toBe(200);
+    expect(evaluateProjectEligibility).toHaveBeenCalled();
+  });
+
+  it("proceeds when the delayed job already completed", async () => {
+    mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
+    prisma.project.findUnique.mockImplementation(() => Promise.resolve({ id: "project-1", userId: "user-1" }));
+    prisma.user.findUnique.mockImplementation(() => Promise.resolve({ id: "user-1" }));
+    estimateGenerationQueue.getJob.mockImplementation(() =>
+      Promise.resolve({ getState: () => Promise.resolve("completed") })
+    );
+    evaluateProjectEligibility.mockImplementation(() => Promise.resolve({ assessmentId: "assessment-1" }));
+
+    const response = await POST(buildJsonRequest({ projectId: "project-1" }));
+
+    expect(response.status).toBe(200);
+    expect(evaluateProjectEligibility).toHaveBeenCalled();
   });
 });

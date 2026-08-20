@@ -9,6 +9,8 @@ import { hasProjectAccess } from '@/backend/auth/projectAccess';
 import { getRequestAuditContext } from '@/backend/audit/requestContext';
 import { logDeniedAdminAccessAttempt } from '@/backend/audit/adminAccess';
 import { evaluateProjectEligibility } from '@/backend/eligibility/service';
+import { estimateGenerationQueue } from '@/backend/queue';
+import { buildEstimateGenerationJobId } from '@/backend/services/estimateGeneration';
 import { prisma } from 'lib/prisma';
 
 export async function POST(request: Request) {
@@ -78,6 +80,28 @@ export async function POST(request: Request) {
       });
 
       return Response.json({ error: 'Forbidden: You do not have access to this project' }, { status: 403 });
+    }
+
+    // This route exists to recover projects that never got a delayed
+    // estimate-generation job queued (e.g. no intake finalize occurred).
+    // Only proceed if no such job exists, or it completed successfully (a real
+    // quote is on record, so Step 6's auto-quote no-ops). A pending job means
+    // the automatic flow (queueEligibilityEvaluation, fired from
+    // processScheduledEstimateGeneration) owns this project - don't race it. A
+    // failed job means quote generation didn't complete cleanly and needs
+    // investigation/retry - proceeding here would risk this route's own
+    // evaluateProjectEligibility silently generating a quote as a side effect
+    // of what looks like a routine re-assessment.
+    const pendingJob = await estimateGenerationQueue.getJob(buildEstimateGenerationJobId(projectId));
+    const pendingJobState = pendingJob ? await pendingJob.getState() : null;
+
+    if (pendingJob && pendingJobState !== 'completed') {
+      const error =
+        pendingJobState === 'failed'
+          ? 'The scheduled estimate-generation job for this project failed. Investigate and retry that job before manually re-assessing eligibility.'
+          : 'Automatic eligibility evaluation is still pending for this project. Wait for the scheduled estimate generation to complete before manually re-assessing.';
+
+      return Response.json({ error }, { status: 409 });
     }
 
     // Evaluate eligibility
