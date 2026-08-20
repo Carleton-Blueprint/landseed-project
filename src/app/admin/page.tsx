@@ -7,6 +7,8 @@ import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient"
 import { AdminMfaPanel } from "./AdminMfaPanel";
 import { AdminAlertThresholdsPanel } from "./AdminAlertThresholdsPanel";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
+import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 
 export const metadata: Metadata = {
   title: "Advisor Panel — Landseed Project",
@@ -32,7 +34,15 @@ export default async function AdminDashboardPage() {
       orderBy: { createdAt: "desc" },
       include: {
         user: { select: { id: true, name: true, email: true } },
-        photos: { select: { id: true, url: true, virus_scan_status: true, createdAt: true } },
+        photos: {
+          select: {
+            id: true,
+            url: true,
+            virus_scan_status: true,
+            createdAt: true,
+            declaredModificationCodes: true,
+          },
+        },
         manualReviewFlag: true,
         intakeDraft: { select: { intakeData: true, guidedData: true } },
       },
@@ -194,7 +204,9 @@ export default async function AdminDashboardPage() {
           seniorName: typeof mergedData.seniorName === "string" && mergedData.seniorName ? mergedData.seniorName : null,
           relationshipToSenior: typeof mergedData.relationshipToSenior === "string" && mergedData.relationshipToSenior ? mergedData.relationshipToSenior : null,
           caregiverConsentConfirmed: Boolean(mergedData.caregiverConsentConfirmed),
-          modificationItems: Array.isArray(mergedData.modificationItems) ? mergedData.modificationItems.map(String) : [],
+          modificationItems: aggregateDeclaredModificationCodes(p.photos).map(
+            (code) => MODIFICATION_COST_CATALOG[code].label
+          ),
           additionalDetails: typeof mergedData.additionalDetails === "string" && mergedData.additionalDetails ? mergedData.additionalDetails : null,
           urgency: typeof mergedData.urgency === "string" && mergedData.urgency ? mergedData.urgency : null,
           submittedAt: p.createdAt.toISOString(),

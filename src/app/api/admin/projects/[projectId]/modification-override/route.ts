@@ -55,11 +55,7 @@ async function requireAdminForModificationOverride(
 function modificationOverrideErrorResponse(error: unknown): Response | null {
   if (error instanceof ModificationOverrideError) {
     return Response.json(
-      {
-        error: error.message,
-        code: error.code,
-        ...(error.redirectTo ? { redirectTo: error.redirectTo } : {}),
-      },
+      { error: error.message, code: error.code },
       { status: error.statusCode }
     );
   }
@@ -83,7 +79,7 @@ export async function PUT(
     const result = await overridePreEstimateModifications({
       projectId,
       actorUserId: session!.user!.id,
-      modificationItems: body?.modificationItems,
+      photoModifications: body?.photoModifications,
       reason: body?.reason,
       ipAddress: auditContext.ipAddress,
       userAgent: auditContext.userAgent,
