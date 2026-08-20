@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 import {
+  aggregateDeclaredModificationCodes,
   normalizeModificationItems,
   parseDeclaredModificationCodes,
 } from "@/backend/eligibility/modificationNormalization";
@@ -92,5 +93,47 @@ describe("parseDeclaredModificationCodes", () => {
     const result = parseDeclaredModificationCodes([]);
 
     expect(result).toEqual({ codes: [], invalidCodes: [] });
+  });
+});
+
+describe("aggregateDeclaredModificationCodes", () => {
+  it("unions codes across photos in canonical order", () => {
+    const result = aggregateDeclaredModificationCodes([
+      { declaredModificationCodes: ["STAIR_LIFT"] },
+      { declaredModificationCodes: ["GRAB_BARS"] },
+    ]);
+
+    expect(result).toEqual(["GRAB_BARS", "STAIR_LIFT"]);
+  });
+
+  it("dedupes codes shared across multiple photos", () => {
+    const result = aggregateDeclaredModificationCodes([
+      { declaredModificationCodes: ["GRAB_BARS", "HANDRAILS"] },
+      { declaredModificationCodes: ["GRAB_BARS"] },
+      { declaredModificationCodes: ["HANDRAILS"] },
+    ]);
+
+    expect(result).toEqual(["GRAB_BARS", "HANDRAILS"]);
+  });
+
+  it("ignores unrecognized codes rather than throwing", () => {
+    const result = aggregateDeclaredModificationCodes([
+      { declaredModificationCodes: ["GRAB_BARS", "not a code"] },
+    ]);
+
+    expect(result).toEqual(["GRAB_BARS"]);
+  });
+
+  it("returns an empty array for photos with no tags", () => {
+    const result = aggregateDeclaredModificationCodes([
+      { declaredModificationCodes: [] },
+      { declaredModificationCodes: [] },
+    ]);
+
+    expect(result).toEqual([]);
+  });
+
+  it("returns an empty array for zero photos", () => {
+    expect(aggregateDeclaredModificationCodes([])).toEqual([]);
   });
 });

@@ -192,7 +192,11 @@ export type PromoteIntakeDraftResult =
   | FinalizeIntakeResult
   | {
       ok: false;
-      code: "DRAFT_NOT_FOUND" | "INCOMPLETE_INTAKE" | "PHOTOS_MISSING_TAGS";
+      code:
+        | "DRAFT_NOT_FOUND"
+        | "INCOMPLETE_INTAKE"
+        | "NO_PHOTOS_UPLOADED"
+        | "PHOTOS_MISSING_TAGS";
       message: string;
       details?: unknown;
     };
@@ -220,20 +224,37 @@ export async function promoteIntakeDraft(
     };
   }
 
-  if (draft.projectId) {
-    const untaggedPhotoCount = await prisma.photo.count({
-      where: { projectId: draft.projectId, declaredModificationCodes: { isEmpty: true } },
-    });
-    if (untaggedPhotoCount > 0) {
-      return {
-        ok: false,
-        code: "PHOTOS_MISSING_TAGS",
-        message:
-          untaggedPhotoCount === 1
-            ? "1 photo is missing a modification tag. Please tag every photo before submitting."
-            : `${untaggedPhotoCount} photos are missing a modification tag. Please tag every photo before submitting.`,
-      };
-    }
+  if (!draft.projectId) {
+    return {
+      ok: false,
+      code: "NO_PHOTOS_UPLOADED",
+      message: "Please upload at least 1 photo before submitting.",
+    };
+  }
+
+  const totalPhotoCount = await prisma.photo.count({
+    where: { projectId: draft.projectId },
+  });
+  if (totalPhotoCount === 0) {
+    return {
+      ok: false,
+      code: "NO_PHOTOS_UPLOADED",
+      message: "Please upload at least 1 photo before submitting.",
+    };
+  }
+
+  const untaggedPhotoCount = await prisma.photo.count({
+    where: { projectId: draft.projectId, declaredModificationCodes: { isEmpty: true } },
+  });
+  if (untaggedPhotoCount > 0) {
+    return {
+      ok: false,
+      code: "PHOTOS_MISSING_TAGS",
+      message:
+        untaggedPhotoCount === 1
+          ? "1 photo is missing a modification tag. Please tag every photo before submitting."
+          : `${untaggedPhotoCount} photos are missing a modification tag. Please tag every photo before submitting.`,
+    };
   }
 
   const intakeData = parsed.data;

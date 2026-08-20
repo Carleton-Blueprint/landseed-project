@@ -64,7 +64,6 @@ function hasIntakeContent(data: IntakeData | null | undefined): boolean {
     data.addressLine2?.trim() ||
     data.city?.trim() ||
     data.postalCode?.trim() ||
-    (data.modificationItems && data.modificationItems.length > 0) ||
     data.isCaregiver ||
     data.seniorName?.trim() ||
     data.relationshipToSenior?.trim() ||
