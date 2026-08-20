@@ -106,7 +106,7 @@ function buildQuoteRecord(refinedEstimate: unknown, overrides: Partial<{ subtota
       draftData: { modificationItems: ["walk_in_shower"] },
       projectAccess: [{ userId: "user-1" }],
       user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
-      photos: [{ id: "photo-1", url: "https://example.com/photo1.jpg" }],
+      photos: [{ id: "photo-1", url: "https://example.com/photo1.jpg", declaredModificationCodes: ["WALK_IN_SHOWER"] }],
     },
   };
 }
@@ -193,7 +193,7 @@ describe("POST /api/quote/[id]/respond", () => {
     expect(payload.quote.pricing.total).toBe(1700);
     expect(payload.quote.pricing.lineItems).toHaveLength(1);
     expect(payload.client).toEqual({ name: "Jane Client", email: "jane@example.com", phone: "555-0100" });
-    expect(payload.modificationType).toEqual(["walk_in_shower"]);
+    expect(payload.modificationType).toEqual(["Walk-In Shower"]);
     expect(payload.photos).toEqual([{ id: "photo-1", url: "https://example.com/photo1.jpg" }]);
 
     expect(mockedEnqueue).toHaveBeenCalledWith("transfer-1");
