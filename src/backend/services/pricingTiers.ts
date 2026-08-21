@@ -51,6 +51,10 @@ const SUPPORTS_TIERS_BY_MODIFICATION_CODE: Record<ModificationCode, boolean> = {
   [MODIFICATION_CODES.WIDENED_DOORWAY]: true,
   [MODIFICATION_CODES.STAIR_LIFT]: true,
   [MODIFICATION_CODES.HANDRAILS]: true,
+  [MODIFICATION_CODES.RAMP]: true,
+  [MODIFICATION_CODES.WHEELCHAIR_RAMP]: true,
+  [MODIFICATION_CODES.WALK_IN_TUB]: true,
+  [MODIFICATION_CODES.NON_SLIP_FLOORING]: true,
 };
 
 export function projectSupportsTieredPricing(modificationCodes: ModificationCode[]): boolean {
