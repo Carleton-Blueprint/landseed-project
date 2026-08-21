@@ -5,6 +5,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client';
 import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
+import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import {
   logPricingDecisionAuditNonBlocking,
   normalizePricingDecisionAuditMetadata,
@@ -21,6 +22,8 @@ import {
   type AnyRefinedEstimate,
 } from '@/backend/services/pricingTiers';
 import { getPricingSourceFromRefinedEstimate } from '@/backend/services/pricingSource';
+import { ALERT_THRESHOLD_KEYS } from '@/backend/services/alertThresholds';
+import { recordFailureAndMaybeAlert } from '@/backend/services/criticalFailureAlerts';
 import type { ModificationCode } from '@/backend/eligibility/types';
 
 const prisma = new PrismaClient();
@@ -131,6 +134,33 @@ export async function generateQuote(
       fallbackUnitPrice: item.materialUnitCost,
       reason: item.fallbackReason ?? undefined,
     }));
+
+  // Mirrors the eligibility HEURISTIC-fallback pattern (Step 3.5 in
+  // eligibility/service.ts): a quote can otherwise ship with synthetic
+  // 0.85/1/1.25 catalog pricing instead of real market data and nothing
+  // would surface it to an admin — logFallbackPricingUsed in
+  // refinedEstimate.ts is only a console.warn gated behind PRICING_DEBUG,
+  // not an audit event or a monitored failure signal.
+  if (fallbackLineItems.length > 0) {
+    await logAuditEventNonBlocking({
+      category: 'MANUAL_CHANGE',
+      action: 'PRICING_TIER_FALLBACK',
+      outcome: 'FAILURE',
+      resourceType: 'Quote',
+      resourceId: quote.id,
+      projectId: input.projectId,
+      quoteId: quote.id,
+      actorUserId: projectWithUser.user.id,
+      description: `Quote pricing fell back to synthetic catalog pricing for ${fallbackLineItems.length} line item(s); SerpAPI pricing was unusable or implausible.`,
+      metadata: { fallbackLineItems, fallbackCount: fallbackLineItems.length },
+    });
+
+    void recordFailureAndMaybeAlert({
+      key: ALERT_THRESHOLD_KEYS.PRICING_TIER_FALLBACK,
+      summary: `Quote ${quote.id} used synthetic fallback pricing for ${fallbackLineItems.length} line item(s)`,
+      details: { quoteId: quote.id, projectId: input.projectId, fallbackLineItems },
+    });
+  }
 
   await logPricingDecisionAuditNonBlocking({
     projectId: input.projectId,

@@ -21,6 +21,7 @@ export const ALERT_THRESHOLD_KEYS = {
   BUILDERTREND_TRANSFER_FAILURE: "buildertrend-transfer-failure",
   EMAIL_DELIVERY_FAILURE: "email-delivery-failure",
   FILE_SCAN_FAILURE: "file-scan-failure",
+  PRICING_TIER_FALLBACK: "pricing-tier-fallback",
 } as const;
 
 export type AlertThresholdKey = (typeof ALERT_THRESHOLD_KEYS)[keyof typeof ALERT_THRESHOLD_KEYS];
@@ -43,6 +44,11 @@ const DEFAULTS: Record<AlertThresholdKey, { label: string; thresholdCount: numbe
   },
   [ALERT_THRESHOLD_KEYS.FILE_SCAN_FAILURE]: {
     label: "File scan failures",
+    thresholdCount: 5,
+    windowMinutes: 15,
+  },
+  [ALERT_THRESHOLD_KEYS.PRICING_TIER_FALLBACK]: {
+    label: "Quotes falling back to synthetic tier pricing (SERP unusable)",
     thresholdCount: 5,
     windowMinutes: 15,
   },
