@@ -27,7 +27,7 @@ export type ProjectWithPhotosForEligibility = Project & {
   photos: { declaredModificationCodes: string[] }[];
 };
 
-function outputSourceForDiscoveryProvider(provider: GrantDiscoveryMetadata['provider']): AiOutputSource {
+export function outputSourceForDiscoveryProvider(provider: GrantDiscoveryMetadata['provider']): AiOutputSource {
   if (provider === 'OPENAI') return 'LIVE';
   if (provider === 'MOCK') return 'MOCK';
   return 'HEURISTIC';
