@@ -1,6 +1,7 @@
 import { GrantApplicationStatus, Prisma, ProjectAccessRole } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
+import { attachGrantMatchSummaryToBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
 
 const ALLOWED_TRANSITIONS: Record<GrantApplicationStatus, GrantApplicationStatus[]> = {
   DRAFT: ["SUBMITTED"],
@@ -137,6 +138,16 @@ export async function transitionGrantApplicationStatus(
       historyId: historyEntry.id,
     };
   });
+
+  // Attach the project's Grant Match Summary to its BuilderTrend work order,
+  // if one already exists (see attachGrantMatchSummaryToBuilderTrendTransfer
+  // for why "no transfer yet" is expected and not an error). Fire-and-forget:
+  // this is a best-effort attachment, not part of the approval itself.
+  if (input.toStatus === "APPROVED") {
+    attachGrantMatchSummaryToBuilderTrendTransfer(input.projectId, input.actorUserId).catch((err) => {
+      console.warn("Failed to attach grant match summary to BuilderTrend transfer for project", input.projectId, err);
+    });
+  }
 
   return result;
 }

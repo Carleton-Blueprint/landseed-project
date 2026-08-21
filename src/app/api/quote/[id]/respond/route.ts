@@ -192,6 +192,7 @@ export async function POST(
             refinedEstimate,
             quoteIsTiered,
             acceptedTier,
+            actorUserId: session.user.id,
           })
         : null;
 

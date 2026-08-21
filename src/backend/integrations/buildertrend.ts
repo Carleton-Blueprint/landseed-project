@@ -1,9 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
+import { getSignedDownloadUrl } from "lib/s3";
 import { builderTrendTransferQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
+import { getOrGenerateReadyGrantMatchSummary } from "@/backend/services/grantMatchSummaryDocument";
 import {
   assertQuoteAcceptedForWorkOrder,
   logWorkOrderCreationBlocked,
@@ -11,6 +13,8 @@ import {
 } from "@/backend/services/workOrderAcceptance";
 import type { BuilderTrendWorkOrderPayload } from "@/backend/integrations/builderTrendPayload";
 import { mapBuilderTrendStatus } from "@/backend/integrations/buildertrendStatusMapping";
+
+const GRANT_MATCH_SUMMARY_ATTACHMENT_URL_TTL_SECONDS = 3600;
 
 type TransferRow = {
   id: string;
@@ -506,4 +510,68 @@ export async function recordBuilderTrendManualSync(input: {
   });
 
   return { transferId: transfer.id, lastManualSyncAt: now };
+}
+
+export interface AttachGrantMatchSummaryResult {
+  attached: boolean;
+  transferId: string | null;
+}
+
+/**
+ * Attaches the project's Grant Match Summary to its BuilderTrend work order
+ * on grant application approval. A BuilderTrendTransfer only exists once a
+ * quote has been accepted (see buildBuilderTrendWorkOrderPayload, which
+ * already includes this attachment when the transfer is first built) — grant
+ * approval and quote acceptance are independent lifecycles with no enforced
+ * ordering, so this covers the case where the transfer already existed
+ * *before* the grant was approved and needs the attachment added after the
+ * fact. No transfer yet is not an error: the attachment will be picked up
+ * naturally whenever the transfer is eventually created.
+ */
+export async function attachGrantMatchSummaryToBuilderTrendTransfer(
+  projectId: string,
+  actorUserId: string
+): Promise<AttachGrantMatchSummaryResult> {
+  const transfer = await prisma.builderTrendTransfer.findFirst({
+    where: { projectId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, projectId: true, quoteId: true, payload: true },
+  });
+
+  if (!transfer) {
+    return { attached: false, transferId: null };
+  }
+
+  const summary = await getOrGenerateReadyGrantMatchSummary(projectId, actorUserId);
+  if (!summary) {
+    return { attached: false, transferId: transfer.id };
+  }
+
+  const signedUrl = await getSignedDownloadUrl(summary.s3Key, GRANT_MATCH_SUMMARY_ATTACHMENT_URL_TTL_SECONDS);
+  const existingPayload = (transfer.payload ?? {}) as Partial<BuilderTrendWorkOrderPayload>;
+  const updatedPayload: Partial<BuilderTrendWorkOrderPayload> = {
+    ...existingPayload,
+    attachments: [{ label: "Grant Match Summary", url: signedUrl }],
+  };
+
+  await prisma.builderTrendTransfer.update({
+    where: { id: transfer.id },
+    data: { payload: updatedPayload as unknown as Prisma.InputJsonValue },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "BUILDERTREND_TRANSFER_ATTACHMENT_ADDED",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    actorUserId,
+    projectId: transfer.projectId,
+    quoteId: transfer.quoteId,
+    resourceType: "buildertrend_transfer",
+    resourceId: transfer.id,
+    description: "Grant Match Summary attached to BuilderTrend work order payload",
+    metadata: { fileName: summary.fileName, s3Key: summary.s3Key },
+  });
+
+  return { attached: true, transferId: transfer.id };
 }

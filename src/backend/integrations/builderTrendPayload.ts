@@ -1,8 +1,12 @@
 import type { RefinedEstimate } from "@/backend/services/refinedEstimate";
 import type { AnyRefinedEstimate, PricingTierKey, TieredRefinedEstimate } from "@/backend/services/pricingTiers";
 import { signPhotosForDisplay } from "lib/photoUrls";
+import { getSignedDownloadUrl } from "lib/s3";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
+import { getOrGenerateReadyGrantMatchSummary } from "@/backend/services/grantMatchSummaryDocument";
+
+const GRANT_MATCH_SUMMARY_ATTACHMENT_URL_TTL_SECONDS = 3600;
 
 /**
  * Internal, provisional contract for "the format required for BuilderTrend
@@ -17,6 +21,11 @@ export const BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION = 1 as const;
 
 export interface BuilderTrendWorkOrderPhoto {
   id: string;
+  url: string;
+}
+
+export interface BuilderTrendWorkOrderAttachment {
+  label: string;
   url: string;
 }
 
@@ -49,6 +58,7 @@ export interface BuilderTrendWorkOrderPayload {
     pricing: BuilderTrendWorkOrderPricingBreakdown;
   };
   photos: BuilderTrendWorkOrderPhoto[];
+  attachments?: BuilderTrendWorkOrderAttachment[];
 }
 
 type DecimalLike = { toString(): string } | number;
@@ -125,8 +135,11 @@ export async function buildBuilderTrendWorkOrderPayload(input: {
   refinedEstimate: AnyRefinedEstimate | null;
   quoteIsTiered: boolean;
   acceptedTier: PricingTierKey | null;
+  /** Used only to attribute on-demand Grant Match Summary generation if none is READY yet. */
+  actorUserId: string;
 }): Promise<BuilderTrendWorkOrderPayload> {
   const signedPhotos = await signPhotosForDisplay(input.project.photos);
+  const attachments = await buildGrantMatchSummaryAttachments(input.project.id, input.actorUserId);
 
   return {
     schemaVersion: BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
@@ -153,5 +166,29 @@ export async function buildBuilderTrendWorkOrderPayload(input: {
       }),
     },
     photos: signedPhotos.map((photo) => ({ id: photo.id, url: photo.url })),
+    attachments,
   };
+}
+
+/**
+ * Best-effort: a missing/failed Grant Match Summary must never block quote
+ * acceptance from creating the BuilderTrend work order payload, so this
+ * swallows generation failures and simply omits the attachment.
+ */
+async function buildGrantMatchSummaryAttachments(
+  projectId: string,
+  actorUserId: string
+): Promise<BuilderTrendWorkOrderAttachment[]> {
+  const summary = await getOrGenerateReadyGrantMatchSummary(projectId, actorUserId);
+  if (!summary) {
+    return [];
+  }
+
+  try {
+    const url = await getSignedDownloadUrl(summary.s3Key, GRANT_MATCH_SUMMARY_ATTACHMENT_URL_TTL_SECONDS);
+    return [{ label: "Grant Match Summary", url }];
+  } catch (error) {
+    console.warn("Failed to sign Grant Match Summary download URL for BuilderTrend payload", projectId, error);
+    return [];
+  }
 }
