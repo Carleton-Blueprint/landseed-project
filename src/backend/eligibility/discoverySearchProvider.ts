@@ -24,6 +24,7 @@ export interface DiscoveredGrant {
   matchedCriteria: string[];
   missingCriteria: string[];
   rationale: string;
+  estimatedFundingAmount: string | null;
 }
 
 export interface GrantDiscoveryMetadata {
@@ -78,6 +79,7 @@ interface LlmGrantDecision {
   missingCriteria: string[];
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   rationale: string;
+  estimatedFundingAmount?: string | null;
 }
 
 interface DiscoveryCandidateEvaluation {
@@ -88,6 +90,7 @@ interface DiscoveryCandidateEvaluation {
   missingCriteria: string[];
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   rationale: string;
+  estimatedFundingAmount: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +172,21 @@ function uniqueStrings(values: string[]): string[] {
 
 function uniqueSourceUrls(sources: GrantDiscoverySourceEntry[]): string[] {
   return Array.from(new Set(sources.map((s) => s.sourceUrl).filter((v) => v.trim().length > 0)));
+}
+
+/**
+ * Best-effort extraction of a funding figure from free-text catalog copy
+ * (e.g. "up to $20,000 of eligible expenses"). Catalog/summary text is the
+ * only place a dollar amount exists today — there's no structured field —
+ * so this is a heuristic, not an authoritative parse; prefers an "up to $X"
+ * phrase since that's how nearly every program describes its cap, falling
+ * back to the first bare dollar figure in the text.
+ */
+function extractFundingAmount(text: string): string | null {
+  const upToMatch = text.match(/\bup to \$[\d,]+(?:\.\d{2})?\b/i);
+  if (upToMatch) return upToMatch[0];
+  const dollarMatch = text.match(/\$[\d,]+(?:\.\d{2})?\b/);
+  return dollarMatch ? dollarMatch[0] : null;
 }
 
 function extractHtmlTitle(html: string): string | null {
@@ -558,6 +576,7 @@ export function scoreCandidate(
         : decision === EligibilityDecision.NEEDS_MORE_INFO
         ? 'Partial eligibility indicators found, but additional data or criteria alignment is required.'
         : 'Current project profile does not meet enough grant criteria to recommend eligibility.',
+    estimatedFundingAmount: extractFundingAmount([source.summary, source.content ?? ''].join(' ')),
   };
 }
 
@@ -701,6 +720,7 @@ async function tryOpenAiWebSearch(
         missingCriteria: [],
         confidence: 'HIGH',
         rationale: 'Mock: applicant meets federal HATC criteria based on province, ownership, and modification codes.',
+        estimatedFundingAmount: 'Up to $20,000',
       },
       {
         grantId: 'mock_on_rrap',
@@ -715,6 +735,7 @@ async function tryOpenAiWebSearch(
         missingCriteria: ['income_verification_required'],
         confidence: 'MEDIUM',
         rationale: 'Mock: jurisdiction and modifications match but income eligibility unconfirmed.',
+        estimatedFundingAmount: null,
       },
       {
         grantId: 'mock_municipal_toronto',
@@ -729,6 +750,7 @@ async function tryOpenAiWebSearch(
         missingCriteria: ['municipal_residency_unconfirmed', 'income_threshold_not_met'],
         confidence: 'LOW',
         rationale: 'Mock: modification codes match but residency and income criteria not confirmed.',
+        estimatedFundingAmount: null,
       },
     ] };
   }
@@ -959,6 +981,7 @@ function buildDiscoveryResult(
     matchedCriteria: item.matchedCriteria,
     missingCriteria: item.missingCriteria,
     rationale: item.rationale,
+    estimatedFundingAmount: item.estimatedFundingAmount,
   }));
 
   const overallDecision = summarizeOverallDecision(evaluations);
@@ -1092,6 +1115,7 @@ export async function discoverAndEvaluateGrants(
         missingCriteria: llm.missingCriteria,
         confidence: llm.confidence ?? 'MEDIUM',
         rationale: llm.rationale,
+        estimatedFundingAmount: llm.estimatedFundingAmount ?? null,
       }));
 
       const aiCandidates = dedupeAiCandidates(aiCandidatesRaw);

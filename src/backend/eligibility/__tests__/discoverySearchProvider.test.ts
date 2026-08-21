@@ -97,6 +97,7 @@ function mockOpenAiDecision(overrides: Partial<{
   missingCriteria: string[];
   confidence: string;
   rationale: string;
+  estimatedFundingAmount: string | null;
 }> = {}) {
   return {
     grantId: 'live_hatc_canada',
@@ -415,6 +416,72 @@ describe('discoverAndEvaluateGrants', () => {
     }
   });
 
+  it('carries the AI-supplied estimatedFundingAmount through to the discovered grant', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+
+    try {
+      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                decisions: [mockOpenAiDecision({ estimatedFundingAmount: 'Up to $20,000' })],
+              }),
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      const result = await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      const grant = result.discoveredGrants.find((g) => g.grantId === 'live_hatc_canada');
+      expect(grant?.estimatedFundingAmount).toBe('Up to $20,000');
+    } finally {
+      restoreDiscoveryEnv(savedEnv);
+    }
+  });
+
+  it('defaults estimatedFundingAmount to null when the AI omits it', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+
+    try {
+      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                decisions: [mockOpenAiDecision()],
+              }),
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      const result = await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      const grant = result.discoveredGrants.find((g) => g.grantId === 'live_hatc_canada');
+      expect(grant?.estimatedFundingAmount).toBeNull();
+    } finally {
+      restoreDiscoveryEnv(savedEnv);
+    }
+  });
+
   it('falls back to heuristic when OpenAI returns a non-OK response', async () => {
     const savedEnv = saveDiscoveryEnv();
     configureLiveAiEnv();
@@ -697,6 +764,7 @@ describe('detectCatalogContradictions', () => {
       matchedCriteria: [],
       missingCriteria: [],
       rationale: 'test',
+      estimatedFundingAmount: null,
       ...overrides,
     };
   }
@@ -829,6 +897,39 @@ describe('scoreCandidate', () => {
     expect(result.decision).toBe(EligibilityDecision.ELIGIBLE);
     expect(result.missingCriteria).not.toContain('no_modification_overlap');
   });
+
+  it('extracts an "up to $X" funding figure from the catalog summary', () => {
+    const source = makeMaxSignalSource({
+      eligibleModificationCodes: ['GRAB_BARS'],
+      summary: 'Federal tax credit on up to $20,000 of eligible home renovation expenses.',
+    });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.estimatedFundingAmount).toBe('up to $20,000');
+  });
+
+  it('falls back to the first bare dollar figure when no "up to" phrasing is present', () => {
+    const source = makeMaxSignalSource({
+      eligibleModificationCodes: ['GRAB_BARS'],
+      summary: 'A forgivable loan program providing $40,000 toward accessibility renovations.',
+    });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.estimatedFundingAmount).toBe('$40,000');
+  });
+
+  it('returns null estimatedFundingAmount when no dollar figure appears in the summary', () => {
+    const source = makeMaxSignalSource({
+      eligibleModificationCodes: ['GRAB_BARS'],
+      summary: 'A program with no stated funding amount in its description.',
+    });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.estimatedFundingAmount).toBeNull();
+  });
 });
 
 describe('dedupeAiCandidates', () => {
@@ -854,6 +955,7 @@ describe('dedupeAiCandidates', () => {
       missingCriteria: [],
       confidence: 'HIGH' as const,
       rationale: 'test',
+      estimatedFundingAmount: null,
     };
   }
 

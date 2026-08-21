@@ -63,6 +63,7 @@ model Project {
   manualModeSubmission             ManualModeSubmission?
   manualFallbackExports            ManualFallbackExport[]
   eligibilityAssessments           EligibilityAssessment[]
+  grantMatchSummaryDocuments       GrantMatchSummaryDocument[]
   grantApplicationStatusHistory    GrantApplicationStatusHistory[]
   notifications                    NotificationDelivery[]
   auditEvents                      AuditEvent[]
@@ -500,13 +501,35 @@ model EligibilityAssessment {
   discoverySourceSnapshotId String?
   project                   Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   quotes                    Quote[]
+  // Also enforced in the DB (not expressible in this DSL): a partial unique
+  // index on (projectId) WHERE isLatest = true - see migration
+  // 20260820150000_add_eligibility_assessment_latest_unique_index.
 
   @@index([projectId])
   @@index([projectId, isLatest])
   @@index([createdAt])
-  // Also enforced in the DB (not expressible in this DSL): a partial unique
-  // index on (projectId) WHERE isLatest = true - see migration
-  // 20260820150000_add_eligibility_assessment_latest_unique_index.
+}
+
+model GrantMatchSummaryDocument {
+  id                      String                          @id @default(cuid())
+  projectId               String
+  eligibilityAssessmentId String
+  status                  GrantMatchSummaryDocumentStatus @default(PENDING)
+  outputSource            String?
+  contentHash             String?
+  s3Key                   String?
+  fileName                String?
+  version                 Int
+  isLatest                Boolean                         @default(true)
+  failureReason           String?                         @db.Text
+  requestedAt             DateTime                        @default(now())
+  readyAt                 DateTime?
+  createdAt               DateTime                        @default(now())
+  updatedAt               DateTime                        @updatedAt
+  project                 Project                         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, isLatest])
+  @@index([projectId])
 }
 
 model NotificationDelivery {
@@ -861,6 +884,12 @@ enum NotificationDeliveryStatus {
 }
 
 enum ManualFallbackExportStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+enum GrantMatchSummaryDocumentStatus {
   PENDING
   READY
   FAILED

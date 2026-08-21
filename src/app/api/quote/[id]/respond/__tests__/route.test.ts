@@ -33,6 +33,10 @@ jest.mock("@/backend/integrations/buildertrend", () => ({
   enqueueBuilderTrendTransfer: jest.fn(),
 }));
 
+jest.mock("@/backend/services/grantMatchSummaryDocument", () => ({
+  getOrGenerateReadyGrantMatchSummary: jest.fn().mockResolvedValue(null),
+}));
+
 import { POST } from "../route";
 
 const mockedPrisma = prisma as unknown as {
