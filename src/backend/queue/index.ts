@@ -96,6 +96,15 @@ export const estimateGenerationQueue = new Queue<{
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
 });
 
+export const grantMatchSummaryQueue = new Queue<{
+  projectId: string;
+  actorUserId: string;
+  force?: boolean;
+}>("grant-match-summary", {
+  connection,
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
+});
+
 export function createVirusScanWorker(
   processor: (job: { data: { key: string; photoId: string; bucket?: string } }) => Promise<void>
 ) {
@@ -199,6 +208,18 @@ export function createEstimateGenerationWorker(
   return new Worker("estimate-generation", processor, { connection });
 }
 
+export function createGrantMatchSummaryWorker(
+  processor: (job: {
+    data: {
+      projectId: string;
+      actorUserId: string;
+      force?: boolean;
+    };
+  }) => Promise<void>
+) {
+  return new Worker("grant-match-summary", processor, { connection });
+}
+
 // Some tests (e.g. builderTrendTransferQueueConfig.test.ts) mock bullmq/ioredis
 // themselves and load this module for real to inspect constructor args, which
 // leaves virusScanQueue etc. as plain mock objects with no .close()/.quit().
@@ -223,6 +244,7 @@ export async function closeQueueConnections(): Promise<void> {
     closeIfCloseable(manualReviewQueue),
     closeIfCloseable(manualFallbackExportQueue),
     closeIfCloseable(estimateGenerationQueue),
+    closeIfCloseable(grantMatchSummaryQueue),
   ]);
   if (typeof connection.quit === "function") {
     await connection.quit();

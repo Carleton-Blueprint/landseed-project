@@ -18,6 +18,7 @@ import {
   GrantDiscoveryMetadata,
 } from './discoverySearchProvider';
 import { prisma } from 'lib/prisma';
+import { grantMatchSummaryQueue } from '@/backend/queue';
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { produceManualReviewFlagJob } from './manualReviewProducer';
 import { aggregateDeclaredModificationCodes, buildQuoteItems } from './modificationNormalization';
@@ -226,6 +227,22 @@ export async function evaluateProjectEligibility(
         // Non-blocking: eligibility assessment success is not affected by quote generation failure
       }
     });
+
+    // Step 7: Queue Grant Match Summary PDF generation in background (non-blocking).
+    //
+    // Unlike the pre-filled grant application PDF (Step 6, ELIGIBLE-only), this
+    // summary is generated for every assessment outcome — it must render a clean
+    // "no matching grants found" message rather than skip generation entirely.
+    // It doesn't depend on the quote above, so it's queued independently rather
+    // than nested inside that block.
+    grantMatchSummaryQueue
+      .add(`grant-match-summary:${project.id}:${assessment.id}`, {
+        projectId: project.id,
+        actorUserId: performedBy?.id ?? project.userId,
+      })
+      .catch((err) => {
+        console.warn('Failed to queue grant match summary generation for project', project.id, err);
+      });
 
     return {
       assessmentId: assessment.id,
