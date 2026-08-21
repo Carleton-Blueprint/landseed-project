@@ -455,7 +455,7 @@ export function DashboardProjectsClient({
                       </Link>
 
                       {project.grantDocumentKey ? (
-                        <Link href={`/api/documents/${project.id}/download`}>
+                        <Link href={`/api/documents/${project.id}/download`} target="_blank" rel="noopener noreferrer">
                           <Button
                             variant="default"
                             className="flex w-full items-center gap-2 sm:w-auto"
