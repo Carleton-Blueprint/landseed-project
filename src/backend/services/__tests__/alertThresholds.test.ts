@@ -8,6 +8,7 @@ import {
   invalidateAlertThresholdCache,
   AlertThresholdError,
   ALERT_THRESHOLD_KEYS,
+  type AlertThresholdKey,
 } from "../alertThresholds";
 
 const mockFindMany = jest.fn();
@@ -86,7 +87,7 @@ describe("getAlertThreshold", () => {
     const allKeys = Object.values(ALERT_THRESHOLD_KEYS).map((key) => ({ key }));
     mockFindMany.mockResolvedValueOnce(allKeys).mockResolvedValueOnce(allKeys);
 
-    const result = await getAlertThreshold("not-a-real-key");
+    const result = await getAlertThreshold("not-a-real-key" as AlertThresholdKey);
 
     expect(result).toBeNull();
   });
