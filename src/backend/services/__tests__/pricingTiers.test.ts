@@ -56,6 +56,12 @@ describe("projectSupportsTieredPricing / getApplicableTiers", () => {
     expect(projectSupportsTieredPricing([])).toBe(false);
     expect(getApplicableTiers([])).toEqual([]);
   });
+
+  it("returns true/all tiers for newly added modification codes", () => {
+    const codes = [MODIFICATION_CODES.RAMP, MODIFICATION_CODES.WALK_IN_TUB];
+    expect(projectSupportsTieredPricing(codes)).toBe(true);
+    expect(getApplicableTiers(codes)).toEqual(["economy", "standard", "premium"]);
+  });
 });
 
 describe("isTieredEstimate", () => {

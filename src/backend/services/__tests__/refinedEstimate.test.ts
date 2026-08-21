@@ -305,6 +305,22 @@ describe("modificationTotals", () => {
     expect(Number(summedTotal.toFixed(2))).toBe(result.total);
   });
 
+  it("rolls up a newly added modification code (WALK_IN_TUB) the same as an established one", async () => {
+    const result = await generateMockRefinedEstimate([
+      { description: "Grab bars", quantity: 1, unitPrice: 150, modificationCode: MODIFICATION_CODES.GRAB_BARS },
+      { description: "Walk-in tub", quantity: 1, unitPrice: 5500, modificationCode: MODIFICATION_CODES.WALK_IN_TUB },
+    ]);
+
+    expect(isTieredEstimate(result)).toBe(false);
+    if (isTieredEstimate(result)) return;
+
+    const codes = result.modificationTotals.map((t) => t.modificationCode);
+    expect(codes).toEqual(["GRAB_BARS", "WALK_IN_TUB"]);
+
+    const summedTotal = result.modificationTotals.reduce((sum, t) => sum + t.total, 0);
+    expect(Number(summedTotal.toFixed(2))).toBe(result.total);
+  });
+
   it("keeps each tier's modificationTotals consistent with that tier's own total", async () => {
     const result = await generateMockRefinedEstimate(
       [

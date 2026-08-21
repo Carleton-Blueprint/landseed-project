@@ -12,11 +12,12 @@
  * never reads this catalog) is a legitimate, non-circular check.
  *
  * NOTE on scope: the ticket's example modification types ("ramps",
- * "walk-in tubs") are not present in the app's actual MODIFICATION_CODES
- * enum (src/backend/eligibility/types.ts) — a project cannot express those
- * today. This run instead covers the six modification types the system
- * can actually process: GRAB_BARS, RAISED_TOILET, WALK_IN_SHOWER,
- * WIDENED_DOORWAY, STAIR_LIFT, HANDRAILS.
+ * "walk-in tubs") were originally not present in the app's MODIFICATION_CODES
+ * enum (src/backend/eligibility/types.ts) — a project couldn't express those.
+ * RAMP, WHEELCHAIR_RAMP, WALK_IN_TUB, and NON_SLIP_FLOORING were added
+ * 2026-08-21, so this run now covers all ten modification types the system
+ * can process: GRAB_BARS, RAISED_TOILET, WALK_IN_SHOWER, WIDENED_DOORWAY,
+ * STAIR_LIFT, HANDRAILS, RAMP, WHEELCHAIR_RAMP, WALK_IN_TUB, NON_SLIP_FLOORING.
  *
  * Requires: OPENAI_API_KEY set to a live key in .env. Forces
  * GRANT_DISCOVERY_MOCK_AI=false and GRANT_DISCOVERY_AI_ENABLED=true for
@@ -113,6 +114,10 @@ const MODIFICATION_TYPES: ModificationCode[] = [
   "WIDENED_DOORWAY",
   "STAIR_LIFT",
   "HANDRAILS",
+  "RAMP",
+  "WHEELCHAIR_RAMP",
+  "WALK_IN_TUB",
+  "NON_SLIP_FLOORING",
 ];
 
 function buildInput(modificationCode: ModificationCode): EligibilityInput {

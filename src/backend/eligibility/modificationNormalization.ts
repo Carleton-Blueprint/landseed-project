@@ -16,6 +16,14 @@ const INTAKE_MODIFICATION_LABEL_TO_CODE: Record<string, ModificationCode> = {
   "widened doorway": MODIFICATION_CODES.WIDENED_DOORWAY,
   "stair lift": MODIFICATION_CODES.STAIR_LIFT,
   handrails: MODIFICATION_CODES.HANDRAILS,
+  ramp: MODIFICATION_CODES.RAMP,
+  "threshold ramp": MODIFICATION_CODES.RAMP,
+  "wheelchair ramp": MODIFICATION_CODES.WHEELCHAIR_RAMP,
+  "wheel chair ramp": MODIFICATION_CODES.WHEELCHAIR_RAMP,
+  "walk-in tub": MODIFICATION_CODES.WALK_IN_TUB,
+  "walk in tub": MODIFICATION_CODES.WALK_IN_TUB,
+  "non-slip flooring": MODIFICATION_CODES.NON_SLIP_FLOORING,
+  "non slip flooring": MODIFICATION_CODES.NON_SLIP_FLOORING,
 };
 
 export function normalizeLabel(input: string): string {
