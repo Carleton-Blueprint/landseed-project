@@ -76,6 +76,18 @@ jest.mock("@/backend/services/grantDocument", () => ({
   generateAndStoreGrantDocument: jest.fn(async () => ({ s3Key: "test-grant-doc-stub" })),
 }));
 
+// evaluateProjectEligibility() also enqueues Grant Match Summary generation
+// on the real "grant-match-summary" Redis queue for EVERY assessment (not
+// gated behind the mocked background block above). Left unmocked, that job
+// outlives this test's cleanup and is later picked up by a real running
+// worker process, which fails with "Project not found" against a project
+// this test has already deleted — same class of issue as generateQuote/
+// generateAndStoreGrantDocument above, just surfacing on a different
+// process instead of in this test run.
+jest.mock("@/backend/queue", () => ({
+  grantMatchSummaryQueue: { add: jest.fn().mockResolvedValue(undefined) },
+}));
+
 async function createTestUser() {
   return prisma.user.create({
     data: { id: `test-eligibility-${randomUUID()}`, email: `${randomUUID()}@example.com`, name: "Test User" },

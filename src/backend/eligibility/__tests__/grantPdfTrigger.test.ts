@@ -48,6 +48,17 @@ jest.mock('@/backend/services/grantDocument', () => ({
   }),
 }));
 
+// evaluateProjectEligibility() also enqueues Grant Match Summary generation
+// on the real "grant-match-summary" Redis queue for every assessment. Left
+// unmocked, this hits the real dev Redis instance and enqueues a job for
+// 'proj-1', which any running grant-match-summary worker would later fail
+// to process ("Project not found") since it isn't a real project. See
+// grantMatchSummaryTrigger.test.ts for the dedicated coverage of this queue
+// call's behavior.
+jest.mock('@/backend/queue', () => ({
+  grantMatchSummaryQueue: { add: jest.fn().mockResolvedValue(undefined) },
+}));
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { assembleEligibilityInput } = require('../assembler');
 const { createEligibilityAssessmentSnapshot } = require('../repository');
