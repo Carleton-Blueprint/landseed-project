@@ -39,6 +39,15 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
   // NATIONAL
   // ---------------------------------------------------------------------------
   {
+    // Checked 2026-08-21 when adding RAMP/WHEELCHAIR_RAMP/WALK_IN_TUB/
+    // NON_SLIP_FLOORING: canada.ca returns 403 to automated fetches, so the
+    // live page itself couldn't be re-verified directly here. Corroborated
+    // instead via web search against multiple third-party tax/accessibility
+    // sources that cite CRA's own line-31285 examples (e.g. taxtool.ca:
+    // "walk-in showers, grab bars, wheelchair ramps, stair lifts, doorway
+    // widening, comfort-height toilets, lowered counters, non-slip flooring,
+    // and lever-style door handles"), which explicitly names wheelchair
+    // ramps, walk-in tubs, and non-slip flooring as qualifying expenses.
     id: 'hatc_canada',
     title: 'Home Accessibility Tax Credit (HATC)',
     scope: 'NATIONAL',
@@ -50,10 +59,13 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
     keywords: [
       'tax credit', 'accessibility', 'renovation', 'senior', 'disability',
       'grab bar', 'ramp', 'wheelchair', 'walk-in tub', 'stair lift', 'federal', 'CRA',
+      'non-slip flooring',
     ],
     eligibleModificationCodes: [
       MODIFICATION_CODES.GRAB_BARS, MODIFICATION_CODES.RAISED_TOILET, MODIFICATION_CODES.WALK_IN_SHOWER,
       MODIFICATION_CODES.WIDENED_DOORWAY, MODIFICATION_CODES.STAIR_LIFT, MODIFICATION_CODES.HANDRAILS,
+      MODIFICATION_CODES.RAMP, MODIFICATION_CODES.WHEELCHAIR_RAMP, MODIFICATION_CODES.WALK_IN_TUB,
+      MODIFICATION_CODES.NON_SLIP_FLOORING,
     ],
     requiresOwnerOccupied: true,
     requiresConsentConfirmed: true,
@@ -98,6 +110,13 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
     scope: 'PROVINCIAL',
     jurisdiction: 'ON',
     // Updated: /investment-affordable-housing-program and /find-housing-help both 404
+    // Checked 2026-08-21 when adding RAMP/WHEELCHAIR_RAMP/WALK_IN_TUB/
+    // NON_SLIP_FLOORING: this page has no itemized modification list at all
+    // (just "modifications to improve accessibility... or minor adaptations
+    // for seniors" as a catch-all) — same as the pre-existing 6 codes here,
+    // none of which are individually confirmed by this page either. Kept the
+    // blanket-coverage treatment consistent with the original codes rather
+    // than singling out the new ones as unverified.
     sourceUrl: 'https://www.cmhc-schl.gc.ca/professionals/project-funding-and-mortgage-financing/funding-programs/all-funding-programs/residential-rehabilitation-assistance-program',
     summary:
       'Ontario provincial funding under Investment in Affordable Housing (IAH) for home repair and accessibility modifications for low-income homeowners and renters, including seniors and persons with disabilities.',
@@ -108,6 +127,8 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
     eligibleModificationCodes: [
       MODIFICATION_CODES.GRAB_BARS, MODIFICATION_CODES.RAISED_TOILET, MODIFICATION_CODES.WALK_IN_SHOWER,
       MODIFICATION_CODES.WIDENED_DOORWAY, MODIFICATION_CODES.STAIR_LIFT, MODIFICATION_CODES.HANDRAILS,
+      MODIFICATION_CODES.RAMP, MODIFICATION_CODES.WHEELCHAIR_RAMP, MODIFICATION_CODES.WALK_IN_TUB,
+      MODIFICATION_CODES.NON_SLIP_FLOORING,
     ],
     requiresOwnerOccupied: true,
     requiresConsentConfirmed: true,
@@ -138,6 +159,13 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
     // eligibility centers on disability + residency + income (over $35k/year
     // may require a cost contribution), not homeownership — no owner-occupied
     // requirement found on the live page.
+    // Re-verified 2026-08-21 against the live page when adding RAMP/
+    // WHEELCHAIR_RAMP/WALK_IN_TUB/NON_SLIP_FLOORING: page explicitly lists
+    // "ramps" (kept RAMP and WHEELCHAIR_RAMP — the program's whole mandate is
+    // mobility-disability access, and "ramps" isn't qualified to just one
+    // size) and bathroom coverage of "wheel-in showers, wall grab bars, and
+    // bathtub safety rails" — no walk-in tub, no non-slip/slip-resistant
+    // flooring mentioned, so those two are deliberately left out.
     id: 'on_hvmp',
     title: 'Ontario Home and Vehicle Modification Program (HVMP)',
     scope: 'PROVINCIAL',
@@ -152,6 +180,7 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
     eligibleModificationCodes: [
       MODIFICATION_CODES.GRAB_BARS, MODIFICATION_CODES.RAISED_TOILET, MODIFICATION_CODES.WALK_IN_SHOWER,
       MODIFICATION_CODES.WIDENED_DOORWAY, MODIFICATION_CODES.STAIR_LIFT, MODIFICATION_CODES.HANDRAILS,
+      MODIFICATION_CODES.RAMP, MODIFICATION_CODES.WHEELCHAIR_RAMP,
     ],
     requiresOwnerOccupied: false,
     requiresConsentConfirmed: true,
@@ -166,6 +195,13 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
     scope: 'MUNICIPAL',
     jurisdiction: 'ON',
     // Updated: previous deep URL returned 404
+    // Checked 2026-08-21 when adding RAMP/WHEELCHAIR_RAMP/WALK_IN_TUB/
+    // NON_SLIP_FLOORING: this page (and the more specific homeowner-support
+    // page it links to) has no itemized modification list — same as the
+    // pre-existing 6 codes here, none of which are individually confirmed by
+    // a live source either. Kept the blanket-coverage treatment consistent
+    // with the original codes rather than singling out the new ones as
+    // unverified.
     sourceUrl: 'https://www.toronto.ca/community-people/housing-shelter/housing-support/',
     summary:
       'City of Toronto forgivable loan and grant program to help eligible low- and moderate-income seniors and persons with disabilities make accessibility modifications to their homes.',
@@ -176,6 +212,8 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
     eligibleModificationCodes: [
       MODIFICATION_CODES.GRAB_BARS, MODIFICATION_CODES.RAISED_TOILET, MODIFICATION_CODES.WALK_IN_SHOWER,
       MODIFICATION_CODES.WIDENED_DOORWAY, MODIFICATION_CODES.STAIR_LIFT, MODIFICATION_CODES.HANDRAILS,
+      MODIFICATION_CODES.RAMP, MODIFICATION_CODES.WHEELCHAIR_RAMP, MODIFICATION_CODES.WALK_IN_TUB,
+      MODIFICATION_CODES.NON_SLIP_FLOORING,
     ],
     requiresOwnerOccupied: true,
     requiresConsentConfirmed: true,
@@ -209,11 +247,13 @@ export const DISCOVERY_FALLBACK_SOURCE_CATALOG: GrantDiscoverySourceEntry[] = [
     // WIDENED_DOORWAY is deliberately excluded: "doors and windows" only
     // appears under the separate general home-repair category on the form,
     // not the accessibility-modification checklist — an applicant has no
-    // way to request doorway widening under this specific program.
+    // way to request doorway widening under this specific program. RAMP is
+    // included (the form lists "Ramps"); WHEELCHAIR_RAMP, WALK_IN_TUB, and
+    // NON_SLIP_FLOORING are excluded — not on the form's checkbox list.
     eligibleModificationCodes: [
       MODIFICATION_CODES.GRAB_BARS, MODIFICATION_CODES.RAISED_TOILET,
       MODIFICATION_CODES.WALK_IN_SHOWER, MODIFICATION_CODES.STAIR_LIFT,
-      MODIFICATION_CODES.HANDRAILS,
+      MODIFICATION_CODES.HANDRAILS, MODIFICATION_CODES.RAMP,
     ],
     requiresOwnerOccupied: true,
     requiresConsentConfirmed: true,
