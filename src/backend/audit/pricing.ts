@@ -42,7 +42,7 @@ export interface PricingDecisionAuditInput {
   aiOutput?: PricingAuditAiOutput;
   externalSources?: PricingAuditSourceReference[];
   pricingSource: 'serp_api' | 'serp_api_partial';
-  fallbackLineItems?: Array<{ description: string; query: string; fallbackUnitPrice: number }>;
+  fallbackLineItems?: Array<{ description: string; query: string; fallbackUnitPrice: number; reason?: string }>;
 }
 
 export interface PricingDecisionAuditMetadata {
@@ -62,7 +62,7 @@ export interface PricingDecisionAuditMetadata {
   externalSources: PricingAuditSourceReference[];
   externalSourceCount: number;
   pricingSource: 'serp_api' | 'serp_api_partial' | null;
-  fallbackLineItems: Array<{ description: string; query: string; fallbackUnitPrice: number }>;
+  fallbackLineItems: Array<{ description: string; query: string; fallbackUnitPrice: number; reason?: string }>;
   outputSource: AiOutputSource | null;
   isFallback: boolean;
 }

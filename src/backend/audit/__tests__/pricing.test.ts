@@ -42,6 +42,29 @@ describe("logPricingDecisionAuditNonBlocking", () => {
     );
   });
 
+  it("carries a fallback line item's reason through to the audit event metadata", async () => {
+    await logPricingDecisionAuditNonBlocking({
+      projectId: "project-1",
+      quoteId: "quote-1",
+      subtotal: 500,
+      total: 600,
+      pricingSource: "serp_api_partial",
+      fallbackLineItems: [
+        { description: "Grab bars", query: "grab bars", fallbackUnitPrice: 153, reason: "implausible_tier_spread" },
+      ],
+    });
+
+    expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          fallbackLineItems: [
+            { description: "Grab bars", query: "grab bars", fallbackUnitPrice: 153, reason: "implausible_tier_spread" },
+          ],
+        }),
+      })
+    );
+  });
+
   it("defaults fallbackLineItems to an empty array when none are given", async () => {
     await logPricingDecisionAuditNonBlocking({
       projectId: "project-1",
@@ -75,6 +98,19 @@ describe("normalizePricingDecisionAuditMetadata", () => {
     expect(normalized?.pricingSource).toBe("serp_api_partial");
     expect(normalized?.fallbackLineItems).toEqual([
       { description: "Grab bars", query: "grab bars", fallbackUnitPrice: 150 },
+    ]);
+  });
+
+  it("round-trips a fallback line item's reason", () => {
+    const normalized = normalizePricingDecisionAuditMetadata({
+      pricing: { subtotal: 500, total: 600 },
+      fallbackLineItems: [
+        { description: "Grab bars", query: "grab bars", fallbackUnitPrice: 153, reason: "implausible_tier_spread" },
+      ],
+    });
+
+    expect(normalized?.fallbackLineItems).toEqual([
+      { description: "Grab bars", query: "grab bars", fallbackUnitPrice: 153, reason: "implausible_tier_spread" },
     ]);
   });
 

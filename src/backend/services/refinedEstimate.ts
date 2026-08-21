@@ -1,4 +1,9 @@
-import { getMaterialPrice } from "@/backend/services/pricing";
+import {
+  getMaterialPriceCandidates,
+  pickBestCandidate,
+  type PriceCandidate,
+  type PriceCandidatesResult,
+} from "@/backend/services/pricing";
 import { MODIFICATION_CODES, type ModificationCode } from "@/backend/eligibility/types";
 import {
   MODIFICATION_COST_CATALOG,
@@ -16,11 +21,18 @@ import {
 
 const REFINED_ESTIMATE_DEBUG = (process.env.PRICING_DEBUG ?? "true").toLowerCase() !== "false";
 
+// Mirrors the eligibility HEURISTIC-fallback pattern (src/backend/eligibility/service.ts,
+// Step 3.5): distinguishes *why* a line item fell back to catalog pricing, so the audit
+// trail (see quote.ts's fallbackLineItems) doesn't lump "SerpAPI had nothing" together
+// with "SerpAPI had results, but not enough real spread to trust them for tiering."
+export type PricingFallbackReason = "no_usable_price" | "implausible_tier_spread";
+
 function logFallbackPricingUsed(details: {
   description: string;
   modificationCode?: ModificationCode;
   query: string;
   serpStatus: string;
+  reason: PricingFallbackReason;
   fallbackUnitPrice: number;
 }): void {
   if (!REFINED_ESTIMATE_DEBUG) return;
@@ -28,7 +40,7 @@ function logFallbackPricingUsed(details: {
   console.warn(
     `[PRICING:FALLBACK] ${ts} — Using fallback price for "${details.description}" ` +
       `(modificationCode=${details.modificationCode ?? "UNSPECIFIED"}, query="${details.query}", ` +
-      `serpStatus=${details.serpStatus}) — fallbackUnitPrice=$${details.fallbackUnitPrice}`
+      `serpStatus=${details.serpStatus}, reason=${details.reason}) — fallbackUnitPrice=$${details.fallbackUnitPrice}`
   );
 }
 
@@ -48,6 +60,7 @@ export interface RefinedEstimateLineItem {
   markupPercentage: number;
   markupTotal: number;
   lineTotal: number;
+  fallbackReason?: PricingFallbackReason | null;
 }
 
 export interface ModificationSubtotal {
@@ -106,7 +119,11 @@ function formatQuery(item: QuoteItem): string {
   return item.description.trim();
 }
 
-type PriceResultLike = Awaited<ReturnType<typeof getMaterialPrice>> | null;
+// Reject SERP matches priced below 40% of the catalog anchor (or item.unitPrice, for
+// line items with no modificationCode) as implausible mismatches for that item.
+const FLOOR_RATIO = 0.4;
+
+type PriceCandidatesResultLike = PriceCandidatesResult | null;
 export interface QuoteItem {
   description: string;
   quantity: number;
@@ -114,12 +131,18 @@ export interface QuoteItem {
   modificationCode?: ModificationCode;
 }
 
-async function fetchPriceResults(items: QuoteItem[]): Promise<PriceResultLike[]> {
-  const results: PriceResultLike[] = [];
+function catalogAnchorPrice(item: QuoteItem): number {
+  const catalogEntry = item.modificationCode ? MODIFICATION_COST_CATALOG[item.modificationCode] : undefined;
+  return catalogEntry?.fallbackUnitPrice ?? item.unitPrice ?? 150;
+}
+
+async function fetchPriceResults(items: QuoteItem[]): Promise<PriceCandidatesResultLike[]> {
+  const results: PriceCandidatesResultLike[] = [];
 
   for (const item of items) {
     try {
-      results.push(await getMaterialPrice(formatQuery(item)));
+      const floorPrice = roundToCents(catalogAnchorPrice(item) * FLOOR_RATIO);
+      results.push(await getMaterialPriceCandidates(formatQuery(item), { floorPrice }));
     } catch {
       results.push(null);
     }
@@ -128,29 +151,102 @@ async function fetchPriceResults(items: QuoteItem[]): Promise<PriceResultLike[]>
   return results;
 }
 
+// Caps how far the premium pick can sit above the economy pick, so a wild outlier
+// in the SerpAPI results can't become "premium" on its own.
+const PREMIUM_CAP_MULTIPLIER = 2.5;
+
+interface TierPriceSelection {
+  economy: PriceCandidate | null;
+  standard: PriceCandidate | null;
+  premium: PriceCandidate | null;
+  // Set (and economy/standard/premium all null) whenever this item can't be tiered
+  // from real SerpAPI data, so buildLineItemForTier knows both that it must fall
+  // back to catalog pricing and why, for the audit trail.
+  fallbackReason: PricingFallbackReason | null;
+}
+
+// Picks three distinct, genuinely different-priced products straight off the same
+// fetched (and floor-filtered) candidate list, instead of one match marked up by a
+// fixed multiplier:
+//  - economy: the same cheapest/preferred-store pick used everywhere else.
+//  - premium: the most expensive candidate at or below economy's price x
+//    PREMIUM_CAP_MULTIPLIER, so it's capped rather than able to land on an outlier.
+//  - standard: the median of that same capped window, so it always falls between
+//    economy and premium and — like them — is a real candidate, not an average.
+// `candidates` is price-ascending (see pricing.ts), which every step here relies on.
+//
+// If fewer than two candidates survive the premium cap (no candidates at all, or
+// only the economy pick itself), there isn't enough real spread to trust for
+// tiering, so every tier falls back to catalog pricing together instead of the
+// line item showing three "different" prices that are secretly the same product —
+// mirrors the eligibility HEURISTIC-fallback pattern (Step 3.5 in
+// src/backend/eligibility/service.ts): fall back and record why, rather than
+// silently accepting a bad spread.
+function selectTierPrices(priceResult: PriceCandidatesResultLike): TierPriceSelection {
+  const candidates = priceResult?.candidates ?? [];
+  const economy = pickBestCandidate(candidates);
+
+  if (!economy) {
+    return { economy: null, standard: null, premium: null, fallbackReason: "no_usable_price" };
+  }
+
+  const premiumCap = economy.price * PREMIUM_CAP_MULTIPLIER;
+  const usable = candidates.filter((candidate) => candidate.price >= economy.price && candidate.price <= premiumCap);
+
+  // < 2, not < 3: this guards against total collapse (premium === economy), not
+  // against "fewer than 3 distinct products." At exactly 2 usable candidates,
+  // standard's lower-median pick below coincides with economy (same product,
+  // different labor rate only) — accepted deliberately, so a line item still
+  // gets *some* real differentiation instead of falling back to synthetic
+  // catalog pricing every time SerpAPI returns only two plausible matches.
+  if (usable.length < 2) {
+    return { economy: null, standard: null, premium: null, fallbackReason: "implausible_tier_spread" };
+  }
+
+  const premium = usable[usable.length - 1];
+  const standard = usable[Math.floor((usable.length - 1) / 2)];
+
+  return { economy, standard, premium, fallbackReason: null };
+}
+
+// Used only when a line item falls back to catalog pricing (see TierPriceSelection
+// above). Spreads the single catalog/unitPrice anchor into three price points with
+// the same ratios the old per-tier materialMultiplier used, purely so fallback
+// tiers still differ from one another — this is NOT the removed materialMultiplier
+// field and isn't used once real candidates are available.
+const FALLBACK_TIER_RATIO: Record<PricingTierKey, number> = {
+  economy: 0.85,
+  standard: 1,
+  premium: 1.25,
+};
+
 function buildLineItemForTier(
   item: QuoteItem,
-  priceResult: PriceResultLike,
+  tierSelection: TierPriceSelection,
+  serpStatus: string,
+  tierKey: PricingTierKey,
   tierAdjustment: PricingTierAdjustment
 ): RefinedEstimateLineItem {
-  const usedSerpPrice = priceResult?.status === "ok" && priceResult.price !== null;
+  const selectedCandidate = tierSelection[tierKey];
+  const usedSerpPrice = selectedCandidate !== null;
   const catalogEntry = item.modificationCode ? MODIFICATION_COST_CATALOG[item.modificationCode] : undefined;
   const query = formatQuery(item);
-  const fallbackUnitPrice = catalogEntry?.fallbackUnitPrice ?? item.unitPrice ?? 150;
+  const fallbackUnitPrice = roundToCents(catalogAnchorPrice(item) * FALLBACK_TIER_RATIO[tierKey]);
+  const fallbackReason = tierSelection.fallbackReason ?? "no_usable_price";
 
   if (!usedSerpPrice) {
     logFallbackPricingUsed({
       description: item.description,
       modificationCode: item.modificationCode,
       query,
-      serpStatus: priceResult?.status ?? "no_result",
+      serpStatus,
+      reason: fallbackReason,
       fallbackUnitPrice,
     });
   }
 
-  const baseUnitCost = roundToCents(usedSerpPrice ? priceResult!.price! : fallbackUnitPrice);
-  const materialUnitCost = roundToCents(baseUnitCost * tierAdjustment.materialMultiplier);
-  const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, baseUnitCost);
+  const materialUnitCost = roundToCents(usedSerpPrice ? selectedCandidate!.price : fallbackUnitPrice);
+  const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, materialUnitCost);
   const laborRate = roundToCents(baseLaborRate * tierAdjustment.laborMultiplier);
   const materialTotal = roundToCents(materialUnitCost * item.quantity);
   const laborTotalForLine = roundToCents(laborHours * laborRate);
@@ -163,8 +259,8 @@ function buildLineItemForTier(
     description: item.description,
     quantity: item.quantity,
     pricingQuery: query,
-    pricingSource: usedSerpPrice ? (priceResult!.store ?? priceResult!.name) : "fallback",
-    pricingLink: usedSerpPrice ? priceResult!.link : null,
+    pricingSource: usedSerpPrice ? (selectedCandidate!.store ?? selectedCandidate!.name) : "fallback",
+    pricingLink: usedSerpPrice ? selectedCandidate!.link : null,
     modificationCode: item.modificationCode ?? null,
     modificationLabel: catalogEntry?.label ?? null,
     materialUnitCost,
@@ -175,16 +271,25 @@ function buildLineItemForTier(
     markupPercentage,
     markupTotal: markupTotalForLine,
     lineTotal,
+    fallbackReason: usedSerpPrice ? null : fallbackReason,
   };
 }
 
 function buildEstimateForTier(
   items: QuoteItem[],
-  priceResults: PriceResultLike[],
+  priceResults: PriceCandidatesResultLike[],
+  tierSelections: TierPriceSelection[],
+  tierKey: PricingTierKey,
   tierAdjustment: PricingTierAdjustment
 ): RefinedEstimate {
   const lineItems = items.map((item, index) =>
-    buildLineItemForTier(item, priceResults[index] ?? null, tierAdjustment)
+    buildLineItemForTier(
+      item,
+      tierSelections[index],
+      priceResults[index]?.status ?? "no_result",
+      tierKey,
+      tierAdjustment
+    )
   );
 
   let subtotal = 0;
@@ -221,15 +326,22 @@ export async function generateMockRefinedEstimate(
   modificationCodes: ModificationCode[] = []
 ): Promise<AnyRefinedEstimate> {
   const priceResults = await fetchPriceResults(items);
+  const tierSelections = priceResults.map(selectTierPrices);
   const applicableTiers = getApplicableTiers(modificationCodes);
 
   if (applicableTiers.length === 0) {
-    return buildEstimateForTier(items, priceResults, PRICING_TIER_CONFIG[DEFAULT_PRICING_TIER]);
+    return buildEstimateForTier(
+      items,
+      priceResults,
+      tierSelections,
+      DEFAULT_PRICING_TIER,
+      PRICING_TIER_CONFIG[DEFAULT_PRICING_TIER]
+    );
   }
 
   const tiers = {} as Record<PricingTierKey, RefinedEstimate>;
   for (const tier of applicableTiers) {
-    tiers[tier] = buildEstimateForTier(items, priceResults, PRICING_TIER_CONFIG[tier]);
+    tiers[tier] = buildEstimateForTier(items, priceResults, tierSelections, tier, PRICING_TIER_CONFIG[tier]);
   }
 
   const tieredEstimate: TieredRefinedEstimate = { tiers };
