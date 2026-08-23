@@ -64,6 +64,7 @@ model Project {
   manualFallbackExports            ManualFallbackExport[]
   eligibilityAssessments           EligibilityAssessment[]
   grantMatchSummaryDocuments       GrantMatchSummaryDocument[]
+  estimateDocuments                EstimateDocument[]
   grantApplicationStatusHistory    GrantApplicationStatusHistory[]
   notifications                    NotificationDelivery[]
   auditEvents                      AuditEvent[]
@@ -280,6 +281,7 @@ model Quote {
   auditEvents             AuditEvent[]
   builderTrendTransfers   BuilderTrendTransfer?
   declineSurvey           DeclineSurveyResponse?
+  estimateDocuments       EstimateDocument[]
   eligibilityAssessment   EligibilityAssessment? @relation(fields: [eligibilityAssessmentId], references: [id])
   project                 Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdByUser           User?                  @relation(fields: [createdByUserId], references: [id])
@@ -530,6 +532,28 @@ model GrantMatchSummaryDocument {
 
   @@index([projectId, isLatest])
   @@index([projectId])
+}
+
+model EstimateDocument {
+  id            String                 @id @default(cuid())
+  projectId     String
+  quoteId       String
+  status        EstimateDocumentStatus @default(PENDING)
+  contentHash   String?
+  s3Key         String?
+  fileName      String?
+  version       Int
+  isLatest      Boolean                @default(true)
+  failureReason String?                @db.Text
+  requestedAt   DateTime               @default(now())
+  readyAt       DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  project       Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quote         Quote                  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([quoteId, isLatest])
 }
 
 model NotificationDelivery {
@@ -890,6 +914,12 @@ enum ManualFallbackExportStatus {
 }
 
 enum GrantMatchSummaryDocumentStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+enum EstimateDocumentStatus {
   PENDING
   READY
   FAILED
