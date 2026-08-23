@@ -10,6 +10,7 @@ import { builderTrendTransferQueue } from "@/backend/queue";
 import {
   processBuilderTrendTransfer,
   triggerManualFallbackForExhaustedTransfer,
+  triggerBuilderTrendTransferForApprovedGrant,
   retryBuilderTrendTransfer,
 } from "../buildertrend";
 
@@ -44,6 +45,7 @@ const mockedQueryRaw = jest.fn();
 const mockedExecuteRaw = jest.fn();
 const mockedProjectFindUnique = jest.fn();
 const mockedQuoteFindUnique = jest.fn();
+const mockedBuilderTrendTransferFindFirst = jest.fn();
 
 jest.mock("lib/prisma", () => ({
   prisma: {
@@ -54,6 +56,9 @@ jest.mock("lib/prisma", () => ({
     },
     quote: {
       findUnique: (...args: unknown[]) => mockedQuoteFindUnique(...args),
+    },
+    builderTrendTransfer: {
+      findFirst: (...args: unknown[]) => mockedBuilderTrendTransferFindFirst(...args),
     },
   },
 }));
@@ -308,6 +313,48 @@ describe("triggerManualFallbackForExhaustedTransfer", () => {
 
     expect(mockedRequestManualFallbackExport).not.toHaveBeenCalled();
     expect(mockedAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe("triggerBuilderTrendTransferForApprovedGrant", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("enqueues the PENDING transfer and logs an audit event", async () => {
+    mockedBuilderTrendTransferFindFirst.mockResolvedValue({ id: "transfer-1", quoteId: "quote-1" });
+
+    const result = await triggerBuilderTrendTransferForApprovedGrant("project-1", "user-1");
+
+    expect(mockedBuilderTrendTransferFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { projectId: "project-1", status: "PENDING" } })
+    );
+    expect(mockedQueueAdd).toHaveBeenCalledWith(
+      "buildertrend-transfer:transfer-1",
+      { transferId: "transfer-1" },
+      expect.objectContaining({ jobId: "transfer-1" })
+    );
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "BUILDERTREND_TRANSFER_TRIGGERED_BY_GRANT_APPROVAL",
+        outcome: "SUCCESS",
+        actorUserId: "user-1",
+        projectId: "project-1",
+        quoteId: "quote-1",
+        resourceId: "transfer-1",
+      })
+    );
+    expect(result).toEqual({ triggered: true, transferId: "transfer-1" });
+  });
+
+  it("no-ops when no PENDING transfer exists for the project (none created yet, or already past PENDING)", async () => {
+    mockedBuilderTrendTransferFindFirst.mockResolvedValue(null);
+
+    const result = await triggerBuilderTrendTransferForApprovedGrant("project-1", "user-1");
+
+    expect(mockedQueueAdd).not.toHaveBeenCalled();
+    expect(mockedAudit).not.toHaveBeenCalled();
+    expect(result).toEqual({ triggered: false, transferId: null });
   });
 });
 
