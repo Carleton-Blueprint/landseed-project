@@ -13,6 +13,9 @@ jest.mock("lib/prisma", () => ({
     quote: {
       findUnique: jest.fn(),
     },
+    project: {
+      findUnique: jest.fn(),
+    },
     $transaction: jest.fn(),
   },
 }));
@@ -41,6 +44,7 @@ import { POST } from "../route";
 
 const mockedPrisma = prisma as unknown as {
   quote: { findUnique: jest.Mock };
+  project: { findUnique: jest.Mock };
   $transaction: jest.Mock;
 };
 const mockedAuth = auth as jest.MockedFunction<typeof auth>;
@@ -150,6 +154,9 @@ describe("POST /api/quote/[id]/respond", () => {
     jest.clearAllMocks();
     setNodeEnv("production");
     mockedAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
+    // Fresh post-commit read for the approval gate (see route.ts) — defaults to
+    // APPROVED to match buildQuoteRecord's default, overridden per test below.
+    mockedPrisma.project.findUnique.mockResolvedValue({ grantApplicationStatus: "APPROVED" });
   });
 
   afterAll(() => {
@@ -242,6 +249,7 @@ describe("POST /api/quote/[id]/respond", () => {
     mockedPrisma.quote.findUnique.mockResolvedValue(
       buildQuoteRecord(buildEstimate(500), { grantApplicationStatus: "UNDER_REVIEW" })
     );
+    mockedPrisma.project.findUnique.mockResolvedValue({ grantApplicationStatus: "UNDER_REVIEW" });
 
     const txMock = makeTxMock([
       [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],
@@ -261,6 +269,30 @@ describe("POST /api/quote/[id]/respond", () => {
     mockedPrisma.quote.findUnique.mockResolvedValue(
       buildQuoteRecord(buildEstimate(500), { grantApplicationStatus: "APPROVED" })
     );
+    mockedPrisma.project.findUnique.mockResolvedValue({ grantApplicationStatus: "APPROVED" });
+
+    const txMock = makeTxMock([
+      [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],
+      [{ id: "transfer-1", status: "PENDING" }],
+    ]);
+    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(txMock));
+
+    const res = await POST(buildRequest({ status: "ACCEPTED" }), {
+      params: Promise.resolve({ id: "quote-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockedEnqueue).toHaveBeenCalledWith("transfer-1");
+  });
+
+  it("approval gate: enqueues based on a fresh post-commit read, not the pre-transaction snapshot (closes the race where approval lands mid-request)", async () => {
+    // Simulates the exact race: the initial quote/project fetch (T0) is still
+    // UNDER_REVIEW, but by the time the fresh gate check runs (after the transfer
+    // row commits), a concurrent admin approval has already landed.
+    mockedPrisma.quote.findUnique.mockResolvedValue(
+      buildQuoteRecord(buildEstimate(500), { grantApplicationStatus: "UNDER_REVIEW" })
+    );
+    mockedPrisma.project.findUnique.mockResolvedValue({ grantApplicationStatus: "APPROVED" });
 
     const txMock = makeTxMock([
       [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],

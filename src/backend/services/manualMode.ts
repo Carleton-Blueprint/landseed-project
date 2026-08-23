@@ -366,7 +366,6 @@ export async function generateManualOutputPackage(
     select: {
       id: true,
       address: true,
-      grantApplicationStatus: true,
       user: { select: { name: true, email: true, phone: true } },
       manualModeSubmission: true,
     },
@@ -465,8 +464,23 @@ export async function generateManualOutputPackage(
     // Approval gate (Ticket 1): only enqueue immediately if the grant application
     // is already APPROVED by the time staff generate the output package. If
     // approval comes later, grantApplicationLifecycle.ts's
-    // transitionGrantApplicationStatus enqueues it at that point instead.
-    if (project.grantApplicationStatus === "APPROVED") {
+    // transitionGrantApplicationStatus enqueues it at that point instead — the
+    // two triggers race independently. Reads grantApplicationStatus fresh, right
+    // here after the transfer row above has committed, rather than reusing the
+    // `project` fetched at function entry: real async work (markEstimateReadyForReview,
+    // generateAndStoreGrantDocument) already ran in between, so that snapshot could be
+    // stale by the time we get here, and a concurrent approval landing in that window
+    // could otherwise race both triggers into missing each other (the approval side's
+    // own lookup would find no transfer row yet, and this side would see a stale
+    // "not approved" status) — leaving the transfer stuck PENDING forever. A fresh
+    // read taken after our own commit closes that window: whichever side's write
+    // lands first, the other side's later read is guaranteed to observe it.
+    const currentProject = await prisma.project.findUnique({
+      where: { id: project.id },
+      select: { grantApplicationStatus: true },
+    });
+
+    if (currentProject?.grantApplicationStatus === "APPROVED") {
       await enqueueBuilderTrendTransfer(transfer.id);
     }
   } catch (error) {
