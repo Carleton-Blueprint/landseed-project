@@ -9,6 +9,10 @@ jest.mock("@/backend/services/grantMatchSummaryDocument", () => ({
   getOrGenerateReadyGrantMatchSummary: jest.fn(),
 }));
 
+jest.mock("@/backend/services/estimateDocument", () => ({
+  getOrGenerateReadyEstimate: jest.fn(),
+}));
+
 jest.mock("@/backend/services/manualFallbackExport", () => ({
   requestManualFallbackExport: jest.fn(),
 }));
@@ -18,7 +22,7 @@ jest.mock("@/backend/queue", () => ({
 }));
 
 jest.mock("lib/s3", () => ({
-  getSignedDownloadUrl: jest.fn(),
+  getObjectBuffer: jest.fn(),
 }));
 
 const mockedFindFirst = jest.fn();
@@ -36,11 +40,9 @@ jest.mock("lib/prisma", () => ({
 import { attachGrantMatchSummaryToBuilderTrendTransfer } from "../buildertrend";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getOrGenerateReadyGrantMatchSummary } from "@/backend/services/grantMatchSummaryDocument";
-import { getSignedDownloadUrl } from "lib/s3";
 
 const mockedAudit = logAuditEventNonBlocking as jest.Mock;
 const mockedGetOrGenerateReadyGrantMatchSummary = getOrGenerateReadyGrantMatchSummary as jest.Mock;
-const mockedGetSignedDownloadUrl = getSignedDownloadUrl as jest.Mock;
 
 describe("attachGrantMatchSummaryToBuilderTrendTransfer", () => {
   beforeEach(() => {
@@ -63,7 +65,6 @@ describe("attachGrantMatchSummaryToBuilderTrendTransfer", () => {
       id: "transfer-1",
       projectId: "project-1",
       quoteId: "quote-1",
-      payload: { schemaVersion: 1 },
     });
     mockedGetOrGenerateReadyGrantMatchSummary.mockResolvedValue(null);
 
@@ -74,42 +75,31 @@ describe("attachGrantMatchSummaryToBuilderTrendTransfer", () => {
     expect(mockedAudit).not.toHaveBeenCalled();
   });
 
-  it("merges the attachment into the existing payload and audit-logs the update", async () => {
+  it("eagerly generates the Grant Match Summary and audit-logs it, without mutating the transfer's stored payload", async () => {
     mockedFindFirst.mockResolvedValue({
       id: "transfer-1",
       projectId: "project-1",
       quoteId: "quote-1",
-      payload: { schemaVersion: 1, client: { name: "Jane Client" } },
     });
     mockedGetOrGenerateReadyGrantMatchSummary.mockResolvedValue({
       s3Key: "projects/project-1/grant-match-summary/grant-match-summary-v1.pdf",
       fileName: "grant-match-summary-v1.pdf",
     });
-    mockedGetSignedDownloadUrl.mockResolvedValue("https://signed.example.com/grant-match-summary-v1.pdf");
 
     const result = await attachGrantMatchSummaryToBuilderTrendTransfer("project-1", "user-1");
 
     expect(mockedGetOrGenerateReadyGrantMatchSummary).toHaveBeenCalledWith("project-1", "user-1");
-    expect(mockedGetSignedDownloadUrl).toHaveBeenCalledWith(
-      "projects/project-1/grant-match-summary/grant-match-summary-v1.pdf",
-      3600
-    );
-    expect(mockedUpdate).toHaveBeenCalledWith({
-      where: { id: "transfer-1" },
-      data: {
-        payload: {
-          schemaVersion: 1,
-          client: { name: "Jane Client" },
-          attachments: [{ label: "Grant Match Summary", url: "https://signed.example.com/grant-match-summary-v1.pdf" }],
-        },
-      },
-    });
+    // Attachments are now resolved fresh from the document tables at send time
+    // (see resolveBuilderTrendTransferAttachments in buildertrend.ts), so this
+    // no longer patches the transfer's stored payload.
+    expect(mockedUpdate).not.toHaveBeenCalled();
     expect(mockedAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "BUILDERTREND_TRANSFER_ATTACHMENT_ADDED",
         outcome: "SUCCESS",
         projectId: "project-1",
         resourceId: "transfer-1",
+        metadata: expect.objectContaining({ fileName: "grant-match-summary-v1.pdf" }),
       })
     );
     expect(result).toEqual({ attached: true, transferId: "transfer-1" });

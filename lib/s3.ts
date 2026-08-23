@@ -53,6 +53,25 @@ export async function uploadStreamToS3(
   return `${R2_ENDPOINT}/${S3_BUCKET}/${key}`;
 }
 
+export async function getObjectBuffer(key: string): Promise<Buffer> {
+  const client = getS3Client();
+  const command = new GetObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: key,
+  });
+
+  const response = await client.send(command);
+  if (!response.Body) {
+    throw new Error(`S3 object has no body: ${key}`);
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of response.Body as Readable) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 export async function getSignedDownloadUrl(key: string, expiresIn: number = 3600): Promise<string> {
   const client = getS3Client();
   const command = new GetObjectCommand({

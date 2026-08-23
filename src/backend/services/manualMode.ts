@@ -13,6 +13,11 @@ import { virusScanQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
 import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
+import {
+  BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
+  toNumber,
+  type BuilderTrendWorkOrderPayload,
+} from "@/backend/integrations/builderTrendPayload";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 
@@ -358,7 +363,12 @@ export async function generateManualOutputPackage(
 ): Promise<GenerateManualOutputPackageResult> {
   const project = await prisma.project.findUnique({
     where: { id: input.projectId },
-    select: { id: true, manualModeSubmission: true },
+    select: {
+      id: true,
+      address: true,
+      user: { select: { name: true, email: true, phone: true } },
+      manualModeSubmission: true,
+    },
   });
 
   if (!project) {
@@ -426,15 +436,53 @@ export async function generateManualOutputPackage(
 
   let builderTrendTransferId: string | null = null;
   try {
+    // No photo-declared modification codes or AI-generated refinedEstimate breakdown exist
+    // in manual mode (see buildBuilderTrendWorkOrderPayload for that path), so the payload
+    // is built directly from the staff-entered submission instead of going through it.
+    const builderTrendPayload: BuilderTrendWorkOrderPayload = {
+      schemaVersion: BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
+      project: { id: project.id, address: project.address },
+      client: {
+        name: project.user.name,
+        email: project.user.email,
+        phone: project.user.phone,
+      },
+      modificationType: [submission.modificationType],
+      totalEstimate: toNumber(quote.total),
+    };
+
     const transfer = await prisma.builderTrendTransfer.create({
       data: {
         projectId: project.id,
         quoteId: quote.id,
         status: "PENDING",
+        payload: builderTrendPayload as unknown as Prisma.InputJsonValue,
       },
     });
     builderTrendTransferId = transfer.id;
-    await enqueueBuilderTrendTransfer(transfer.id);
+
+    // Approval gate (Ticket 1): only enqueue immediately if the grant application
+    // is already APPROVED by the time staff generate the output package. If
+    // approval comes later, grantApplicationLifecycle.ts's
+    // transitionGrantApplicationStatus enqueues it at that point instead — the
+    // two triggers race independently. Reads grantApplicationStatus fresh, right
+    // here after the transfer row above has committed, rather than reusing the
+    // `project` fetched at function entry: real async work (markEstimateReadyForReview,
+    // generateAndStoreGrantDocument) already ran in between, so that snapshot could be
+    // stale by the time we get here, and a concurrent approval landing in that window
+    // could otherwise race both triggers into missing each other (the approval side's
+    // own lookup would find no transfer row yet, and this side would see a stale
+    // "not approved" status) — leaving the transfer stuck PENDING forever. A fresh
+    // read taken after our own commit closes that window: whichever side's write
+    // lands first, the other side's later read is guaranteed to observe it.
+    const currentProject = await prisma.project.findUnique({
+      where: { id: project.id },
+      select: { grantApplicationStatus: true },
+    });
+
+    if (currentProject?.grantApplicationStatus === "APPROVED") {
+      await enqueueBuilderTrendTransfer(transfer.id);
+    }
   } catch (error) {
     console.warn("Manual mode: BuilderTrend transfer creation/enqueue failed", error);
   }

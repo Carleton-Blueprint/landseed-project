@@ -99,7 +99,7 @@ export async function POST(
             },
             photos: {
               where: { virus_scan_status: "clean" },
-              select: { id: true, url: true, declaredModificationCodes: true }
+              select: { declaredModificationCodes: true }
             }
           }
         }
@@ -170,11 +170,9 @@ export async function POST(
     // Process the update
     const updatedProjectStatus = status === "ACCEPTED" ? "estimate_accepted" : "estimate_declined";
 
-    // Built outside the transaction: signs photo URLs via S3, which is
-    // network I/O that shouldn't run while holding a DB transaction open.
     const builderTrendPayload =
       status === "ACCEPTED"
-        ? await buildBuilderTrendWorkOrderPayload({
+        ? buildBuilderTrendWorkOrderPayload({
             project: {
               id: quote.project.id,
               address: quote.project.address,
@@ -182,17 +180,14 @@ export async function POST(
               photos: quote.project.photos,
             },
             quote: {
-              id: quote.id,
               subtotal: quote.subtotal,
               total: quote.total,
               estimateMin: quote.estimateMin,
               estimateMax: quote.estimateMax,
             },
-            approvedAt: new Date(),
             refinedEstimate,
             quoteIsTiered,
             acceptedTier,
-            actorUserId: session.user.id,
           })
         : null;
 
@@ -391,7 +386,36 @@ export async function POST(
       });
     }
 
-    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew) {
+    // Approval gate (Ticket 1): the transfer row above is always created on
+    // acceptance, but only enqueued for sending once the grant application has
+    // been APPROVED. If approval comes later, grantApplicationLifecycle.ts's
+    // transitionGrantApplicationStatus enqueues it at that point instead — the
+    // two triggers race independently, so this only covers "already approved
+    // by the time the quote is accepted." Reads grantApplicationStatus fresh,
+    // strictly after the transaction above has committed the transfer row —
+    // not the `quote.project` snapshot fetched at the top of the request. That
+    // snapshot predates the transfer row's commit by the whole request
+    // duration, so a concurrent approval landing in that window could
+    // otherwise race both triggers into missing each other: the approval
+    // side's own lookup finds no transfer row yet (ours hasn't committed), and
+    // this side would see a stale "not approved" status, leaving the transfer
+    // stuck PENDING forever with nothing to pick it back up. A fresh read
+    // taken after our own commit closes that window completely: whichever
+    // side's write lands first, the other side's later read is guaranteed to
+    // observe it.
+    const currentProject =
+      status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew
+        ? await prisma.project.findUnique({
+            where: { id: quote.projectId },
+            select: { grantApplicationStatus: true },
+          })
+        : null;
+
+    if (
+      status === "ACCEPTED" &&
+      updatedQuote.builderTrendTransfer?.isNew &&
+      currentProject?.grantApplicationStatus === "APPROVED"
+    ) {
       try {
         await enqueueBuilderTrendTransfer(updatedQuote.builderTrendTransfer.id);
       } catch (enqueueError) {
