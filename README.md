@@ -8,7 +8,7 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
 - **`/src/backend`** – Business logic, services (image, PDF, queue)
 - **`/src/app`** – Routes and API endpoints
 - **`/prisma`** – Schema and migrations
-- **`/lib`** – Shared instances (Prisma, S3 placeholder)
+- **`/lib`** – Shared instances (Prisma, R2 client)
 
 ## Setup
 
@@ -25,7 +25,7 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
    - `DATABASE_URL` – PostgreSQL connection string
    - `NEXTAUTH_SECRET` – e.g. `openssl rand -base64 32`
    - `NEXTAUTH_URL` – e.g. `http://localhost:3000`
-   - `OPENAI_API_KEY`, `AWS_S3_BUCKET`, `REDIS_URL` as needed
+   - `OPENAI_API_KEY`, `R2_ACCOUNT_ID`, `R2_BUCKET`, `REDIS_URL` as needed
 
 3. **Database**
 
@@ -99,7 +99,7 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
 
 ## APIs
 
-- `POST /api/upload` – Multipart form-data photo upload (validates file; S3 and virus-scan queue to be wired)
+- `POST /api/upload` – Multipart form-data photo upload (validates file, uploads to R2, queues virus scan)
 - `GET/POST /api/auth/[...nextauth]` – NextAuth
 
 ## Accessibility

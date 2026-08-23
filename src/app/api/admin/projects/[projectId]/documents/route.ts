@@ -14,7 +14,7 @@ import { HttpError } from "@/backend/auth/requireRole";
 import { MfaSetupRequiredError, requireAdminWithMfaEnrolled } from "@/backend/auth/requireAdminMfa";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
-import { uploadToS3 } from "lib/s3";
+import { uploadToS3, S3_BUCKET } from "lib/s3";
 import { virusScanQueue } from "@/backend/queue";
 import { DocumentType } from "@prisma/client";
 
@@ -159,7 +159,7 @@ export async function POST(
       await virusScanQueue.add(`scan-doc-${document.id}`, {
         key: s3Key,
         photoId: document.id,
-        bucket: process.env.AWS_S3_BUCKET,
+        bucket: S3_BUCKET,
       });
     } catch (qErr) {
       console.error("Failed to enqueue virus scan:", qErr);

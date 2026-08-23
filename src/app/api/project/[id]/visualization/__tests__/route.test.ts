@@ -103,7 +103,7 @@ describe("GET /api/project/[id]/visualization", () => {
           id: "photo-1",
           url: "https://example.com/original.png",
           generationStatus: "READY",
-          generatedImageUrl: "https://bucket.s3.ca-central-1.amazonaws.com/accessibility-renditions/project-1/photo-1.png",
+          generatedImageUrl: "https://test-account.r2.cloudflarestorage.com/test-bucket/accessibility-renditions/project-1/photo-1.png",
           declaredModificationCodes: ["GRAB_BARS"],
         },
       ],

@@ -6,7 +6,7 @@
  * virus scan job.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { uploadToS3 } from "lib/s3";
+import { uploadToS3, S3_BUCKET } from "lib/s3";
 import { signPhotoUrlForDisplay } from "lib/photoUrls";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
       { 
         key: s3Key,                              // S3 file path
         photoId: photo.id,                       // Database record ID
-        bucket: process.env.AWS_S3_BUCKET   // S3 bucket name
+        bucket: S3_BUCKET   // R2 bucket name
       },
       { 
         priority: 1,              // High priority (1 = highest)

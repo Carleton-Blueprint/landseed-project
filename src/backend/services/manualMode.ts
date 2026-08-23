@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, type ManualModeSubmissionStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
-import { uploadToS3 } from "lib/s3";
+import { uploadToS3, S3_BUCKET } from "lib/s3";
 import { virusScanQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
@@ -301,7 +301,7 @@ export async function attachManualModeDocument(
       {
         key: s3Key,
         photoId: document.id, // reuse photoId field; worker handles both photo and document scans
-        bucket: process.env.AWS_S3_BUCKET,
+        bucket: S3_BUCKET,
       },
       { priority: 1, removeOnComplete: 100, removeOnFail: 500 }
     );

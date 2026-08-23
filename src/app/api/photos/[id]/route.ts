@@ -16,7 +16,11 @@ async function deletePhotoObjectFromStorage(url: string) {
   if (!isPrivateS3PhotoUrl(url)) return;
 
   const parsed = new URL(url);
-  const key = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+  const path = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+  // R2 uses path-style URLs (<endpoint>/<bucket>/<key>), unlike S3's virtual-hosted-style
+  // bucket subdomains, so the bucket name is now the first path segment and must be
+  // dropped to recover the actual object key.
+  const key = path.split("/").slice(1).join("/");
   if (!key) return;
 
   await deleteObjectFromS3(key);
