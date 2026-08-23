@@ -366,6 +366,7 @@ export async function generateManualOutputPackage(
     select: {
       id: true,
       address: true,
+      grantApplicationStatus: true,
       user: { select: { name: true, email: true, phone: true } },
       manualModeSubmission: true,
     },
@@ -460,7 +461,14 @@ export async function generateManualOutputPackage(
       },
     });
     builderTrendTransferId = transfer.id;
-    await enqueueBuilderTrendTransfer(transfer.id);
+
+    // Approval gate (Ticket 1): only enqueue immediately if the grant application
+    // is already APPROVED by the time staff generate the output package. If
+    // approval comes later, grantApplicationLifecycle.ts's
+    // transitionGrantApplicationStatus enqueues it at that point instead.
+    if (project.grantApplicationStatus === "APPROVED") {
+      await enqueueBuilderTrendTransfer(transfer.id);
+    }
   } catch (error) {
     console.warn("Manual mode: BuilderTrend transfer creation/enqueue failed", error);
   }

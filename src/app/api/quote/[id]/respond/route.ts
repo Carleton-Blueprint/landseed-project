@@ -386,7 +386,18 @@ export async function POST(
       });
     }
 
-    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew) {
+    // Approval gate (Ticket 1): the transfer row above is always created on
+    // acceptance, but only enqueued for sending once the grant application has
+    // been APPROVED. If approval comes later, grantApplicationLifecycle.ts's
+    // transitionGrantApplicationStatus enqueues it at that point instead — the
+    // two triggers race independently, so this only covers "already approved
+    // by the time the quote is accepted."
+    if (
+      status === "ACCEPTED" &&
+      updatedQuote.builderTrendTransfer?.isNew &&
+      quote.project.grantApplicationStatus === "APPROVED"
+    ) {
+      
       try {
         await enqueueBuilderTrendTransfer(updatedQuote.builderTrendTransfer.id);
       } catch (enqueueError) {

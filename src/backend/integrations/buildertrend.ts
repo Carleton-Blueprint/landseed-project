@@ -587,6 +587,56 @@ export async function recordBuilderTrendManualSync(input: {
   return { transferId: transfer.id, lastManualSyncAt: now };
 }
 
+export interface TriggerBuilderTrendTransferResult {
+  triggered: boolean;
+  transferId: string | null;
+}
+
+/**
+ * The approval gate: a BuilderTrendTransfer row is created as soon as a
+ * quote is accepted (see quote/[id]/respond/route.ts and
+ * manualMode.ts), but is only *enqueued* for sending once the project's
+ * grant application has been APPROVED — those two triggers race
+ * independently, so both directions are covered: quote acceptance enqueues
+ * immediately if the grant is already APPROVED by then, and this covers the
+ * case where approval comes after the transfer row already exists. No-ops
+ * (not an error) when no transfer exists yet, or when it's already past
+ * PENDING (already enqueued/sent/failed) — enqueueBuilderTrendTransfer is
+ * itself idempotent per transferId, but this check avoids adding a
+ * duplicate audit trail entry for every subsequent grant-status read.
+ */
+export async function triggerBuilderTrendTransferForApprovedGrant(
+  projectId: string,
+  actorUserId: string
+): Promise<TriggerBuilderTrendTransferResult> {
+  const transfer = await prisma.builderTrendTransfer.findFirst({
+    where: { projectId, status: "PENDING" },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, quoteId: true },
+  });
+
+  if (!transfer) {
+    return { triggered: false, transferId: null };
+  }
+
+  await enqueueBuilderTrendTransfer(transfer.id);
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "BUILDERTREND_TRANSFER_TRIGGERED_BY_GRANT_APPROVAL",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    actorUserId,
+    projectId,
+    quoteId: transfer.quoteId,
+    resourceType: "buildertrend_transfer",
+    resourceId: transfer.id,
+    description: "BuilderTrend transfer enqueued now that the grant application has been approved",
+  });
+
+  return { triggered: true, transferId: transfer.id };
+}
+
 export interface AttachGrantMatchSummaryResult {
   attached: boolean;
   transferId: string | null;

@@ -93,7 +93,16 @@ function buildTieredEstimate(): TieredRefinedEstimate {
   };
 }
 
-function buildQuoteRecord(refinedEstimate: unknown, overrides: Partial<{ subtotal: number; total: number; estimateMin: number | null; estimateMax: number | null }> = {}) {
+function buildQuoteRecord(
+  refinedEstimate: unknown,
+  overrides: Partial<{
+    subtotal: number;
+    total: number;
+    estimateMin: number | null;
+    estimateMax: number | null;
+    grantApplicationStatus: string;
+  }> = {}
+) {
   return {
     id: "quote-1",
     projectId: "proj-1",
@@ -107,6 +116,10 @@ function buildQuoteRecord(refinedEstimate: unknown, overrides: Partial<{ subtota
       id: "proj-1",
       address: "123 Main St",
       status: "estimate_ready",
+      // Defaults to APPROVED so existing tests exercise tier/payload behavior
+      // without also having to think about the BuilderTrend approval gate —
+      // see the dedicated "approval gate" tests below for that.
+      grantApplicationStatus: overrides.grantApplicationStatus ?? "APPROVED",
       draftData: { modificationItems: ["walk_in_shower"] },
       projectAccess: [{ userId: "user-1" }],
       user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
@@ -223,5 +236,43 @@ describe("POST /api/quote/[id]/respond", () => {
     const insertCall = txMock.$queryRaw.mock.calls[1][0] as { values: unknown[] };
     const payload = JSON.parse(insertCall.values[3] as string);
     expect(payload.totalEstimate).toBe(500);
+  });
+
+  it("approval gate: does not enqueue the transfer when the grant application isn't APPROVED yet", async () => {
+    mockedPrisma.quote.findUnique.mockResolvedValue(
+      buildQuoteRecord(buildEstimate(500), { grantApplicationStatus: "UNDER_REVIEW" })
+    );
+
+    const txMock = makeTxMock([
+      [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],
+      [{ id: "transfer-1", status: "PENDING" }],
+    ]);
+    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(txMock));
+
+    const res = await POST(buildRequest({ status: "ACCEPTED" }), {
+      params: Promise.resolve({ id: "quote-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockedEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("approval gate: enqueues immediately when the grant application is already APPROVED", async () => {
+    mockedPrisma.quote.findUnique.mockResolvedValue(
+      buildQuoteRecord(buildEstimate(500), { grantApplicationStatus: "APPROVED" })
+    );
+
+    const txMock = makeTxMock([
+      [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],
+      [{ id: "transfer-1", status: "PENDING" }],
+    ]);
+    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(txMock));
+
+    const res = await POST(buildRequest({ status: "ACCEPTED" }), {
+      params: Promise.resolve({ id: "quote-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockedEnqueue).toHaveBeenCalledWith("transfer-1");
   });
 });

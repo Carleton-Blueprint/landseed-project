@@ -64,6 +64,10 @@ describe("generateManualOutputPackage", () => {
     mockedProjectFindUnique.mockResolvedValue({
       id: "project-1",
       address: "123 Main St",
+      // Defaults to APPROVED so existing tests exercise output-package
+      // generation without also having to think about the BuilderTrend
+      // approval gate — see the dedicated "approval gate" tests below for that.
+      grantApplicationStatus: "APPROVED",
       user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
       manualModeSubmission: {
         id: "submission-1",
@@ -130,5 +134,27 @@ describe("generateManualOutputPackage", () => {
         afterState: expect.objectContaining({ acceptanceRecordedBy: "STAFF" }),
       })
     );
+  });
+
+  it("approval gate: creates the transfer but does not enqueue it when the grant application isn't APPROVED yet", async () => {
+    mockedProjectFindUnique.mockResolvedValue({
+      id: "project-1",
+      address: "123 Main St",
+      grantApplicationStatus: "UNDER_REVIEW",
+      user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
+      manualModeSubmission: {
+        id: "submission-1",
+        status: "READY",
+        subtotal: 100,
+        total: 100,
+        modificationType: "Custom ramp install",
+      },
+    });
+
+    const result = await generateManualOutputPackage({ projectId: "project-1", actorUserId: "staff-1" });
+
+    expect(mockedBuilderTrendTransferCreate).toHaveBeenCalled();
+    expect(mockedEnqueueTransfer).not.toHaveBeenCalled();
+    expect(result.builderTrendTransferId).toBe("transfer-1");
   });
 });

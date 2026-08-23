@@ -1,7 +1,10 @@
 import { GrantApplicationStatus, Prisma, ProjectAccessRole } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { attachGrantMatchSummaryToBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
+import {
+  attachGrantMatchSummaryToBuilderTrendTransfer,
+  triggerBuilderTrendTransferForApprovedGrant,
+} from "@/backend/integrations/buildertrend";
 
 const ALLOWED_TRANSITIONS: Record<GrantApplicationStatus, GrantApplicationStatus[]> = {
   DRAFT: ["SUBMITTED"],
@@ -139,13 +142,18 @@ export async function transitionGrantApplicationStatus(
     };
   });
 
-  // Attach the project's Grant Match Summary to its BuilderTrend work order,
-  // if one already exists (see attachGrantMatchSummaryToBuilderTrendTransfer
-  // for why "no transfer yet" is expected and not an error). Fire-and-forget:
-  // this is a best-effort attachment, not part of the approval itself.
+  // Grant approval is the BuilderTrend transfer's approval gate: a transfer row is
+  // created at quote acceptance but held (never enqueued) until this fires. Also
+  // pre-warms the Grant Match Summary PDF so it's already READY by send time (see
+  // attachGrantMatchSummaryToBuilderTrendTransfer for why "no transfer yet" is
+  // expected and not an error there). Fire-and-forget: both are best-effort
+  // side effects, not part of the approval transaction itself.
   if (input.toStatus === "APPROVED") {
     attachGrantMatchSummaryToBuilderTrendTransfer(input.projectId, input.actorUserId).catch((err) => {
       console.warn("Failed to attach grant match summary to BuilderTrend transfer for project", input.projectId, err);
+    });
+    triggerBuilderTrendTransferForApprovedGrant(input.projectId, input.actorUserId).catch((err) => {
+      console.warn("Failed to trigger BuilderTrend transfer after grant approval for project", input.projectId, err);
     });
   }
 
