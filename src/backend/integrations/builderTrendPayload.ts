@@ -1,12 +1,7 @@
 import type { RefinedEstimate } from "@/backend/services/refinedEstimate";
 import type { AnyRefinedEstimate, PricingTierKey, TieredRefinedEstimate } from "@/backend/services/pricingTiers";
-import { signPhotosForDisplay } from "lib/photoUrls";
-import { getSignedDownloadUrl } from "lib/s3";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
-import { getOrGenerateReadyGrantMatchSummary } from "@/backend/services/grantMatchSummaryDocument";
-
-const GRANT_MATCH_SUMMARY_ATTACHMENT_URL_TTL_SECONDS = 3600;
 
 /**
  * Internal, provisional contract for "the format required for BuilderTrend
@@ -16,29 +11,14 @@ const GRANT_MATCH_SUMMARY_ATTACHMENT_URL_TTL_SECONDS = 3600;
  * `buildBuilderTrendWorkOrderPayload` is the only place that maps our data
  * onto it — when real API docs/credentials land, only this function and
  * `BuilderTrendWorkOrderPayload` need to change, not its callers.
+ *
+ * v2: BuilderTrend does not accept raw itemized data fields, so this carries
+ * only client/project summary fields. The Estimate PDF and Grant Match
+ * Summary PDF are attached as real files at send time instead — see
+ * resolveBuilderTrendTransferAttachments in buildertrend.ts — rather than
+ * being embedded here as line items, a photos array, or attachment URLs.
  */
-export const BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION = 1 as const;
-
-export interface BuilderTrendWorkOrderPhoto {
-  id: string;
-  url: string;
-}
-
-export interface BuilderTrendWorkOrderAttachment {
-  label: string;
-  url: string;
-}
-
-export interface BuilderTrendWorkOrderPricingBreakdown {
-  selectedTier: PricingTierKey | null;
-  lineItems: RefinedEstimate["lineItems"];
-  subtotal: number;
-  laborTotal: number;
-  markupTotal: number;
-  total: number;
-  estimateMin: number;
-  estimateMax: number;
-}
+export const BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION = 2 as const;
 
 export interface BuilderTrendWorkOrderPayload {
   schemaVersion: typeof BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION;
@@ -52,18 +32,23 @@ export interface BuilderTrendWorkOrderPayload {
     phone: string | null;
   };
   modificationType: string[];
-  quote: {
-    id: string;
-    approvedAt: string;
-    pricing: BuilderTrendWorkOrderPricingBreakdown;
-  };
-  photos: BuilderTrendWorkOrderPhoto[];
-  attachments?: BuilderTrendWorkOrderAttachment[];
+  totalEstimate: number;
 }
 
-type DecimalLike = { toString(): string } | number;
+export interface BuilderTrendWorkOrderPricingBreakdown {
+  selectedTier: PricingTierKey | null;
+  lineItems: RefinedEstimate["lineItems"];
+  subtotal: number;
+  laborTotal: number;
+  markupTotal: number;
+  total: number;
+  estimateMin: number;
+  estimateMax: number;
+}
 
-function toNumber(value: DecimalLike): number {
+export type DecimalLike = { toString(): string } | number;
+
+export function toNumber(value: DecimalLike): number {
   return typeof value === "number" ? value : Number(value.toString());
 }
 
@@ -73,7 +58,9 @@ function toNumber(value: DecimalLike): number {
  * totals — Quote.subtotal/total/estimateMin/estimateMax reflect whichever
  * tier the quote was originally generated with, not necessarily the tier
  * the client just accepted, so they're only a fallback when no
- * refinedEstimate breakdown is available at all.
+ * refinedEstimate breakdown is available at all. Used both to derive the
+ * BuilderTrend payload's totalEstimate and to build the itemized Estimate
+ * PDF (see estimateAssembler.ts).
  */
 export function resolveBuilderTrendPricingBreakdown(input: {
   quote: {
@@ -123,23 +110,24 @@ export function resolveBuilderTrendPricingBreakdown(input: {
   };
 }
 
-export async function buildBuilderTrendWorkOrderPayload(input: {
+export function buildBuilderTrendWorkOrderPayload(input: {
   project: {
     id: string;
     address: string;
     user: { name: string | null; email: string | null; phone: string | null };
-    photos: Array<{ id: string; url: string; declaredModificationCodes: string[] }>;
+    photos: Array<{ declaredModificationCodes: string[] }>;
   };
-  quote: { id: string; subtotal: DecimalLike; total: DecimalLike; estimateMin: DecimalLike | null; estimateMax: DecimalLike | null };
-  approvedAt: Date;
+  quote: { subtotal: DecimalLike; total: DecimalLike; estimateMin: DecimalLike | null; estimateMax: DecimalLike | null };
   refinedEstimate: AnyRefinedEstimate | null;
   quoteIsTiered: boolean;
   acceptedTier: PricingTierKey | null;
-  /** Used only to attribute on-demand Grant Match Summary generation if none is READY yet. */
-  actorUserId: string;
-}): Promise<BuilderTrendWorkOrderPayload> {
-  const signedPhotos = await signPhotosForDisplay(input.project.photos);
-  const attachments = await buildGrantMatchSummaryAttachments(input.project.id, input.actorUserId);
+}): BuilderTrendWorkOrderPayload {
+  const pricing = resolveBuilderTrendPricingBreakdown({
+    quote: input.quote,
+    refinedEstimate: input.refinedEstimate,
+    quoteIsTiered: input.quoteIsTiered,
+    acceptedTier: input.acceptedTier,
+  });
 
   return {
     schemaVersion: BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
@@ -155,40 +143,6 @@ export async function buildBuilderTrendWorkOrderPayload(input: {
     modificationType: aggregateDeclaredModificationCodes(input.project.photos).map(
       (code) => MODIFICATION_COST_CATALOG[code].label
     ),
-    quote: {
-      id: input.quote.id,
-      approvedAt: input.approvedAt.toISOString(),
-      pricing: resolveBuilderTrendPricingBreakdown({
-        quote: input.quote,
-        refinedEstimate: input.refinedEstimate,
-        quoteIsTiered: input.quoteIsTiered,
-        acceptedTier: input.acceptedTier,
-      }),
-    },
-    photos: signedPhotos.map((photo) => ({ id: photo.id, url: photo.url })),
-    attachments,
+    totalEstimate: pricing.total,
   };
-}
-
-/**
- * Best-effort: a missing/failed Grant Match Summary must never block quote
- * acceptance from creating the BuilderTrend work order payload, so this
- * swallows generation failures and simply omits the attachment.
- */
-async function buildGrantMatchSummaryAttachments(
-  projectId: string,
-  actorUserId: string
-): Promise<BuilderTrendWorkOrderAttachment[]> {
-  const summary = await getOrGenerateReadyGrantMatchSummary(projectId, actorUserId);
-  if (!summary) {
-    return [];
-  }
-
-  try {
-    const url = await getSignedDownloadUrl(summary.s3Key, GRANT_MATCH_SUMMARY_ATTACHMENT_URL_TTL_SECONDS);
-    return [{ label: "Grant Match Summary", url }];
-  } catch (error) {
-    console.warn("Failed to sign Grant Match Summary download URL for BuilderTrend payload", projectId, error);
-    return [];
-  }
 }

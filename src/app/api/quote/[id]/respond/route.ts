@@ -99,7 +99,7 @@ export async function POST(
             },
             photos: {
               where: { virus_scan_status: "clean" },
-              select: { id: true, url: true, declaredModificationCodes: true }
+              select: { declaredModificationCodes: true }
             }
           }
         }
@@ -170,11 +170,9 @@ export async function POST(
     // Process the update
     const updatedProjectStatus = status === "ACCEPTED" ? "estimate_accepted" : "estimate_declined";
 
-    // Built outside the transaction: signs photo URLs via S3, which is
-    // network I/O that shouldn't run while holding a DB transaction open.
     const builderTrendPayload =
       status === "ACCEPTED"
-        ? await buildBuilderTrendWorkOrderPayload({
+        ? buildBuilderTrendWorkOrderPayload({
             project: {
               id: quote.project.id,
               address: quote.project.address,
@@ -182,17 +180,14 @@ export async function POST(
               photos: quote.project.photos,
             },
             quote: {
-              id: quote.id,
               subtotal: quote.subtotal,
               total: quote.total,
               estimateMin: quote.estimateMin,
               estimateMax: quote.estimateMax,
             },
-            approvedAt: new Date(),
             refinedEstimate,
             quoteIsTiered,
             acceptedTier,
-            actorUserId: session.user.id,
           })
         : null;
 

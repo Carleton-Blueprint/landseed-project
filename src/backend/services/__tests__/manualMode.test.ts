@@ -63,11 +63,14 @@ describe("generateManualOutputPackage", () => {
 
     mockedProjectFindUnique.mockResolvedValue({
       id: "project-1",
+      address: "123 Main St",
+      user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
       manualModeSubmission: {
         id: "submission-1",
         status: "READY",
         subtotal: 100,
         total: 100,
+        modificationType: "Custom ramp install",
       },
     });
     mockedQuoteCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -98,6 +101,24 @@ describe("generateManualOutputPackage", () => {
     );
     expect(mockedEnqueueTransfer).toHaveBeenCalledWith("transfer-1");
     expect(result.builderTrendTransferId).toBe("transfer-1");
+  });
+
+  it("populates the BuilderTrend transfer payload with summary-level fields from the manual submission", async () => {
+    await generateManualOutputPackage({ projectId: "project-1", actorUserId: "staff-1" });
+
+    expect(mockedBuilderTrendTransferCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          payload: {
+            schemaVersion: 2,
+            project: { id: "project-1", address: "123 Main St" },
+            client: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
+            modificationType: ["Custom ramp install"],
+            totalEstimate: 100,
+          },
+        }),
+      })
+    );
   });
 
   it("marks the audit trail with acceptanceRecordedBy: STAFF", async () => {

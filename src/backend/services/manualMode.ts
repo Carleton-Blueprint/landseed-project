@@ -13,6 +13,11 @@ import { virusScanQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
 import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
+import {
+  BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
+  toNumber,
+  type BuilderTrendWorkOrderPayload,
+} from "@/backend/integrations/builderTrendPayload";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 
@@ -358,7 +363,12 @@ export async function generateManualOutputPackage(
 ): Promise<GenerateManualOutputPackageResult> {
   const project = await prisma.project.findUnique({
     where: { id: input.projectId },
-    select: { id: true, manualModeSubmission: true },
+    select: {
+      id: true,
+      address: true,
+      user: { select: { name: true, email: true, phone: true } },
+      manualModeSubmission: true,
+    },
   });
 
   if (!project) {
@@ -426,11 +436,27 @@ export async function generateManualOutputPackage(
 
   let builderTrendTransferId: string | null = null;
   try {
+    // No photo-declared modification codes or AI-generated refinedEstimate breakdown exist
+    // in manual mode (see buildBuilderTrendWorkOrderPayload for that path), so the payload
+    // is built directly from the staff-entered submission instead of going through it.
+    const builderTrendPayload: BuilderTrendWorkOrderPayload = {
+      schemaVersion: BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
+      project: { id: project.id, address: project.address },
+      client: {
+        name: project.user.name,
+        email: project.user.email,
+        phone: project.user.phone,
+      },
+      modificationType: [submission.modificationType],
+      totalEstimate: toNumber(quote.total),
+    };
+
     const transfer = await prisma.builderTrendTransfer.create({
       data: {
         projectId: project.id,
         quoteId: quote.id,
         status: "PENDING",
+        payload: builderTrendPayload as unknown as Prisma.InputJsonValue,
       },
     });
     builderTrendTransferId = transfer.id;

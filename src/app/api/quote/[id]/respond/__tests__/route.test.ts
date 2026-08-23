@@ -193,12 +193,11 @@ describe("POST /api/quote/[id]/respond", () => {
 
     const insertCall = txMock.$queryRaw.mock.calls[1][0] as { values: unknown[] };
     const payload = JSON.parse(insertCall.values[3] as string);
-    expect(payload.quote.pricing.selectedTier).toBe("premium");
-    expect(payload.quote.pricing.total).toBe(1700);
-    expect(payload.quote.pricing.lineItems).toHaveLength(1);
+    expect(payload.totalEstimate).toBe(1700);
     expect(payload.client).toEqual({ name: "Jane Client", email: "jane@example.com", phone: "555-0100" });
     expect(payload.modificationType).toEqual(["Walk-In Shower"]);
-    expect(payload.photos).toEqual([{ id: "photo-1", url: "https://example.com/photo1.jpg" }]);
+    expect(payload).not.toHaveProperty("photos");
+    expect(payload).not.toHaveProperty("quote");
 
     expect(mockedEnqueue).toHaveBeenCalledWith("transfer-1");
   });
@@ -223,8 +222,6 @@ describe("POST /api/quote/[id]/respond", () => {
 
     const insertCall = txMock.$queryRaw.mock.calls[1][0] as { values: unknown[] };
     const payload = JSON.parse(insertCall.values[3] as string);
-    expect(payload.quote.pricing.selectedTier).toBeNull();
-    expect(payload.quote.pricing.lineItems).toHaveLength(1);
-    expect(payload.quote.pricing.total).toBe(500);
+    expect(payload.totalEstimate).toBe(500);
   });
 });

@@ -3,6 +3,9 @@
  */
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
+import { getOrGenerateReadyEstimate } from "@/backend/services/estimateDocument";
+import { getOrGenerateReadyGrantMatchSummary } from "@/backend/services/grantMatchSummaryDocument";
+import { getObjectBuffer } from "lib/s3";
 import { builderTrendTransferQueue } from "@/backend/queue";
 import {
   processBuilderTrendTransfer,
@@ -23,6 +26,18 @@ jest.mock("@/backend/queue", () => ({
 
 jest.mock("@/backend/services/manualFallbackExport", () => ({
   requestManualFallbackExport: jest.fn(),
+}));
+
+jest.mock("@/backend/services/estimateDocument", () => ({
+  getOrGenerateReadyEstimate: jest.fn(),
+}));
+
+jest.mock("@/backend/services/grantMatchSummaryDocument", () => ({
+  getOrGenerateReadyGrantMatchSummary: jest.fn(),
+}));
+
+jest.mock("lib/s3", () => ({
+  getObjectBuffer: jest.fn(),
 }));
 
 const mockedQueryRaw = jest.fn();
@@ -52,6 +67,13 @@ const mockedAudit = logAuditEventNonBlocking as jest.MockedFunction<typeof logAu
 const mockedRequestManualFallbackExport = requestManualFallbackExport as jest.MockedFunction<
   typeof requestManualFallbackExport
 >;
+const mockedGetOrGenerateReadyEstimate = getOrGenerateReadyEstimate as jest.MockedFunction<
+  typeof getOrGenerateReadyEstimate
+>;
+const mockedGetOrGenerateReadyGrantMatchSummary = getOrGenerateReadyGrantMatchSummary as jest.MockedFunction<
+  typeof getOrGenerateReadyGrantMatchSummary
+>;
+const mockedGetObjectBuffer = getObjectBuffer as jest.MockedFunction<typeof getObjectBuffer>;
 
 const baseTransferRow = {
   id: "transfer-1",
@@ -59,7 +81,7 @@ const baseTransferRow = {
   quoteId: "quote-1",
   status: "PENDING",
   attempts: 0,
-  payload: null,
+  payload: { schemaVersion: 2, project: { id: "project-1", address: "1 Main St" }, client: {}, modificationType: [], totalEstimate: 500 },
 };
 
 describe("processBuilderTrendTransfer", () => {
@@ -68,6 +90,10 @@ describe("processBuilderTrendTransfer", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedQuoteFindUnique.mockResolvedValue({ id: "quote-1", projectId: "project-1", status: "ACCEPTED" });
+    mockedProjectFindUnique.mockResolvedValue({ userId: "user-1" });
+    mockedGetOrGenerateReadyEstimate.mockResolvedValue(null);
+    mockedGetOrGenerateReadyGrantMatchSummary.mockResolvedValue(null);
+    mockedGetObjectBuffer.mockResolvedValue(Buffer.from("pdf-bytes"));
   });
 
   afterAll(() => {
@@ -116,7 +142,62 @@ describe("processBuilderTrendTransfer", () => {
       expect.objectContaining({
         action: "BUILDERTREND_TRANSFER_SENT",
         outcome: "SUCCESS",
-        metadata: expect.objectContaining({ transferStatus: "SENT", attemptNumber: 1 }),
+        metadata: expect.objectContaining({
+          transferStatus: "SENT",
+          attemptNumber: 1,
+          attachmentCount: 0,
+          attachmentFileNames: [],
+        }),
+      })
+    );
+  });
+
+  it("resolves the Estimate and Grant Match Summary PDFs as file buffers and includes them in the sent audit metadata", async () => {
+    process.env.BUILDERTREND_MOCK_FAIL = "false";
+    mockedQueryRaw.mockResolvedValueOnce([baseTransferRow]);
+    mockedGetOrGenerateReadyEstimate.mockResolvedValue({
+      s3Key: "projects/project-1/estimate/estimate-v1.pdf",
+      fileName: "estimate-v1.pdf",
+    });
+    mockedGetOrGenerateReadyGrantMatchSummary.mockResolvedValue({
+      s3Key: "projects/project-1/grant-match-summary/grant-match-summary-v1.pdf",
+      fileName: "grant-match-summary-v1.pdf",
+    });
+
+    await processBuilderTrendTransfer("transfer-1", { attemptsMade: 0, maxAttempts: 3 });
+
+    expect(mockedGetOrGenerateReadyEstimate).toHaveBeenCalledWith("quote-1", "user-1");
+    expect(mockedGetOrGenerateReadyGrantMatchSummary).toHaveBeenCalledWith("project-1", "user-1");
+    expect(mockedGetObjectBuffer).toHaveBeenCalledWith("projects/project-1/estimate/estimate-v1.pdf");
+    expect(mockedGetObjectBuffer).toHaveBeenCalledWith(
+      "projects/project-1/grant-match-summary/grant-match-summary-v1.pdf"
+    );
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "BUILDERTREND_TRANSFER_SENT",
+        metadata: expect.objectContaining({
+          attachmentCount: 2,
+          attachmentFileNames: ["estimate-v1.pdf", "grant-match-summary-v1.pdf"],
+        }),
+      })
+    );
+  });
+
+  it("omits an attachment whose S3 download fails, without failing the transfer", async () => {
+    process.env.BUILDERTREND_MOCK_FAIL = "false";
+    mockedQueryRaw.mockResolvedValueOnce([baseTransferRow]);
+    mockedGetOrGenerateReadyEstimate.mockResolvedValue({
+      s3Key: "projects/project-1/estimate/estimate-v1.pdf",
+      fileName: "estimate-v1.pdf",
+    });
+    mockedGetObjectBuffer.mockRejectedValueOnce(new Error("S3 unavailable"));
+
+    await processBuilderTrendTransfer("transfer-1", { attemptsMade: 0, maxAttempts: 3 });
+
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "BUILDERTREND_TRANSFER_SENT",
+        metadata: expect.objectContaining({ attachmentCount: 0, attachmentFileNames: [] }),
       })
     );
   });

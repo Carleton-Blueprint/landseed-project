@@ -1,11 +1,12 @@
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
-import { getSignedDownloadUrl } from "lib/s3";
+import { getObjectBuffer } from "lib/s3";
 import { builderTrendTransferQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 import { getOrGenerateReadyGrantMatchSummary } from "@/backend/services/grantMatchSummaryDocument";
+import { getOrGenerateReadyEstimate } from "@/backend/services/estimateDocument";
 import {
   assertQuoteAcceptedForWorkOrder,
   logWorkOrderCreationBlocked,
@@ -13,8 +14,6 @@ import {
 } from "@/backend/services/workOrderAcceptance";
 import type { BuilderTrendWorkOrderPayload } from "@/backend/integrations/builderTrendPayload";
 import { mapBuilderTrendStatus } from "@/backend/integrations/buildertrendStatusMapping";
-
-const GRANT_MATCH_SUMMARY_ATTACHMENT_URL_TTL_SECONDS = 3600;
 
 type TransferRow = {
   id: string;
@@ -24,6 +23,15 @@ type TransferRow = {
   attempts: number;
   payload: unknown;
 };
+
+/** A file attached to the BuilderTrend work order at send time — resolved fresh on every
+ * attempt from the Estimate/Grant Match Summary document tables (never persisted on the
+ * transfer's own payload column), since PDFs can be (re)generated between attempts. */
+export interface ResolvedBuilderTrendAttachment {
+  fileName: string;
+  mimeType: string;
+  buffer: Buffer;
+}
 
 /**
  * Non-PII summary of the stored transfer payload for audit metadata. The
@@ -43,12 +51,59 @@ function summarizeBuilderTrendPayloadForAudit(payload: unknown): Record<string, 
     schemaVersion: typed.schemaVersion ?? null,
     hasClientContact: Boolean(typed.client?.name || typed.client?.email || typed.client?.phone),
     modificationType: typed.modificationType ?? [],
-    lineItemCount: typed.quote?.pricing?.lineItems?.length ?? 0,
-    photoCount: typed.photos?.length ?? 0,
+    totalEstimate: typed.totalEstimate ?? null,
   };
 }
 
-async function sendMockedBuilderTrendTransfer(): Promise<{ externalReference: string }> {
+/**
+ * Fetches the project owner's Estimate PDF and Grant Match Summary PDF as
+ * real file buffers, generating either on demand if not already READY. Best
+ * effort, mirroring the pre-restructure attachment behavior: a missing or
+ * failed document must never block the transfer itself from sending, so
+ * failures here are logged and simply omitted rather than thrown.
+ */
+export async function resolveBuilderTrendTransferAttachments(transfer: {
+  projectId: string;
+  quoteId: string;
+}): Promise<ResolvedBuilderTrendAttachment[]> {
+  const project = await prisma.project.findUnique({
+    where: { id: transfer.projectId },
+    select: { userId: true },
+  });
+
+  if (!project) {
+    return [];
+  }
+
+  const attachments: ResolvedBuilderTrendAttachment[] = [];
+
+  const estimate = await getOrGenerateReadyEstimate(transfer.quoteId, project.userId);
+  if (estimate) {
+    try {
+      const buffer = await getObjectBuffer(estimate.s3Key);
+      attachments.push({ fileName: estimate.fileName, mimeType: "application/pdf", buffer });
+    } catch (error) {
+      console.warn("Failed to download Estimate PDF for BuilderTrend transfer", transfer.quoteId, error);
+    }
+  }
+
+  const grantMatchSummary = await getOrGenerateReadyGrantMatchSummary(transfer.projectId, project.userId);
+  if (grantMatchSummary) {
+    try {
+      const buffer = await getObjectBuffer(grantMatchSummary.s3Key);
+      attachments.push({ fileName: grantMatchSummary.fileName, mimeType: "application/pdf", buffer });
+    } catch (error) {
+      console.warn("Failed to download Grant Match Summary PDF for BuilderTrend transfer", transfer.projectId, error);
+    }
+  }
+
+  return attachments;
+}
+
+async function sendMockedBuilderTrendTransfer(
+  payload: BuilderTrendWorkOrderPayload,
+  attachments: ResolvedBuilderTrendAttachment[]
+): Promise<{ externalReference: string }> {
   const shouldFail = (process.env.BUILDERTREND_MOCK_FAIL ?? "false").toLowerCase() === "true";
   if (shouldFail) {
     throw new Error("Mocked BuilderTrend failure (BUILDERTREND_MOCK_FAIL=true)");
@@ -57,6 +112,13 @@ async function sendMockedBuilderTrendTransfer(): Promise<{ externalReference: st
   const externalReference = `bt-mock-${Date.now()}-${randomUUID().slice(0, 8)}`;
   console.log("Mocked BuilderTrend transfer sent", {
     externalReference,
+    project: payload.project,
+    totalEstimate: payload.totalEstimate,
+    attachments: attachments.map((attachment) => ({
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.buffer.length,
+    })),
   });
 
   return { externalReference };
@@ -196,7 +258,17 @@ export async function processBuilderTrendTransfer(
   const isFinalAttempt = attemptNumber >= attemptContext.maxAttempts;
 
   try {
-    const result = await sendMockedBuilderTrendTransfer();
+    // Re-resolved on every attempt (not cached on the transfer row): a PDF that failed to
+    // generate on a prior attempt may be ready by the time this attempt runs, and signed S3
+    // content shouldn't be held across retries/backoff.
+    const attachments = await resolveBuilderTrendTransferAttachments({
+      projectId: transfer.projectId,
+      quoteId: transfer.quoteId,
+    });
+    const result = await sendMockedBuilderTrendTransfer(
+      transfer.payload as BuilderTrendWorkOrderPayload,
+      attachments
+    );
 
     await prisma.$executeRaw(
       Prisma.sql`
@@ -227,6 +299,8 @@ export async function processBuilderTrendTransfer(
         attemptNumber,
         durationMs: Date.now() - startedAtMs,
         externalReference: result.externalReference,
+        attachmentCount: attachments.length,
+        attachmentFileNames: attachments.map((attachment) => attachment.fileName),
         ...summarizeBuilderTrendPayloadForAudit(transfer.payload),
       },
     });
@@ -259,6 +333,7 @@ export async function processBuilderTrendTransfer(
         ? "BuilderTrend transfer failed on final retry attempt"
         : "BuilderTrend transfer attempt failed, retry scheduled",
       metadata: {
+        transferId: transfer.id,
         transferStatus: nextStatus,
         attemptNumber,
         maxAttempts: attemptContext.maxAttempts,
@@ -518,15 +593,16 @@ export interface AttachGrantMatchSummaryResult {
 }
 
 /**
- * Attaches the project's Grant Match Summary to its BuilderTrend work order
- * on grant application approval. A BuilderTrendTransfer only exists once a
- * quote has been accepted (see buildBuilderTrendWorkOrderPayload, which
- * already includes this attachment when the transfer is first built) — grant
- * approval and quote acceptance are independent lifecycles with no enforced
- * ordering, so this covers the case where the transfer already existed
- * *before* the grant was approved and needs the attachment added after the
- * fact. No transfer yet is not an error: the attachment will be picked up
- * naturally whenever the transfer is eventually created.
+ * Eagerly (re)generates the project's Grant Match Summary PDF on grant
+ * application approval, so it's already READY by the time the BuilderTrend
+ * transfer's attachments are resolved. Since attachments are now resolved
+ * fresh from the document tables at send time (see
+ * resolveBuilderTrendTransferAttachments), this no longer needs to patch the
+ * transfer's stored payload directly — grant approval and quote acceptance
+ * are independent lifecycles with no enforced ordering, and send-time
+ * resolution picks up whichever document is READY regardless of which
+ * happened first. No transfer yet is not an error: the summary will be
+ * picked up naturally whenever the transfer is eventually created and sent.
  */
 export async function attachGrantMatchSummaryToBuilderTrendTransfer(
   projectId: string,
@@ -535,7 +611,7 @@ export async function attachGrantMatchSummaryToBuilderTrendTransfer(
   const transfer = await prisma.builderTrendTransfer.findFirst({
     where: { projectId },
     orderBy: { createdAt: "desc" },
-    select: { id: true, projectId: true, quoteId: true, payload: true },
+    select: { id: true, projectId: true, quoteId: true },
   });
 
   if (!transfer) {
@@ -547,18 +623,6 @@ export async function attachGrantMatchSummaryToBuilderTrendTransfer(
     return { attached: false, transferId: transfer.id };
   }
 
-  const signedUrl = await getSignedDownloadUrl(summary.s3Key, GRANT_MATCH_SUMMARY_ATTACHMENT_URL_TTL_SECONDS);
-  const existingPayload = (transfer.payload ?? {}) as Partial<BuilderTrendWorkOrderPayload>;
-  const updatedPayload: Partial<BuilderTrendWorkOrderPayload> = {
-    ...existingPayload,
-    attachments: [{ label: "Grant Match Summary", url: signedUrl }],
-  };
-
-  await prisma.builderTrendTransfer.update({
-    where: { id: transfer.id },
-    data: { payload: updatedPayload as unknown as Prisma.InputJsonValue },
-  });
-
   await logAuditEventNonBlocking({
     category: "MANUAL_CHANGE",
     action: "BUILDERTREND_TRANSFER_ATTACHMENT_ADDED",
@@ -569,7 +633,7 @@ export async function attachGrantMatchSummaryToBuilderTrendTransfer(
     quoteId: transfer.quoteId,
     resourceType: "buildertrend_transfer",
     resourceId: transfer.id,
-    description: "Grant Match Summary attached to BuilderTrend work order payload",
+    description: "Grant Match Summary generated/refreshed ahead of BuilderTrend work order attachment resolution",
     metadata: { fileName: summary.fileName, s3Key: summary.s3Key },
   });
 
