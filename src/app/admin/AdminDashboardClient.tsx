@@ -165,6 +165,7 @@ const QUOTE_STATUS_STYLES: Record<string, { label: string; color: string }> = {
 
 const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
   PENDING: { label: "Pending", dot: "bg-amber-500" },
+  RETRYING: { label: "Retrying", dot: "bg-orange-500" },
   SENT: { label: "Sent", dot: "bg-emerald-500" },
   FAILED: { label: "Failed", dot: "bg-red-500" },
 };
@@ -282,6 +283,8 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
   const transfer = project.builderTrendTransfer;
   const [syncing, setSyncing] = React.useState(false);
   const [syncMessage, setSyncMessage] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
+  const [retryMessage, setRetryMessage] = React.useState<string | null>(null);
 
   async function handleMarkSynced() {
     setSyncing(true);
@@ -300,6 +303,27 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
       setSyncMessage(error instanceof Error ? error.message : "Failed to record manual sync");
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleRetryTransfer() {
+    if (!transfer) return;
+    setRetrying(true);
+    setRetryMessage(null);
+    try {
+      const response = await fetch(`/api/buildertrend-transfer/${transfer.id}/retry`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.error ?? "Failed to retry transfer");
+      }
+      setRetryMessage("Retry queued.");
+      router.refresh();
+    } catch (error) {
+      setRetryMessage(error instanceof Error ? error.message : "Failed to retry transfer");
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -585,6 +609,17 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
                   {syncing ? "Syncing..." : "Mark Manually Synced"}
                 </button>
                 {syncMessage && <span className="text-[10px] text-gray-400">{syncMessage}</span>}
+                {transfer.status === "FAILED" && (
+                  <button
+                    type="button"
+                    onClick={handleRetryTransfer}
+                    disabled={retrying}
+                    className="text-[10px] font-medium text-blue-600 hover:underline disabled:opacity-50"
+                  >
+                    {retrying ? "Retrying..." : "Retry Transfer"}
+                  </button>
+                )}
+                {retryMessage && <span className="text-[10px] text-gray-400">{retryMessage}</span>}
               </div>
             </div>
           ) : (
