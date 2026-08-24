@@ -19,5 +19,8 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     id?: string;
+    /** Cached from User.role at sign-in — see auth.config.ts. Only a fast-path
+     * hint for Edge middleware; every authoritative check re-reads the DB. */
+    role?: "ADMIN" | "USER";
   }
 }

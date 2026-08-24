@@ -18,6 +18,7 @@ model User {
   mfaEnabled                    Boolean                         @default(false)
   mfaEnrolledAt                 DateTime?
   mfaSecretCiphertext           String?
+  role                          SystemRole                      @default(USER)
   createdAt                     DateTime                        @default(now())
   updatedAt                     DateTime                        @updatedAt
   auditEvents                   AuditEvent[]
@@ -763,6 +764,11 @@ enum ProjectAccessRole {
   OWNER
   EDITOR
   VIEWER
+}
+
+enum SystemRole {
+  USER
+  ADMIN
 }
 
 enum BuilderTrendTransferStatus {

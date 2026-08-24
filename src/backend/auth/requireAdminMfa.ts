@@ -3,10 +3,10 @@ import { prisma } from "lib/prisma";
 import { requireMinimumRole } from "@/backend/auth/requireRole";
 
 /**
- * Kept separate from requireRole.ts (which middleware.ts imports into its
- * Edge bundle) since this needs Prisma — a Node-only dependency Edge can't
- * bundle. Only import this from route handlers / Server Components, never
- * from middleware.ts.
+ * Kept separate from requireRole.ts since this layers on an
+ * MFA-enrollment check that only route handlers / Server Components need —
+ * middleware.ts only needs the plain role check. Only import this from
+ * route handlers / Server Components, never from middleware.ts.
  */
 export const MFA_SETUP_REQUIRED_CODE = "MFA_SETUP_REQUIRED";
 

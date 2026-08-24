@@ -12,10 +12,19 @@ jest.mock("lib/prisma", () => ({
 import { requireAdminWithMfaEnrolled, MfaSetupRequiredError } from "../requireAdminMfa";
 import { HttpError } from "@/backend/auth/requireRole";
 
+/** requireAdminWithMfaEnrolled does two findUnique calls: one for role (via
+ * requireMinimumRole), one for mfaEnabled — distinguish them by `select`. */
+function mockRoleAndMfa(role: "ADMIN" | "USER", mfaEnabled?: boolean) {
+  mockedFindUnique.mockImplementation((args: { select?: Record<string, boolean> }) => {
+    if (args?.select?.role) return Promise.resolve({ role });
+    if (args?.select?.mfaEnabled) return Promise.resolve({ mfaEnabled });
+    return Promise.resolve(null);
+  });
+}
+
 describe("requireAdminWithMfaEnrolled", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.ADVISORY_TEAM_EMAILS = "admin@example.com";
   });
 
   test("throws 401 when unauthenticated", async () => {
@@ -23,22 +32,22 @@ describe("requireAdminWithMfaEnrolled", () => {
     expect(mockedFindUnique).not.toHaveBeenCalled();
   });
 
-  test("throws 403 when not on the advisory allowlist", async () => {
+  test("throws 403 when the user's DB role is not ADMIN", async () => {
     const session = { user: { id: "u1", email: "user@example.com" } } as unknown as Session;
+    mockRoleAndMfa("USER");
     await expect(requireAdminWithMfaEnrolled(session)).rejects.toBeInstanceOf(HttpError);
-    expect(mockedFindUnique).not.toHaveBeenCalled();
   });
 
   test("throws MfaSetupRequiredError when the admin hasn't enrolled MFA", async () => {
     const session = { user: { id: "u1", email: "admin@example.com" } } as unknown as Session;
-    mockedFindUnique.mockResolvedValue({ mfaEnabled: false });
+    mockRoleAndMfa("ADMIN", false);
 
     await expect(requireAdminWithMfaEnrolled(session)).rejects.toBeInstanceOf(MfaSetupRequiredError);
   });
 
   test("resolves true for an admin with MFA enrolled", async () => {
     const session = { user: { id: "u1", email: "admin@example.com" } } as unknown as Session;
-    mockedFindUnique.mockResolvedValue({ mfaEnabled: true });
+    mockRoleAndMfa("ADMIN", true);
 
     await expect(requireAdminWithMfaEnrolled(session)).resolves.toBe(true);
   });

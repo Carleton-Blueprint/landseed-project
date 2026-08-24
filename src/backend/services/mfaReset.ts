@@ -6,7 +6,6 @@
 
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import { isAdvisoryTeamEmail, parseAllowedEmails } from "@/backend/auth/requireRole";
 
 export const MFA_RESET_AUDIT_ACTION = "MFA_RESET";
 
@@ -34,15 +33,10 @@ export interface AdminMfaStatus {
   mfaEnrolledAt: Date | null;
 }
 
-/** Lists advisory-allowlisted users along with their current MFA enrollment status. */
+/** Lists admin users along with their current MFA enrollment status. */
 export async function listAdminsWithMfaStatus(): Promise<AdminMfaStatus[]> {
-  const allowedEmails = parseAllowedEmails();
-  if (allowedEmails.length === 0) {
-    return [];
-  }
-
   const users = await prisma.user.findMany({
-    where: { email: { in: allowedEmails } },
+    where: { role: "ADMIN" },
     select: { id: true, email: true, mfaEnabled: true, mfaEnrolledAt: true },
     orderBy: { email: "asc" },
   });
@@ -72,14 +66,14 @@ export async function resetAdminMfa(input: ResetAdminMfaInput): Promise<AdminMfa
 
   const target = await prisma.user.findUnique({
     where: { id: targetUserId },
-    select: { id: true, email: true, mfaEnabled: true, mfaEnrolledAt: true },
+    select: { id: true, email: true, role: true, mfaEnabled: true, mfaEnrolledAt: true },
   });
 
   if (!target) {
     throw new MfaResetError("Target user not found", 404, "TARGET_NOT_FOUND");
   }
 
-  if (!isAdvisoryTeamEmail(target.email)) {
+  if (target.role !== "ADMIN") {
     throw new MfaResetError("Target user is not an admin", 400, "TARGET_NOT_AN_ADMIN");
   }
 
