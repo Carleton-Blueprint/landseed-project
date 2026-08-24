@@ -2,12 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import { isPrivateS3PhotoUrl } from "lib/photoUrls";
-import { isLiveImageGenerationEnabled } from "lib/openai";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
-import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
 export async function GET(
   request: NextRequest,
@@ -59,42 +55,10 @@ export async function GET(
           generatedImageUrl = isPrivateS3PhotoUrl(photo.generatedImageUrl)
             ? await getSignedDownloadUrlFromS3Url(photo.generatedImageUrl, 900)
             : photo.generatedImageUrl;
-        } else if (isLiveImageGenerationEnabled()) {
+        } else {
           // Generation is pending or in progress — leave null so callers
           // can show a pending state rather than a stale mock visual.
           generatedImageUrl = null;
-        } else {
-          const mockImageUrl = await generateMockAccessibilityVisual(photo.url, {
-            modificationCodes: photo.declaredModificationCodes,
-          });
-
-          await prisma.photo.update({
-            where: { id: photo.id },
-            data: {
-              generatedImageUrl: mockImageUrl,
-              generationModel: "mock",
-              generatedAt: new Date(),
-            },
-          });
-
-          await logAuditEventNonBlocking({
-            category: "AI_GENERATION",
-            action: "ACCESSIBILITY_IMAGE_GENERATION_MOCK_USED",
-            outcome: "SUCCESS",
-            sensitivityLevel: "INTERNAL",
-            projectId: photo.projectId,
-            resourceType: "photo",
-            resourceId: photo.id,
-            description: "Live image generation disabled; served mock placeholder visual.",
-            metadata: {
-              model: "mock",
-              mockImageUrl,
-              outputSource: "MOCK",
-              isFallback: false,
-            } satisfies AiProvenanceMetadata & Record<string, unknown>,
-          });
-
-          generatedImageUrl = mockImageUrl;
         }
 
         return {

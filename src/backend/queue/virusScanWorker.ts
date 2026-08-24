@@ -36,7 +36,6 @@ import {
   ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
   type AccessibilityImageGenerationJobPayload,
 } from "@/backend/services/imageGeneration";
-import { isLiveImageGenerationEnabled } from "lib/openai";
 
 // Initialize ClamAV scanner
 let clamScanner: NodeClam | null = null;
@@ -282,7 +281,7 @@ const worker = createVirusScanWorker(async (job) => {
         // reuses the same jobId as this trigger, so if a scan happens to clear right
         // around promotion and both paths fire, BullMQ's jobId dedup makes the second
         // a no-op (mirrors the photo-analysis jobId pattern above).
-        if (isLiveImageGenerationEnabled() && !isManualMode) {
+        if (!isManualMode) {
           if (isPromoted) {
             try {
               const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
