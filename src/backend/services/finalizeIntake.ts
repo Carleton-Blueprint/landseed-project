@@ -11,7 +11,6 @@ import {
   ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
   type AccessibilityImageGenerationJobPayload,
 } from "@/backend/services/imageGeneration";
-import { isLiveImageGenerationEnabled } from "lib/openai";
 
 export interface FinalizeIntakeInput {
   projectId: string;
@@ -226,27 +225,25 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
     // scan clears while still draft hits that "defer" branch and gets no job queued
     // there; since that worker only reacts once to its own scan-complete event, nothing
     // else enqueues generation for it unless finalization sweeps for it here.
-    if (isLiveImageGenerationEnabled()) {
-      const cleanUngeneratedPhotos = await prisma.photo.findMany({
-        where: {
-          projectId: project.id,
-          virus_scan_status: "clean",
-          generationStatus: { notIn: ["READY", "GENERATING"] },
-        },
-        select: { id: true },
-      });
+    const cleanUngeneratedPhotos = await prisma.photo.findMany({
+      where: {
+        projectId: project.id,
+        virus_scan_status: "clean",
+        generationStatus: { notIn: ["READY", "GENERATING"] },
+      },
+      select: { id: true },
+    });
 
-      for (const photo of cleanUngeneratedPhotos) {
-        try {
-          const jobPayload: AccessibilityImageGenerationJobPayload = { photoId: photo.id };
-          await aiJobsQueue.add(
-            `accessibility-image-generation:${photo.id}`,
-            { jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE, payload: jobPayload },
-            { jobId: `accessibility-image-generation-${photo.id}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
-          );
-        } catch (queueError) {
-          console.warn(`Failed to queue image generation for ${photo.id} at intake finalization:`, queueError);
-        }
+    for (const photo of cleanUngeneratedPhotos) {
+      try {
+        const jobPayload: AccessibilityImageGenerationJobPayload = { photoId: photo.id };
+        await aiJobsQueue.add(
+          `accessibility-image-generation:${photo.id}`,
+          { jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE, payload: jobPayload },
+          { jobId: `accessibility-image-generation-${photo.id}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
+        );
+      } catch (queueError) {
+        console.warn(`Failed to queue image generation for ${photo.id} at intake finalization:`, queueError);
       }
     }
   }

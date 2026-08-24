@@ -10,8 +10,6 @@ import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
 import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
-import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
-import { isLiveImageGenerationEnabled } from "lib/openai";
 import { ConsultationScheduler } from "@/frontend/components/ConsultationScheduler";
 import { getLatestGrantDocumentGenerationInfo } from "@/backend/services/grantDocument";
 import { GrantDocumentCard } from "./GrantDocumentCard";
@@ -216,16 +214,10 @@ export default async function ProjectDetailPage({
           ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
           : null;
 
-        // A real rendition already exists — show it regardless of the live-generation
-        // flag. Otherwise, only fall back to the mock placeholder when live generation
-        // is disabled; when it's enabled, leave this null so the gallery shows its
-        // built-in pending state while the queued job (or a retry) is in flight.
-        const generatedImageUrl = existingGeneratedImageUrl ??
-          (isLiveImageGenerationEnabled()
-            ? null
-            : await generateMockAccessibilityVisual(photo.url, {
-                modificationCodes: photo.declaredModificationCodes ?? [],
-              }));
+        // A real rendition already exists — show it. Otherwise leave this null so the
+        // gallery shows its built-in pending state while the queued job (or a retry)
+        // is in flight.
+        const generatedImageUrl = existingGeneratedImageUrl ?? null;
 
         const signedImageUrl = imageUrl && isPrivateS3PhotoUrl(imageUrl)
           ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)

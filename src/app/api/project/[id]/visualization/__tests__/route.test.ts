@@ -4,9 +4,6 @@ import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
-import { isLiveImageGenerationEnabled } from "lib/openai";
-import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
-import { logAuditEventNonBlocking } from "@/backend/audit/log";
 
 jest.mock("@/auth", () => ({
   auth: jest.fn(),
@@ -29,22 +26,6 @@ jest.mock("lib/prisma", () => ({
 
 jest.mock("lib/s3", () => ({
   getSignedDownloadUrlFromS3Url: jest.fn(),
-}));
-
-jest.mock("lib/openai", () => ({
-  isLiveImageGenerationEnabled: jest.fn(),
-}));
-
-jest.mock("@/backend/services/imageGeneration", () => {
-  const actual = jest.requireActual("@/backend/services/imageGeneration");
-  return {
-    ...actual,
-    generateMockAccessibilityVisual: jest.fn(),
-  };
-});
-
-jest.mock("@/backend/audit/log", () => ({
-  logAuditEventNonBlocking: jest.fn().mockResolvedValue(undefined),
 }));
 
 // The handler under test never touches NextRequest-specific fields
@@ -95,7 +76,6 @@ describe("GET /api/project/[id]/visualization", () => {
   });
 
   it("signs and returns the stored rendition when generation is READY", async () => {
-    (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(true);
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
       photos: [
@@ -116,11 +96,9 @@ describe("GET /api/project/[id]/visualization", () => {
 
     expect(res.status).toBe(200);
     expect(body.photos[0].generatedImageUrl).toBe("https://signed.example.com/rendition.png");
-    expect(generateMockAccessibilityVisual).not.toHaveBeenCalled();
   });
 
-  it("returns null generatedImageUrl (no mock fallback) when live generation is enabled but not ready", async () => {
-    (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(true);
+  it("returns null generatedImageUrl when generation is pending", async () => {
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
       photos: [
@@ -133,11 +111,9 @@ describe("GET /api/project/[id]/visualization", () => {
     const body = await res.json();
 
     expect(body.photos[0].generatedImageUrl).toBeNull();
-    expect(generateMockAccessibilityVisual).not.toHaveBeenCalled();
   });
 
   it("serves the worker's persisted mock fallback image when live generation failed after retries", async () => {
-    (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(true);
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
       photos: [
@@ -155,52 +131,5 @@ describe("GET /api/project/[id]/visualization", () => {
     const body = await res.json();
 
     expect(body.photos[0].generatedImageUrl).toBe("https://placehold.co/900x600?text=Mock+AI+Visual");
-    expect(generateMockAccessibilityVisual).not.toHaveBeenCalled();
-  });
-
-  it("falls back to the mock placeholder when live generation is disabled, and persists it with an audit event", async () => {
-    (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(false);
-    (generateMockAccessibilityVisual as jest.Mock).mockResolvedValue("https://placehold.co/900x600?text=Mock");
-    (prisma.project.findUnique as jest.Mock).mockResolvedValue({
-      id: "project-1",
-      photos: [
-        {
-          id: "photo-1",
-          projectId: "project-1",
-          url: "https://example.com/original.png",
-          generationStatus: "PENDING",
-          generatedImageUrl: null,
-          declaredModificationCodes: ["GRAB_BARS"],
-        },
-      ],
-    });
-
-    const { request, params } = makeRequest("project-1");
-    const res = await GET(request, { params });
-    const body = await res.json();
-
-    expect(body.photos[0].generatedImageUrl).toBe("https://placehold.co/900x600?text=Mock");
-    expect(generateMockAccessibilityVisual).toHaveBeenCalledWith(
-      "https://example.com/original.png",
-      { modificationCodes: ["GRAB_BARS"] }
-    );
-    expect(prisma.photo.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "photo-1" },
-        data: expect.objectContaining({
-          generatedImageUrl: "https://placehold.co/900x600?text=Mock",
-          generationModel: "mock",
-        }),
-      })
-    );
-    expect(logAuditEventNonBlocking).toHaveBeenCalledWith(
-      expect.objectContaining({
-        category: "AI_GENERATION",
-        action: "ACCESSIBILITY_IMAGE_GENERATION_MOCK_USED",
-        outcome: "SUCCESS",
-        resourceId: "photo-1",
-        metadata: expect.objectContaining({ outputSource: "MOCK", isFallback: false }),
-      })
-    );
   });
 });
