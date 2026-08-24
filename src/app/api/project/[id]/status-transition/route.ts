@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
+import { hasMinimumRole } from "@/backend/auth/requireRole";
 import {
   GrantLifecycleTransitionError,
   isValidGrantApplicationStatus,
@@ -100,12 +101,15 @@ export async function POST(
       return NextResponse.json({ error: "reason must be a string" }, { status: 400 });
     }
 
+    const isAdmin = await hasMinimumRole(session, "ADMIN");
+
     const transitionResult = await transitionGrantApplicationStatus({
       projectId,
       actorUserId: session.user.id,
       toStatus: input.toStatus,
       reason: (input.reason as string | undefined) ?? null,
       metadata: input.metadata as Prisma.InputJsonValue | undefined,
+      isAdmin,
     });
 
     await logAuditEventNonBlocking({
