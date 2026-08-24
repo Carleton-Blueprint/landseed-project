@@ -210,14 +210,15 @@ export default async function ProjectDetailPage({
           ? ((photo as { imageUrl?: string | null }).imageUrl ?? photo.url)
           : photo.url;
 
-        const existingGeneratedImageUrl = "generatedImageUrl" in photo
-          ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
-          : null;
-
-        // A real rendition already exists — show it. Otherwise leave this null so the
-        // gallery shows its built-in pending state while the queued job (or a retry)
-        // is in flight.
-        const generatedImageUrl = existingGeneratedImageUrl ?? null;
+        // Only forward generatedImageUrl when generation actually succeeded.
+        // A FAILED photo can still have a placehold.co mock URL sitting in
+        // generatedImageUrl (written by applyAccessibilityVisualMockFallback
+        // for the audit trail) — that's not a real rendition and shouldn't be
+        // shown as one, so gate on generationStatus rather than URL presence.
+        const generatedImageUrl =
+          photo.generationStatus === "READY" && "generatedImageUrl" in photo
+            ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
+            : null;
 
         const signedImageUrl = imageUrl && isPrivateS3PhotoUrl(imageUrl)
           ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
@@ -240,9 +241,9 @@ export default async function ProjectDetailPage({
       id: photo.id,
       imageUrl: photo.url,
       generatedImageUrl:
-        "generatedImageUrl" in photo && photo.generatedImageUrl
+        photo.generationStatus === "READY" && "generatedImageUrl" in photo && photo.generatedImageUrl
           ? photo.generatedImageUrl
-          : "https://placehold.co/800x600?text=InPlace+AI+Renovation+Rendition&font=inter&bg=4F46E5&txtclr=FFFFFF",
+          : null,
     }));
   }
 
