@@ -6,6 +6,7 @@ import type { Metadata } from "next";
 import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient";
 import { AdminMfaPanel } from "./AdminMfaPanel";
 import { AdminAlertThresholdsPanel } from "./AdminAlertThresholdsPanel";
+import { AdminUsersPanel } from "./AdminUsersPanel";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
@@ -586,6 +587,7 @@ export default async function AdminDashboardPage() {
     <>
       <AdminMfaPanel currentUserId={session.user.id} />
       <AdminAlertThresholdsPanel />
+      <AdminUsersPanel currentUserId={session.user.id} />
       <AdminDashboardClient projects={serialized} userName={userName} />
     </>
   );
