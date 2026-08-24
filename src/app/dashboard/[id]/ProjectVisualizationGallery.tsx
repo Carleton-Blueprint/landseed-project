@@ -222,11 +222,21 @@ export function ProjectVisualizationGallery({
     label: string;
   } | null>(null);
 
-  const viewModes: { key: ViewMode; label: string; icon: React.ReactNode; disabled?: boolean }[] = [
+  // "generated"/"compare" only make sense once a real AI rendition exists —
+  // no photo is ever going to have one while its generationStatus isn't
+  // READY (see page.tsx), so there's nothing worth showing (or toggling to)
+  // in the meantime.
+  const hasAnyGeneratedImage = photos.some((photo) => !!photo.generatedImageUrl);
+
+  const allViewModes: { key: ViewMode; label: string; icon: React.ReactNode }[] = [
     { key: "original", label: "Original Photos", icon: <CameraIcon size={16} /> },
-    { key: "generated", label: "InPlace AI Renditions", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>, disabled: photos.length === 0 },
-    { key: "compare", label: "Visual Comparison (Before / After)", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h3M16 3h3a2 2 0 012 2v14a2 2 0 01-2 2h-3M12 3v18" /></svg>, disabled: photos.length === 0 },
+    { key: "generated", label: "InPlace AI Renditions", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg> },
+    { key: "compare", label: "Visual Comparison (Before / After)", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h3M16 3h3a2 2 0 012 2v14a2 2 0 01-2 2h-3M12 3v18" /></svg> },
   ];
+
+  const viewModes = hasAnyGeneratedImage
+    ? allViewModes
+    : allViewModes.filter((mode) => mode.key === "original");
 
   return (
     <div className="rounded-xl border bg-white p-5 shadow-sm">
@@ -257,22 +267,22 @@ export function ProjectVisualizationGallery({
           <p className="text-sm text-gray-500">
             {viewMode === "compare"
               ? "Compare original senior-submitted photos side-by-side with InPlace AI-generated renovation renditions and interactive overlay sliders."
-              : "Toggle between your original uploaded photos and InPlace AI-generated modification visuals."}
+              : hasAnyGeneratedImage
+              ? "Toggle between your original uploaded photos and InPlace AI-generated modification visuals."
+              : "Your original uploaded project photos. InPlace AI renditions will appear here once generated."}
           </p>
         </div>
 
+        {viewModes.length > 1 && (
         <div className="flex gap-1.5 rounded-lg border bg-gray-100 p-1">
           {viewModes.map((mode) => (
             <button
               key={mode.key}
               type="button"
-              disabled={mode.disabled}
               onClick={() => setViewMode(mode.key)}
               className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-150 ${
                 viewMode === mode.key
                   ? "bg-white text-gray-900 shadow-sm"
-                  : mode.disabled
-                  ? "text-gray-400 cursor-not-allowed"
                   : "text-gray-600 hover:text-gray-900 hover:bg-white/60"
               }`}
               id={`viz-mode-${mode.key}`}
@@ -282,6 +292,7 @@ export function ProjectVisualizationGallery({
             </button>
           ))}
         </div>
+        )}
       </div>
 
       {/* Photo grid */}
@@ -294,9 +305,7 @@ export function ProjectVisualizationGallery({
           {photos.map((photo, index) => {
             const originalSrc =
               photo.imageUrl ?? "https://placehold.co/600x400?text=No+image";
-            const generatedSrc =
-              photo.generatedImageUrl ??
-              "https://placehold.co/600x400?text=InPlace+AI+visual+pending";
+            const generatedSrc = photo.generatedImageUrl ?? originalSrc;
 
             /* --- Comparison slider mode --- */
             if (viewMode === "compare") {
