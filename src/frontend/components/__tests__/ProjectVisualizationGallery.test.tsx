@@ -84,4 +84,31 @@ describe("ProjectVisualizationGallery", () => {
       screen.getByText("Upload project photos to see InPlace AI-generated visual renditions of proposed modifications.")
     ).toBeInTheDocument();
   });
+
+  it("hides the AI Renditions and Compare tabs when no photo has a real rendition yet", () => {
+    const pendingPhotos = [
+      {
+        id: "photo-1",
+        imageUrl: "https://placehold.co/800x600?text=Original+Bathroom",
+        generatedImageUrl: null,
+      },
+      {
+        id: "photo-2",
+        imageUrl: "https://placehold.co/800x600?text=Original+Entryway",
+        generatedImageUrl: null,
+      },
+    ];
+
+    render(<ProjectVisualizationGallery photos={pendingPhotos} />);
+
+    // No real rendition exists for any photo, so there's nothing to toggle
+    // to — the whole tab bar (including "Original Photos") is skipped.
+    expect(screen.queryByRole("button", { name: /original photos/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /inplace ai renditions/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /before \/ after/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Original uploaded photo").length).toBe(2);
+    expect(
+      screen.getByText("Your original uploaded project photos. InPlace AI renditions will appear here once generated.")
+    ).toBeInTheDocument();
+  });
 });
