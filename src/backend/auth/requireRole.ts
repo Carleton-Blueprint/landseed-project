@@ -3,20 +3,6 @@ import { prisma } from "lib/prisma";
 import { HttpError } from "@/backend/auth/httpError";
 
 /**
- * @deprecated Only used by the one-time
- * scripts/migrate-advisory-emails-to-admin-role.ts cutover script. Admin
- * status now lives on User.role in the DB — see hasMinimumRole and
- * getAdminEmails below. Remove alongside ADVISORY_TEAM_EMAILS itself once
- * that cutover has run in every environment.
- */
-export function parseAllowedEmails(): string[] {
-  return (process.env.ADVISORY_TEAM_EMAILS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-/**
  * Determine whether the session user satisfies a minimal role.
  * - USER: any authenticated user
  * - ADMIN: User.role === "ADMIN" in the DB. This is a live lookup (not
@@ -47,8 +33,7 @@ export async function hasMinimumRole(session: Session | null | undefined, requir
 /**
  * Emails of every DB-backed ADMIN user. Source of truth for "who are the
  * admins" — used by the daily digest, alert emails, MFA reset eligibility,
- * and advisory-team notifications. Replaces the old ADVISORY_TEAM_EMAILS
- * allowlist for that purpose too.
+ * and advisory-team notifications.
  */
 export async function getAdminEmails(): Promise<string[]> {
   const admins = await prisma.user.findMany({

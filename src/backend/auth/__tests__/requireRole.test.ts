@@ -11,7 +11,7 @@ jest.mock("lib/prisma", () => ({
   },
 }));
 
-import { requireMinimumRole, hasMinimumRole, getAdminEmails, parseAllowedEmails } from "@/backend/auth/requireRole";
+import { requireMinimumRole, hasMinimumRole, getAdminEmails } from "@/backend/auth/requireRole";
 
 describe("requireRole helper", () => {
   beforeEach(() => {
@@ -59,20 +59,5 @@ describe("getAdminEmails", () => {
     mockedFindMany.mockResolvedValue([{ email: "a@example.com" }, { email: null }, { email: "b@example.com" }]);
     await expect(getAdminEmails()).resolves.toEqual(["a@example.com", "b@example.com"]);
     expect(mockedFindMany).toHaveBeenCalledWith({ where: { role: "ADMIN" }, select: { email: true } });
-  });
-});
-
-describe("parseAllowedEmails (deprecated, cutover-script-only)", () => {
-  beforeEach(() => {
-    delete process.env.ADVISORY_TEAM_EMAILS;
-  });
-
-  test("parses a comma-separated list, trimmed and lowercased", () => {
-    process.env.ADVISORY_TEAM_EMAILS = " Admin@example.com, other@example.com ";
-    expect(parseAllowedEmails()).toEqual(["admin@example.com", "other@example.com"]);
-  });
-
-  test("returns an empty array when unset", () => {
-    expect(parseAllowedEmails()).toEqual([]);
   });
 });
