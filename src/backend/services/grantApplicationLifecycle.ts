@@ -38,6 +38,12 @@ export interface GrantLifecycleTransitionInput {
   toStatus: GrantApplicationStatus;
   reason?: string | null;
   metadata?: Prisma.InputJsonValue;
+  /** Resolved by the caller (route handler already has the session) via
+   * hasMinimumRole(session, "ADMIN"). ProjectAccess is a per-project ACL
+   * granted only to a project's creator, so without this, ADMIN-role staff
+   * with no personal ProjectAccess row on a given project would be unable
+   * to change its grant status at all. */
+  isAdmin?: boolean;
 }
 
 export interface GrantLifecycleTransitionResult {
@@ -56,11 +62,9 @@ export function isValidGrantApplicationStatus(value: unknown): value is GrantApp
 export async function transitionGrantApplicationStatus(
   input: GrantLifecycleTransitionInput
 ): Promise<GrantLifecycleTransitionResult> {
-  const canEditProject = await hasProjectAccess(
-    input.actorUserId,
-    input.projectId,
-    ProjectAccessRole.EDITOR
-  );
+  const canEditProject =
+    input.isAdmin === true ||
+    (await hasProjectAccess(input.actorUserId, input.projectId, ProjectAccessRole.EDITOR));
 
   if (!canEditProject) {
     throw new GrantLifecycleTransitionError(

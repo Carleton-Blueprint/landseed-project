@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
+import { hasMinimumRole } from "@/backend/auth/requireRole";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { retryBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
@@ -33,7 +34,8 @@ export async function POST(
       return NextResponse.json({ error: "BuilderTrend transfer not found" }, { status: 404 });
     }
 
-    const canAccess = await hasProjectAccess(session.user.id, transfer.projectId);
+    const isAdmin = await hasMinimumRole(session, "ADMIN");
+    const canAccess = isAdmin || (await hasProjectAccess(session.user.id, transfer.projectId));
     if (!canAccess) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

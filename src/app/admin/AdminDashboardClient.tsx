@@ -5,6 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import { StaffNotesPanel } from "@/frontend/components/StaffNotesPanel";
+import {
+  GrantStatusPanel,
+  type GrantApplicationStatus,
+  type GrantApplicationStatusHistoryEntry,
+} from "@/frontend/components/GrantStatusPanel";
 import { ProjectAdminDocuments } from "@/app/admin/ProjectAdminDocuments";
 import {
   CheckCircleIcon,
@@ -26,6 +31,8 @@ export interface SerializedProject {
   id: string;
   address: string;
   status: string;
+  grantApplicationStatus: GrantApplicationStatus;
+  grantApplicationStatusHistory: GrantApplicationStatusHistoryEntry[];
   createdAt: string;
   updatedAt: string;
   modificationType: string;
@@ -522,6 +529,13 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
             </svg>
             Transfer & Documents
           </h4>
+
+          {/* Grant Application Status */}
+          <GrantStatusPanel
+            projectId={project.id}
+            currentStatus={project.grantApplicationStatus}
+            history={project.grantApplicationStatusHistory}
+          />
 
           {/* BuilderTrend */}
           {transfer ? (

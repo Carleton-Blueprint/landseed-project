@@ -68,6 +68,50 @@ describe("grantApplicationLifecycle", () => {
     });
   });
 
+  it("rejects an admin flag of false the same as a non-admin with no editor access", async () => {
+    mockedHasProjectAccess.mockResolvedValue(false);
+
+    await expect(
+      transitionGrantApplicationStatus({
+        projectId: "proj-1",
+        actorUserId: "user-1",
+        toStatus: GrantApplicationStatus.SUBMITTED,
+        isAdmin: false,
+      })
+    ).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      statusCode: 403,
+    });
+  });
+
+  it("allows an admin with no ProjectAccess row to transition status", async () => {
+    mockedHasProjectAccess.mockResolvedValue(false);
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-1",
+      grantApplicationStatus: GrantApplicationStatus.DRAFT,
+    });
+
+    const changedAt = new Date("2026-04-13T12:00:00.000Z");
+    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        project: { update: jest.fn().mockResolvedValue({}) },
+        grantApplicationStatusHistory: {
+          create: jest.fn().mockResolvedValue({ id: "history-admin", changedAt }),
+        },
+      };
+      return callback(tx);
+    });
+
+    const result = await transitionGrantApplicationStatus({
+      projectId: "proj-1",
+      actorUserId: "admin-1",
+      toStatus: GrantApplicationStatus.SUBMITTED,
+      isAdmin: true,
+    });
+
+    expect(result).toMatchObject({ toStatus: GrantApplicationStatus.SUBMITTED });
+  });
+
   it("rejects invalid transition matrix path", async () => {
     mockedHasProjectAccess.mockResolvedValue(true);
     mockedPrisma.project.findUnique.mockResolvedValue({
