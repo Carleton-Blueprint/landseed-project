@@ -1,4 +1,4 @@
-import { parseAllowedEmails } from "@/backend/auth/requireRole";
+import { getAdminEmails } from "@/backend/auth/requireRole";
 import { sendTransactionalEmail } from "@/backend/services/transactionalEmail";
 import { logSecurityEventNonBlocking } from "@/backend/security/securityEvent";
 
@@ -19,19 +19,18 @@ function renderAlertEmail(input: AdminAlertInput): { subject: string; html: stri
 }
 
 /**
- * Emails every ADVISORY_TEAM_EMAILS address directly (bypassing the
- * NotificationDelivery/BullMQ email queue) so that "email delivery is
- * failing" as a monitored condition can't also swallow the alert meant to
- * report it, then logs a SecurityEvent for the trigger. Never throws —
- * failures are logged and swallowed, since this runs from fire-and-forget
- * worker event handlers.
+ * Emails every ADMIN user directly (bypassing the NotificationDelivery/
+ * BullMQ email queue) so that "email delivery is failing" as a monitored
+ * condition can't also swallow the alert meant to report it, then logs a
+ * SecurityEvent for the trigger. Never throws — failures are logged and
+ * swallowed, since this runs from fire-and-forget worker event handlers.
  */
 export async function sendAdminAlert(input: AdminAlertInput): Promise<void> {
-  const recipients = parseAllowedEmails();
+  const recipients = await getAdminEmails();
   const email = renderAlertEmail(input);
 
   if (recipients.length === 0) {
-    console.error("No ADVISORY_TEAM_EMAILS configured; cannot send admin alert", input);
+    console.error("No ADMIN users found; cannot send admin alert", input);
   } else {
     await Promise.all(
       recipients.map((to) =>

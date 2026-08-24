@@ -1,13 +1,13 @@
 /**
  * @jest-environment node
  */
-import { parseAllowedEmails } from "@/backend/auth/requireRole";
+import { getAdminEmails } from "@/backend/auth/requireRole";
 import { sendTransactionalEmail } from "@/backend/services/transactionalEmail";
 import { logSecurityEventNonBlocking } from "@/backend/security/securityEvent";
 import { sendAdminAlert } from "../adminAlerts";
 
 jest.mock("@/backend/auth/requireRole", () => ({
-  parseAllowedEmails: jest.fn(),
+  getAdminEmails: jest.fn(),
 }));
 
 jest.mock("@/backend/services/transactionalEmail", () => ({
@@ -23,8 +23,8 @@ describe("sendAdminAlert", () => {
     jest.clearAllMocks();
   });
 
-  it("emails every allowlisted admin and logs a SecurityEvent", async () => {
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test", "b@landseed.test"]);
+  it("emails every admin and logs a SecurityEvent", async () => {
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test", "b@landseed.test"]);
     (sendTransactionalEmail as jest.Mock).mockResolvedValue({ provider: "resend" });
 
     await sendAdminAlert({
@@ -54,7 +54,7 @@ describe("sendAdminAlert", () => {
   });
 
   it("logs but does not throw when no admins are configured", async () => {
-    (parseAllowedEmails as jest.Mock).mockReturnValue([]);
+    (getAdminEmails as jest.Mock).mockResolvedValue([]);
 
     await expect(
       sendAdminAlert({ category: "email-delivery-failure", summary: "test" })
@@ -67,7 +67,7 @@ describe("sendAdminAlert", () => {
   });
 
   it("does not throw when an individual send fails", async () => {
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test"]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test"]);
     (sendTransactionalEmail as jest.Mock).mockRejectedValue(new Error("resend down"));
 
     await expect(

@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { parseAllowedEmails } from "@/backend/auth/requireRole";
+import { getAdminEmails } from "@/backend/auth/requireRole";
 import { sendTransactionalEmail } from "@/backend/services/transactionalEmail";
 import { buildDailyDigest, sendDailyDigest, runCatchUpIfNeeded } from "../adminDigest";
 
@@ -38,7 +38,7 @@ jest.mock("lib/prisma", () => ({
 }));
 
 jest.mock("@/backend/auth/requireRole", () => ({
-  parseAllowedEmails: jest.fn(),
+  getAdminEmails: jest.fn(),
 }));
 
 jest.mock("@/backend/services/transactionalEmail", () => ({
@@ -148,7 +148,7 @@ describe("sendDailyDigest", () => {
     mockGroupBy.mockResolvedValue([
       { eventType: "RATE_LIMIT_HIT", scope: "login-ip", _count: { _all: 5 } },
     ]);
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test", "b@landseed.test"]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test", "b@landseed.test"]);
     (sendTransactionalEmail as jest.Mock).mockResolvedValue({ provider: "resend" });
 
     await sendDailyDigest(new Date("2026-08-05T13:00:00.000Z"));
@@ -170,7 +170,7 @@ describe("sendDailyDigest", () => {
     mockManualReviewFlagFindMany.mockResolvedValue([
       { reason: "HIGH_COMPLEXITY", project: { id: "proj-2", address: "2 Oak Ave" } },
     ]);
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test"]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test"]);
     (sendTransactionalEmail as jest.Mock).mockResolvedValue({ provider: "resend" });
 
     await sendDailyDigest(new Date("2026-08-05T13:00:00.000Z"));
@@ -186,7 +186,7 @@ describe("sendDailyDigest", () => {
 
   it("still sends a 'nothing to report' digest when nothing happened", async () => {
     mockGroupBy.mockResolvedValue([]);
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test"]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test"]);
     (sendTransactionalEmail as jest.Mock).mockResolvedValue({ provider: "resend" });
 
     await sendDailyDigest(new Date());
@@ -198,7 +198,7 @@ describe("sendDailyDigest", () => {
 
   it("does not throw when no admins are configured", async () => {
     mockGroupBy.mockResolvedValue([]);
-    (parseAllowedEmails as jest.Mock).mockReturnValue([]);
+    (getAdminEmails as jest.Mock).mockResolvedValue([]);
 
     await expect(sendDailyDigest(new Date())).resolves.toBeUndefined();
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
@@ -206,7 +206,7 @@ describe("sendDailyDigest", () => {
 
   it("still records a run when no admins are configured, so catch-up doesn't retry forever", async () => {
     mockGroupBy.mockResolvedValue([]);
-    (parseAllowedEmails as jest.Mock).mockReturnValue([]);
+    (getAdminEmails as jest.Mock).mockResolvedValue([]);
 
     await sendDailyDigest(new Date("2026-08-05T13:00:00.000Z"));
 
@@ -223,7 +223,7 @@ describe("sendDailyDigest", () => {
 
   it("does not throw when building the digest fails, and does not record a run", async () => {
     mockGroupBy.mockRejectedValue(new Error("db down"));
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test"]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test"]);
 
     await expect(sendDailyDigest(new Date())).resolves.toBeUndefined();
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
@@ -232,7 +232,7 @@ describe("sendDailyDigest", () => {
 
   it("labels a catch-up send distinctly and uses the given windowStart", async () => {
     mockGroupBy.mockResolvedValue([]);
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test"]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test"]);
     (sendTransactionalEmail as jest.Mock).mockResolvedValue({ provider: "resend" });
 
     await sendDailyDigest(new Date("2026-08-05T13:00:00.000Z"), {
@@ -247,7 +247,7 @@ describe("sendDailyDigest", () => {
 
   it("records a delivery failure with error details when a send fails", async () => {
     mockGroupBy.mockResolvedValue([]);
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test", "b@landseed.test"]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test", "b@landseed.test"]);
     (sendTransactionalEmail as jest.Mock)
       .mockResolvedValueOnce({ provider: "resend" })
       .mockRejectedValueOnce(new Error("Resend 422: invalid recipient"));
@@ -267,7 +267,7 @@ describe("sendDailyDigest", () => {
 
   it("does not call the delivery-failure logger when every send succeeds", async () => {
     mockGroupBy.mockResolvedValue([]);
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test"]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test"]);
     (sendTransactionalEmail as jest.Mock).mockResolvedValue({ provider: "resend" });
 
     await sendDailyDigest(new Date("2026-08-05T13:00:00.000Z"));
@@ -317,7 +317,7 @@ describe("runCatchUpIfNeeded", () => {
     mockGroupBy.mockResolvedValue([
       { eventType: "RATE_LIMIT_HIT", scope: "login-ip", _count: { _all: 3 } },
     ]);
-    (parseAllowedEmails as jest.Mock).mockReturnValue(["a@landseed.test"]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test"]);
     (sendTransactionalEmail as jest.Mock).mockResolvedValue({ provider: "resend" });
 
     const now = new Date("2026-08-05T14:00:00.000Z");

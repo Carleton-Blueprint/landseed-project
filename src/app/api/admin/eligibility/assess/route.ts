@@ -5,6 +5,7 @@
  */
 
 import { auth } from '@/auth';
+import { HttpError, requireMinimumRole } from '@/backend/auth/requireRole';
 import { hasProjectAccess } from '@/backend/auth/projectAccess';
 import { getRequestAuditContext } from '@/backend/audit/requestContext';
 import { logDeniedAdminAccessAttempt } from '@/backend/audit/adminAccess';
@@ -17,17 +18,24 @@ export async function POST(request: Request) {
   try {
     const session = await auth();
 
-    // Only staff can manually trigger evaluation
-    if (!session?.user?.id) {
+    // Only staff can manually trigger evaluation. Checked live here (not just
+    // via middleware's JWT-cached pre-filter) so a demotion takes effect on
+    // this route immediately — see requireCachedRole.ts for why middleware's
+    // own check isn't authoritative.
+    try {
+      await requireMinimumRole(session, 'ADMIN');
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+
       const auditContext = getRequestAuditContext(request);
       await logDeniedAdminAccessAttempt({
         surface: 'route',
-        actorUserId: null,
+        actorUserId: session?.user?.id ?? null,
         routePath: new URL(request.url).pathname,
         method: request.method,
         resourceType: 'AdminRoute',
         resourceId: '/api/admin/eligibility/assess',
-        reason: 'unauthorized',
+        reason: error.message,
         description: 'Denied access to admin eligibility assessment route',
         ...auditContext,
         metadata: {
@@ -36,7 +44,7 @@ export async function POST(request: Request) {
         },
       });
 
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      return Response.json({ error: error.message }, { status: error.status });
     }
 
     const body = await request.json();
@@ -57,14 +65,14 @@ export async function POST(request: Request) {
     }
 
     const canAssessProject =
-      project.userId === session.user.id ||
-      (await hasProjectAccess(session.user.id, projectId));
+      project.userId === session!.user!.id ||
+      (await hasProjectAccess(session!.user!.id, projectId));
 
     if (!canAssessProject) {
       const auditContext = getRequestAuditContext(request);
       await logDeniedAdminAccessAttempt({
         surface: 'data',
-        actorUserId: session.user.id,
+        actorUserId: session!.user!.id,
         routePath: new URL(request.url).pathname,
         method: request.method,
         resourceType: 'Project',
@@ -106,7 +114,7 @@ export async function POST(request: Request) {
 
     // Evaluate eligibility
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: session!.user!.id },
     });
 
     const result = await evaluateProjectEligibility(project, user ?? undefined);

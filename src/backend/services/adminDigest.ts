@@ -1,8 +1,8 @@
 /**
- * Daily admin digest: summarizes the last 24h for the advisory team —
+ * Daily admin digest: summarizes the last 24h for the admin team —
  * new submissions, requests needing staff action, and the last 24h of
  * SecurityEvent rows (rate-limit hits + alert triggers) — emailed to every
- * ADVISORY_TEAM_EMAILS address. The security-event summary is also the
+ * ADMIN user. The security-event summary is also the
  * AC's "or the admin daily digest" alternative to the immediate
  * per-failure alerts in criticalFailureAlerts.ts.
  *
@@ -13,7 +13,7 @@
  * recorded to AdminDigestDeliveryFailure instead of only being logged.
  */
 import { prisma } from "lib/prisma";
-import { parseAllowedEmails } from "@/backend/auth/requireRole";
+import { getAdminEmails } from "@/backend/auth/requireRole";
 import { sendTransactionalEmail } from "@/backend/services/transactionalEmail";
 
 export interface DigestGroupCount {
@@ -240,11 +240,11 @@ export interface SendDigestOptions {
 }
 
 /**
- * Builds and sends the digest to every allowlisted admin, then records the
- * run (even with zero recipients configured, so a misconfigured
- * ADVISORY_TEAM_EMAILS can't cause runCatchUpIfNeeded to retry forever).
- * Never throws. A build failure is not recorded, so it's correctly picked
- * up as a missed run on the next catch-up check.
+ * Builds and sends the digest to every admin, then records the run (even
+ * with zero recipients, so having no ADMIN users configured can't cause
+ * runCatchUpIfNeeded to retry forever). Never throws. A build failure is
+ * not recorded, so it's correctly picked up as a missed run on the next
+ * catch-up check.
  */
 export async function sendDailyDigest(
   windowEnd: Date = new Date(),
@@ -252,12 +252,12 @@ export async function sendDailyDigest(
 ): Promise<void> {
   try {
     const digest = await buildDailyDigest(windowEnd, options.windowStart);
-    const recipients = parseAllowedEmails();
+    const recipients = await getAdminEmails();
 
     const failures: { recipientEmail: string; errorMessage: string }[] = [];
 
     if (recipients.length === 0) {
-      console.error("No ADVISORY_TEAM_EMAILS configured; cannot send admin daily digest");
+      console.error("No ADMIN users found; cannot send admin daily digest");
     } else {
       const email = renderDigestEmail(digest, options.isCatchUp ?? false);
       await Promise.all(

@@ -1,40 +1,46 @@
 import { Session } from "next-auth";
-
-class HttpError extends Error {
-  status: number;
-  constructor(message: string, status = 403) {
-    super(message);
-    this.status = status;
-  }
-}
-
-/** Exported for callers that need the full allowlist (e.g. listing admins to reset MFA for), not just a single-email check. */
-export function parseAllowedEmails(): string[] {
-  return (process.env.ADVISORY_TEAM_EMAILS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-/**
- * Standalone allowlist check, usable before a Session exists (e.g. inside
- * NextAuth's authorize() callback, which runs pre-session).
- */
-export function isAdvisoryTeamEmail(email: string | null | undefined): boolean {
-  return email ? parseAllowedEmails().includes(email.toLowerCase()) : false;
-}
+import { prisma } from "lib/prisma";
+import { HttpError } from "@/backend/auth/httpError";
 
 /**
  * Determine whether the session user satisfies a minimal role.
  * - USER: any authenticated user
- * - ADMIN: advisory allowlist only
+ * - ADMIN: User.role === "ADMIN" in the DB. This is a live lookup (not
+ *   cached in the session/JWT), so a demotion takes effect on the user's
+ *   very next request rather than waiting for their session to expire.
+ *
+ * Needs Prisma — a Node-only dependency. Do not import this module (or
+ * anything from it) into middleware.ts, which runs on the Edge runtime;
+ * use requireCachedMinimumRole (requireCachedRole.ts) there instead. Every
+ * admin page (admin/layout.tsx) and every /api/admin/** route handler
+ * should still call requireMinimumRole/requireAdminWithMfaEnrolled
+ * directly — middleware's cached check is only a fast preliminary filter,
+ * never the authoritative one.
  */
 export async function hasMinimumRole(session: Session | null | undefined, requiredRole: "USER" | "ADMIN"): Promise<boolean> {
   if (!session?.user?.id) return false;
 
   if (requiredRole === "USER") return true;
 
-  return isAdvisoryTeamEmail(session.user.email);
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { role: true },
+  });
+
+  return user?.role === "ADMIN";
+}
+
+/**
+ * Emails of every DB-backed ADMIN user. Source of truth for "who are the
+ * admins" — used by the daily digest, alert emails, MFA reset eligibility,
+ * and advisory-team notifications.
+ */
+export async function getAdminEmails(): Promise<string[]> {
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN" },
+    select: { email: true },
+  });
+  return admins.map((u) => u.email).filter((email): email is string => Boolean(email));
 }
 
 export async function requireMinimumRole(session: Session | null | undefined, requiredRole: "USER" | "ADMIN") {

@@ -1,7 +1,7 @@
 /**
  * Admin daily digest worker: sends a summary of the last 24h of
- * SecurityEvent rows (rate-limit hits + alert triggers) to every
- * ADVISORY_TEAM_EMAILS address once a day. On startup, checks whether a
+ * SecurityEvent rows (rate-limit hits + alert triggers) to every ADMIN
+ * user once a day. On startup, checks whether a
  * scheduled send was missed while the worker was down (AdminDigestRun
  * table) and if so sends one catch-up summary covering the gap before
  * resuming the normal schedule — see runCatchUpIfNeeded.

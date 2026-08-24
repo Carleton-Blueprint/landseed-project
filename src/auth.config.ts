@@ -8,9 +8,17 @@
  * authorize() and everything it touches — bcrypt, Prisma, audit-log
  * signing, MFA's AES-GCM — none of which the Edge bundler can handle).
  * src/auth.ts spreads this config and adds the real providers on top.
+ *
+ * session.user.role here is a JWT-cached snapshot of User.role taken at
+ * sign-in (jwt callback, below) — not a live DB read. It's only a fast-path
+ * hint for middleware.ts's preliminary filter; it is NOT the authoritative
+ * role check. Every admin page (admin/layout.tsx) and every /api/admin/**
+ * route re-verifies live against the DB via requireMinimumRole
+ * (src/backend/auth/requireRole.ts), so a demotion still takes effect on
+ * the user's very next request there, even though this cached value won't
+ * update until they next sign in.
  */
 import type { NextAuthConfig } from "next-auth";
-import { hasMinimumRole } from "@/backend/auth/requireRole";
 
 export const authConfig: NextAuthConfig = {
   session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
@@ -20,19 +28,24 @@ export const authConfig: NextAuthConfig = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        const u = user as { id: string; name?: string | null; email?: string | null; image?: string | null };
+        const u = user as {
+          id: string;
+          name?: string | null;
+          email?: string | null;
+          image?: string | null;
+          role?: "ADMIN" | "USER";
+        };
         token.id = u.id;
         token.name = u.name;
         token.email = u.email;
+        token.role = u.role ?? "USER";
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user && token.id) {
         (session.user as { id?: string }).id = token.id as string;
-
-        const isAdmin = await hasMinimumRole(session, "ADMIN");
-        session.user.role = isAdmin ? "ADMIN" : "USER";
+        session.user.role = (token.role as "ADMIN" | "USER" | undefined) ?? "USER";
       }
       return session;
     },

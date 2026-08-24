@@ -1,15 +1,9 @@
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import { isAdvisoryTeamEmail, parseAllowedEmails } from "@/backend/auth/requireRole";
 import { MFA_RESET_AUDIT_ACTION, listAdminsWithMfaStatus, resetAdminMfa } from "../mfaReset";
 
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
-}));
-
-jest.mock("@/backend/auth/requireRole", () => ({
-  isAdvisoryTeamEmail: jest.fn(),
-  parseAllowedEmails: jest.fn(),
 }));
 
 jest.mock("lib/prisma", () => ({
@@ -27,7 +21,6 @@ describe("resetAdminMfa", () => {
     user: { findUnique: jest.Mock; findMany: jest.Mock; update: jest.Mock };
   };
   const mockedAudit = logAuditEventNonBlocking as jest.MockedFunction<typeof logAuditEventNonBlocking>;
-  const mockedIsAdvisoryTeamEmail = isAdvisoryTeamEmail as jest.MockedFunction<typeof isAdvisoryTeamEmail>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -52,14 +45,14 @@ describe("resetAdminMfa", () => {
     expect(mockedPrisma.user.update).not.toHaveBeenCalled();
   });
 
-  it("throws TARGET_NOT_AN_ADMIN when the target isn't on the advisory allowlist", async () => {
+  it("throws TARGET_NOT_AN_ADMIN when the target's DB role isn't ADMIN", async () => {
     mockedPrisma.user.findUnique.mockResolvedValue({
       id: "user-2",
       email: "client@example.com",
+      role: "USER",
       mfaEnabled: true,
       mfaEnrolledAt: new Date(),
     });
-    mockedIsAdvisoryTeamEmail.mockReturnValue(false);
 
     await expect(
       resetAdminMfa({ targetUserId: "user-2", actorUserId: "admin-1" })
@@ -72,10 +65,10 @@ describe("resetAdminMfa", () => {
     mockedPrisma.user.findUnique.mockResolvedValue({
       id: "admin-2",
       email: "advisor2@landseed.test",
+      role: "ADMIN",
       mfaEnabled: false,
       mfaEnrolledAt: null,
     });
-    mockedIsAdvisoryTeamEmail.mockReturnValue(true);
 
     await expect(
       resetAdminMfa({ targetUserId: "admin-2", actorUserId: "admin-1" })
@@ -89,10 +82,10 @@ describe("resetAdminMfa", () => {
     mockedPrisma.user.findUnique.mockResolvedValue({
       id: "admin-2",
       email: "advisor2@landseed.test",
+      role: "ADMIN",
       mfaEnabled: true,
       mfaEnrolledAt: enrolledAt,
     });
-    mockedIsAdvisoryTeamEmail.mockReturnValue(true);
     mockedPrisma.user.update.mockResolvedValue({});
 
     const result = await resetAdminMfa({
@@ -136,23 +129,12 @@ describe("listAdminsWithMfaStatus", () => {
   const mockedPrisma = prisma as unknown as {
     user: { findMany: jest.Mock };
   };
-  const mockedParseAllowedEmails = parseAllowedEmails as jest.MockedFunction<typeof parseAllowedEmails>;
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it("returns an empty list when the allowlist is empty", async () => {
-    mockedParseAllowedEmails.mockReturnValue([]);
-
-    const result = await listAdminsWithMfaStatus();
-
-    expect(result).toEqual([]);
-    expect(mockedPrisma.user.findMany).not.toHaveBeenCalled();
-  });
-
-  it("queries users on the allowlist and returns their MFA status", async () => {
-    mockedParseAllowedEmails.mockReturnValue(["admin1@landseed.test", "admin2@landseed.test"]);
+  it("queries users with role ADMIN and returns their MFA status", async () => {
     mockedPrisma.user.findMany.mockResolvedValue([
       { id: "admin-1", email: "admin1@landseed.test", mfaEnabled: true, mfaEnrolledAt: new Date() },
       { id: "admin-2", email: "admin2@landseed.test", mfaEnabled: false, mfaEnrolledAt: null },
@@ -161,11 +143,19 @@ describe("listAdminsWithMfaStatus", () => {
     const result = await listAdminsWithMfaStatus();
 
     expect(mockedPrisma.user.findMany).toHaveBeenCalledWith({
-      where: { email: { in: ["admin1@landseed.test", "admin2@landseed.test"] } },
+      where: { role: "ADMIN" },
       select: { id: true, email: true, mfaEnabled: true, mfaEnrolledAt: true },
       orderBy: { email: "asc" },
     });
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({ id: "admin-1", email: "admin1@landseed.test", mfaEnabled: true });
+  });
+
+  it("returns an empty list when no admins exist", async () => {
+    mockedPrisma.user.findMany.mockResolvedValue([]);
+
+    const result = await listAdminsWithMfaStatus();
+
+    expect(result).toEqual([]);
   });
 });

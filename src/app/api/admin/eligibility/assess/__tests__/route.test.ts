@@ -99,8 +99,28 @@ describe("POST /api/admin/eligibility/assess", () => {
     );
   });
 
+  it("rejects with 403 when the caller's DB role is not ADMIN", async () => {
+    mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
+    prisma.user.findUnique.mockImplementation(() => Promise.resolve({ role: "USER" }));
+
+    const response = await POST(buildJsonRequest({ projectId: "project-1" }));
+
+    expect(response.status).toBe(403);
+    expect(mockedLogDeniedAdminAccessAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        surface: "route",
+        actorUserId: "user-1",
+        routePath: "/api/admin/eligibility/assess",
+        method: "POST",
+        resourceType: "AdminRoute",
+      })
+    );
+    expect(prisma.project.findUnique).not.toHaveBeenCalled();
+  });
+
   it("logs forbidden project access attempts", async () => {
     mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
+    prisma.user.findUnique.mockImplementation(() => Promise.resolve({ role: "ADMIN" }));
     prisma.project.findUnique.mockImplementation(() => Promise.resolve({ id: "project-1", userId: "owner-1" }));
     hasProjectAccess.mockImplementation(() => Promise.resolve(false));
 
@@ -122,6 +142,7 @@ describe("POST /api/admin/eligibility/assess", () => {
 
   it("rejects with 409 when a delayed estimate-generation job is still pending", async () => {
     mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
+    prisma.user.findUnique.mockImplementation(() => Promise.resolve({ role: "ADMIN" }));
     prisma.project.findUnique.mockImplementation(() => Promise.resolve({ id: "project-1", userId: "user-1" }));
     estimateGenerationQueue.getJob.mockImplementation(() =>
       Promise.resolve({ getState: () => Promise.resolve("delayed") })
@@ -135,6 +156,7 @@ describe("POST /api/admin/eligibility/assess", () => {
 
   it("rejects with 409 when the delayed estimate-generation job failed", async () => {
     mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
+    prisma.user.findUnique.mockImplementation(() => Promise.resolve({ role: "ADMIN" }));
     prisma.project.findUnique.mockImplementation(() => Promise.resolve({ id: "project-1", userId: "user-1" }));
     estimateGenerationQueue.getJob.mockImplementation(() =>
       Promise.resolve({ getState: () => Promise.resolve("failed") })
@@ -149,7 +171,11 @@ describe("POST /api/admin/eligibility/assess", () => {
   it("proceeds when no delayed estimate-generation job exists", async () => {
     mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
     prisma.project.findUnique.mockImplementation(() => Promise.resolve({ id: "project-1", userId: "user-1" }));
-    prisma.user.findUnique.mockImplementation(() => Promise.resolve({ id: "user-1" }));
+    prisma.user.findUnique.mockImplementation((args: unknown) =>
+      Promise.resolve(
+        (args as { select?: { role?: boolean } })?.select?.role ? { role: "ADMIN" } : { id: "user-1" }
+      )
+    );
     estimateGenerationQueue.getJob.mockImplementation(() => Promise.resolve(undefined));
     evaluateProjectEligibility.mockImplementation(() => Promise.resolve({ assessmentId: "assessment-1" }));
 
@@ -162,7 +188,11 @@ describe("POST /api/admin/eligibility/assess", () => {
   it("proceeds when the delayed job already completed", async () => {
     mockedAuth.mockImplementation(() => Promise.resolve({ user: { id: "user-1" } }));
     prisma.project.findUnique.mockImplementation(() => Promise.resolve({ id: "project-1", userId: "user-1" }));
-    prisma.user.findUnique.mockImplementation(() => Promise.resolve({ id: "user-1" }));
+    prisma.user.findUnique.mockImplementation((args: unknown) =>
+      Promise.resolve(
+        (args as { select?: { role?: boolean } })?.select?.role ? { role: "ADMIN" } : { id: "user-1" }
+      )
+    );
     estimateGenerationQueue.getJob.mockImplementation(() =>
       Promise.resolve({ getState: () => Promise.resolve("completed") })
     );

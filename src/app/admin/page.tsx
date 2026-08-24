@@ -4,8 +4,6 @@ import { redirectToSignIn } from "lib/auth-redirect";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient";
-import { AdminMfaPanel } from "./AdminMfaPanel";
-import { AdminAlertThresholdsPanel } from "./AdminAlertThresholdsPanel";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
@@ -584,8 +582,31 @@ export default async function AdminDashboardPage() {
 
   return (
     <>
-      <AdminMfaPanel currentUserId={session.user.id} />
-      <AdminAlertThresholdsPanel />
+      <div className="mx-auto max-w-7xl px-6 pt-6 md:px-8">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <a
+            href="/admin/mfa"
+            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
+          >
+            <p className="text-sm font-semibold text-gray-800">Admin MFA Enrollment</p>
+            <p className="mt-1 text-xs text-gray-500">View enrollment status, reset another admin&apos;s MFA.</p>
+          </a>
+          <a
+            href="/admin/alert-thresholds"
+            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
+          >
+            <p className="text-sm font-semibold text-gray-800">Monitoring Alert Thresholds</p>
+            <p className="mt-1 text-xs text-gray-500">Configure failure-count/window alert thresholds.</p>
+          </a>
+          <a
+            href="/admin/users"
+            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
+          >
+            <p className="text-sm font-semibold text-gray-800">Admin Users</p>
+            <p className="mt-1 text-xs text-gray-500">Promote or demote a user&apos;s role.</p>
+          </a>
+        </div>
+      </div>
       <AdminDashboardClient projects={serialized} userName={userName} />
     </>
   );

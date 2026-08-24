@@ -8,7 +8,6 @@ import Credentials from "next-auth/providers/credentials";
 import { prisma } from "lib/prisma";
 import { authConfig } from "@/auth.config";
 import { authorizePasswordCredentials } from "@/backend/auth/passwordCredentials";
-import { isAdvisoryTeamEmail } from "@/backend/auth/requireRole";
 import { MfaRequiredError, MfaInvalidCodeError, MfaLockedError } from "@/backend/auth/mfaSignInErrors";
 import { isMfaLockedOut, logMfaLoginLockout, verifyMfaLoginCode } from "@/backend/services/mfaLogin";
 import { enforceLoginRateLimit } from "@/backend/auth/loginRateLimit";
@@ -35,8 +34,8 @@ const nextAuthResult = NextAuth({
             return null;
           }
 
-          // Only advisory-allowlisted (admin) accounts are subject to MFA.
-          if (!isAdvisoryTeamEmail(user.email)) {
+          // Only admin accounts are subject to MFA.
+          if (user.role !== "ADMIN") {
             return user;
           }
 

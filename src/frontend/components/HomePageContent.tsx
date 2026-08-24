@@ -38,6 +38,29 @@ const BG_STYLES = `
   .anim-fade-up-3 { animation: fade-up 0.55s 0.24s cubic-bezier(.22,1,.36,1) both; }
 `;
 
+/**
+ * Maps signIn()'s `code` (set by the CredentialsSignin subclasses thrown
+ * from authorize() — see rateLimitSignInError.ts, mfaSignInErrors.ts) to a
+ * message that reflects what actually happened. Without this, every
+ * distinct failure (wrong password, rate-limited, MFA invalid/locked)
+ * collapsed into "Incorrect email or password," which is actively
+ * misleading for anything that isn't actually a bad password.
+ * "mfa_required" isn't handled here — SignInFormInner switches to its own
+ * code-entry step for that instead of showing it as an error.
+ */
+function signInErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case "rate_limited":
+      return "Too many sign-in attempts. Please wait a few minutes and try again.";
+    case "mfa_invalid_code":
+      return "That authentication code wasn't valid. Please try again.";
+    case "mfa_locked":
+      return "Too many failed authentication attempts. Please wait a few minutes and try again.";
+    default:
+      return "Incorrect email or password. Please try again.";
+  }
+}
+
 function SignInFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -48,6 +71,8 @@ function SignInFormInner() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -61,9 +86,22 @@ function SignInFormInner() {
         email,
         password,
         callbackUrl,
+        // Only include mfaCode once we're actually asking for one — passing
+        // `mfaCode: undefined` here still ends up serialized as the literal
+        // string "undefined" (next-auth/react builds the POST body with
+        // `new URLSearchParams({ mfaCode: undefined, ... })`, which
+        // stringifies every value), which is truthy server-side and gets
+        // treated as a wrongly-submitted code instead of "no code yet".
+        ...(mfaRequired ? { mfaCode } : {}),
       });
       if (res?.error) {
-        setError("Incorrect email or password. Please try again.");
+        if (res.code === "mfa_required") {
+          // authorize() confirmed the password but needs a TOTP code too —
+          // switch to the code-entry step instead of showing this as an error.
+          setMfaRequired(true);
+        } else {
+          setError(signInErrorMessage(res.code));
+        }
       } else {
         router.push(callbackUrl);
       }
@@ -73,6 +111,12 @@ function SignInFormInner() {
       setIsLoading(false);
     }
   };
+
+  function handleUseDifferentAccount() {
+    setMfaRequired(false);
+    setMfaCode("");
+    setError("");
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" noValidate>
@@ -103,7 +147,8 @@ function SignInFormInner() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="dev-user@example.com"
             required
-            className="h-11 pl-10 pr-4 text-base rounded-xl border-gray-200 bg-white/80 transition-all focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
+            disabled={mfaRequired}
+            className="h-11 pl-10 pr-4 text-base rounded-xl border-gray-200 bg-white/80 transition-all focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
           />
         </div>
       </div>
@@ -126,7 +171,8 @@ function SignInFormInner() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
             required
-            className="h-11 pl-10 pr-11 text-base rounded-xl border-gray-200 bg-white/80 transition-all focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
+            disabled={mfaRequired}
+            className="h-11 pl-10 pr-11 text-base rounded-xl border-gray-200 bg-white/80 transition-all focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
           />
           <button
             type="button"
@@ -142,6 +188,39 @@ function SignInFormInner() {
           </button>
         </div>
       </div>
+
+      {mfaRequired && (
+        <div className="anim-fade-up">
+          <label
+            htmlFor="home-mfa-code"
+            className="mb-1.5 block text-sm font-medium text-gray-600"
+          >
+            Authentication code
+          </label>
+          <Input
+            id="home-mfa-code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={mfaCode}
+            onChange={(e) => setMfaCode(e.target.value)}
+            placeholder="123456"
+            autoFocus
+            required
+            className="h-11 px-4 text-base rounded-xl border-gray-200 bg-white/80 transition-all focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
+          />
+          <p className="mt-1.5 text-xs text-gray-500">
+            Enter the 6-digit code from your authenticator app.{" "}
+            <button
+              type="button"
+              onClick={handleUseDifferentAccount}
+              className="font-medium text-emerald-700 underline-offset-2 hover:underline"
+            >
+              Use a different account
+            </button>
+          </p>
+        </div>
+      )}
 
       {error && (
         <div
@@ -161,11 +240,11 @@ function SignInFormInner() {
         {isLoading ? (
           <>
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            <span>Signing in…</span>
+            <span>{mfaRequired ? "Verifying…" : "Signing in…"}</span>
           </>
         ) : (
           <>
-            <span>Sign In</span>
+            <span>{mfaRequired ? "Verify code" : "Sign In"}</span>
             <ArrowRight className="h-4 w-4" />
           </>
         )}

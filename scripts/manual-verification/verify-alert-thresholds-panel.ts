@@ -4,8 +4,8 @@
  * headless browser — sign in, expand the panel, edit a row, disable a row —
  * and screenshots each step.
  *
- * Requires: `npm run dev` already running and ADVISORY_TEAM_EMAILS
- * containing the sign-in email (see .env). NOTE: the sign-in step below
+ * Requires: `npm run dev` already running and the sign-in user having
+ * role ADMIN in the DB (see User.role). NOTE: the sign-in step below
  * predates the dev auth bypass removal and drives the old name/email-only
  * legacy form at /auth/signin, which now just redirects to `/` — it needs
  * to be updated to fill password on the home page's sign-in form before

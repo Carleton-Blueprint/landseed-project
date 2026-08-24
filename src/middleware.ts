@@ -1,13 +1,18 @@
 import NextAuth from "next-auth";
 import { NextFetchEvent, NextRequest, NextResponse } from "next/server";
 import { authConfig } from "@/auth.config";
-import { requireMinimumRole, HttpError } from "@/backend/auth/requireRole";
+import { requireCachedMinimumRole } from "@/backend/auth/requireCachedRole";
+import { HttpError } from "@/backend/auth/httpError";
 import { queueDeniedAdminAccessAudit } from "@/backend/audit/adminAccessDispatch";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 
 // Edge-safe: built from the providerless authConfig so this Edge middleware
 // never pulls in the Credentials provider's authorize() (bcrypt, Prisma,
 // node:crypto via audit-log signing and MFA's AES-GCM) — see auth.config.ts.
+// requireCachedMinimumRole below reads the JWT-cached role only (also no
+// Prisma) — it's a fast preliminary filter, not the authoritative check.
+// See requireCachedRole.ts and requireRole.ts for the live DB check that
+// every admin page/route performs regardless of what this returns.
 const { auth } = NextAuth(authConfig);
 
 const ADMIN_PATHS = ["/admin", "/api/admin"];
@@ -29,8 +34,9 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   }
 
   try {
-    // Require ADMIN for admin surface
-    await requireMinimumRole(session, "ADMIN");
+    // Require ADMIN for admin surface (JWT-cached fast-path check — see
+    // requireCachedRole.ts; the live/authoritative check happens downstream)
+    requireCachedMinimumRole(session, "ADMIN");
 
     // Forward the current pathname so src/app/admin/layout.tsx (a Node-runtime
     // Server Component, unlike this Edge middleware) can tell whether it's
