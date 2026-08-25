@@ -596,16 +596,16 @@ export interface TriggerBuilderTrendTransferResult {
  * The approval gate: a BuilderTrendTransfer row is created as soon as a
  * quote is accepted (see quote/[id]/respond/route.ts and
  * manualMode.ts), but is only *enqueued* for sending once the project's
- * grant application has been APPROVED — those two triggers race
+ * status has been transitioned to APPROVED — those two triggers race
  * independently, so both directions are covered: quote acceptance enqueues
- * immediately if the grant is already APPROVED by then, and this covers the
+ * immediately if the project is already APPROVED by then, and this covers the
  * case where approval comes after the transfer row already exists. No-ops
  * (not an error) when no transfer exists yet, or when it's already past
  * PENDING (already enqueued/sent/failed) — enqueueBuilderTrendTransfer is
  * itself idempotent per transferId, but this check avoids adding a
- * duplicate audit trail entry for every subsequent grant-status read.
+ * duplicate audit trail entry for every subsequent status read.
  */
-export async function triggerBuilderTrendTransferForApprovedGrant(
+export async function triggerBuilderTrendTransferForApprovedProject(
   projectId: string,
   actorUserId: string
 ): Promise<TriggerBuilderTrendTransferResult> {
@@ -623,7 +623,7 @@ export async function triggerBuilderTrendTransferForApprovedGrant(
 
   await logAuditEventNonBlocking({
     category: "MANUAL_CHANGE",
-    action: "BUILDERTREND_TRANSFER_TRIGGERED_BY_GRANT_APPROVAL",
+    action: "BUILDERTREND_TRANSFER_TRIGGERED_BY_PROJECT_APPROVAL",
     outcome: "SUCCESS",
     sensitivityLevel: "RESTRICTED",
     actorUserId,
@@ -631,7 +631,7 @@ export async function triggerBuilderTrendTransferForApprovedGrant(
     quoteId: transfer.quoteId,
     resourceType: "buildertrend_transfer",
     resourceId: transfer.id,
-    description: "BuilderTrend transfer enqueued now that the grant application has been approved",
+    description: "BuilderTrend transfer enqueued now that the project has been approved",
   });
 
   return { triggered: true, transferId: transfer.id };
@@ -643,16 +643,16 @@ export interface AttachGrantMatchSummaryResult {
 }
 
 /**
- * Eagerly (re)generates the project's Grant Match Summary PDF on grant
- * application approval, so it's already READY by the time the BuilderTrend
- * transfer's attachments are resolved. Since attachments are now resolved
- * fresh from the document tables at send time (see
+ * Eagerly (re)generates the project's Grant Match Summary PDF on project
+ * approval, so it's already READY by the time the BuilderTrend transfer's
+ * attachments are resolved. Since attachments are now resolved fresh from
+ * the document tables at send time (see
  * resolveBuilderTrendTransferAttachments), this no longer needs to patch the
- * transfer's stored payload directly — grant approval and quote acceptance
- * are independent lifecycles with no enforced ordering, and send-time
- * resolution picks up whichever document is READY regardless of which
- * happened first. No transfer yet is not an error: the summary will be
- * picked up naturally whenever the transfer is eventually created and sent.
+ * transfer's stored payload directly — approval and quote acceptance can
+ * happen in either order, and send-time resolution picks up whichever
+ * document is READY regardless of which happened first. No transfer yet is
+ * not an error: the summary will be picked up naturally whenever the
+ * transfer is eventually created and sent.
  */
 export async function attachGrantMatchSummaryToBuilderTrendTransfer(
   projectId: string,

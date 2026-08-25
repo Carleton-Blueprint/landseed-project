@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
-import { ProjectAccessRole } from "@prisma/client";
+import { ProjectAccessRole, ProjectStatus } from "@prisma/client";
 import { z } from "zod";
 
 const EDITABLE_ROLES: ProjectAccessRole[] = [
@@ -48,7 +48,7 @@ export async function GET() {
 
   const draft = await prisma.project.findFirst({
     where: {
-      status: "draft",
+      status: ProjectStatus.DRAFT,
       projectAccess: {
         some: {
           userId: session.user.id,

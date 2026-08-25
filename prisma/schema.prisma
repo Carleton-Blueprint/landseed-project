@@ -22,7 +22,7 @@ model User {
   createdAt                     DateTime                        @default(now())
   updatedAt                     DateTime                        @updatedAt
   auditEvents                   AuditEvent[]
-  grantApplicationStatusHistory GrantApplicationStatusHistory[]
+  projectStatusHistory          ProjectStatusHistory[]
   manualFallbackExports         ManualFallbackExport[]
   notifications                 NotificationDelivery[]
   projects                      Project[]
@@ -46,13 +46,12 @@ model User {
 model Project {
   id                               String                            @id @default(cuid())
   address                          String
-  status                           String                            @default("draft")
+  status                           ProjectStatus                     @default(DRAFT)
   userId                           String
   createdAt                        DateTime                          @default(now())
   updatedAt                        DateTime                          @updatedAt
   draftData                        Json?
   grantDocumentKey                 String?
-  grantApplicationStatus           GrantApplicationStatus            @default(DRAFT)
   isManualMode                     Boolean                           @default(false)
   user                             User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectAccess                    ProjectAccess[]
@@ -66,7 +65,7 @@ model Project {
   eligibilityAssessments           EligibilityAssessment[]
   grantMatchSummaryDocuments       GrantMatchSummaryDocument[]
   estimateDocuments                EstimateDocument[]
-  grantApplicationStatusHistory    GrantApplicationStatusHistory[]
+  statusHistory                    ProjectStatusHistory[]
   notifications                    NotificationDelivery[]
   auditEvents                      AuditEvent[]
   manualReviewFlag                 ProjectManualReviewFlag?
@@ -169,17 +168,17 @@ model AccountDeletionNotice {
   @@index([sentAt])
 }
 
-model GrantApplicationStatusHistory {
-  id              String                  @id @default(cuid())
+model ProjectStatusHistory {
+  id              String         @id @default(cuid())
   projectId       String
-  fromStatus      GrantApplicationStatus?
-  toStatus        GrantApplicationStatus
-  changedAt       DateTime                @default(now())
+  fromStatus      ProjectStatus?
+  toStatus        ProjectStatus
+  changedAt       DateTime       @default(now())
   changedByUserId String
   reason          String?
   metadata        Json?
-  changedByUser   User                    @relation(fields: [changedByUserId], references: [id])
-  project         Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changedByUser   User           @relation(fields: [changedByUserId], references: [id])
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId, changedAt(sort: Desc)])
   @@index([changedByUserId, changedAt(sort: Desc)])
@@ -733,12 +732,20 @@ model GrantSignature {
 
 // ——— Enums ———
 
-enum GrantApplicationStatus {
+enum ProjectStatus {
   DRAFT
   SUBMITTED
-  UNDER_REVIEW
+  ESTIMATE_READY
+  ESTIMATE_EXPIRED
+  ESTIMATE_ACCEPTED
+  ESTIMATE_DECLINED
   APPROVED
   REJECTED
+  WORK_SCHEDULED
+  WORK_IN_PROGRESS
+  WORK_ON_HOLD
+  WORK_COMPLETED
+  WORK_CANCELLED
 }
 
 enum DocumentType {

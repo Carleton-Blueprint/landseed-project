@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  GrantApplicationStatus,
   NotificationEventType,
   Prisma,
   ProjectAccessRole,
+  ProjectStatus,
 } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
@@ -38,8 +38,7 @@ export async function POST(req: NextRequest) {
     const project = await prisma.project.create({
       data: {
         address,
-        status: "draft",
-        grantApplicationStatus: GrantApplicationStatus.DRAFT,
+        status: ProjectStatus.DRAFT,
         userId: session.user.id,
         ...(draftData !== undefined
           ? { draftData: draftData as Prisma.InputJsonValue }
@@ -51,10 +50,10 @@ export async function POST(req: NextRequest) {
             grantedByUserId: session.user.id,
           },
         },
-        grantApplicationStatusHistory: {
+        statusHistory: {
           create: {
             fromStatus: null,
-            toStatus: GrantApplicationStatus.DRAFT,
+            toStatus: ProjectStatus.DRAFT,
             changedByUserId: session.user.id,
             metadata: {
               source: "project_create",

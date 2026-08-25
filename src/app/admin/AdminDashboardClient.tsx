@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import { StaffNotesPanel } from "@/frontend/components/StaffNotesPanel";
 import {
-  GrantStatusPanel,
-  type GrantApplicationStatus,
-  type GrantApplicationStatusHistoryEntry,
-} from "@/frontend/components/GrantStatusPanel";
+  ProjectStatusPanel,
+  type ProjectStatus,
+  type ProjectStatusHistoryEntry,
+} from "@/frontend/components/ProjectStatusPanel";
 import { ProjectAdminDocuments } from "@/app/admin/ProjectAdminDocuments";
 import {
   CheckCircleIcon,
@@ -30,9 +30,8 @@ import {
 export interface SerializedProject {
   id: string;
   address: string;
-  status: string;
-  grantApplicationStatus: GrantApplicationStatus;
-  grantApplicationStatusHistory: GrantApplicationStatusHistoryEntry[];
+  status: ProjectStatus;
+  statusHistory: ProjectStatusHistoryEntry[];
   createdAt: string;
   updatedAt: string;
   modificationType: string;
@@ -117,33 +116,68 @@ export interface SerializedProject {
 /* ================================================================== */
 
 const STATUS_STYLES: Record<string, { label: string; dot: string; badge: string }> = {
-  draft: {
+  DRAFT: {
     label: "Draft",
     dot: "bg-gray-400",
     badge: "border-gray-200 bg-gray-50 text-gray-600",
   },
-  submitted: {
+  SUBMITTED: {
     label: "Submitted",
     dot: "bg-blue-500",
     badge: "border-blue-200 bg-blue-50 text-blue-700",
   },
-  estimate_ready: {
+  ESTIMATE_READY: {
     label: "Estimate Ready",
     dot: "bg-violet-500",
     badge: "border-violet-200 bg-violet-50 text-violet-700",
   },
-  estimate_expired: {
+  ESTIMATE_EXPIRED: {
     label: "Estimate Expired",
     dot: "bg-orange-500",
     badge: "border-orange-200 bg-orange-50 text-orange-700",
   },
-  estimate_accepted: {
+  ESTIMATE_ACCEPTED: {
     label: "Accepted",
     dot: "bg-emerald-500",
     badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
-  estimate_declined: {
+  ESTIMATE_DECLINED: {
     label: "Declined",
+    dot: "bg-red-400",
+    badge: "border-red-200 bg-red-50 text-red-600",
+  },
+  APPROVED: {
+    label: "Approved",
+    dot: "bg-emerald-500",
+    badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  REJECTED: {
+    label: "Rejected",
+    dot: "bg-red-400",
+    badge: "border-red-200 bg-red-50 text-red-600",
+  },
+  WORK_SCHEDULED: {
+    label: "Work Scheduled",
+    dot: "bg-sky-500",
+    badge: "border-sky-200 bg-sky-50 text-sky-700",
+  },
+  WORK_IN_PROGRESS: {
+    label: "Work In Progress",
+    dot: "bg-amber-500",
+    badge: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  WORK_ON_HOLD: {
+    label: "Work On Hold",
+    dot: "bg-orange-500",
+    badge: "border-orange-200 bg-orange-50 text-orange-700",
+  },
+  WORK_COMPLETED: {
+    label: "Work Completed",
+    dot: "bg-emerald-500",
+    badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  WORK_CANCELLED: {
+    label: "Work Cancelled",
     dot: "bg-red-400",
     badge: "border-red-200 bg-red-50 text-red-600",
   },
@@ -170,7 +204,21 @@ const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
   FAILED: { label: "Failed", dot: "bg-red-500" },
 };
 
-type FilterStatus = "all" | "draft" | "submitted" | "estimate_ready" | "estimate_expired" | "estimate_accepted" | "estimate_declined";
+type FilterStatus =
+  | "all"
+  | "DRAFT"
+  | "SUBMITTED"
+  | "ESTIMATE_READY"
+  | "ESTIMATE_EXPIRED"
+  | "ESTIMATE_ACCEPTED"
+  | "ESTIMATE_DECLINED"
+  | "APPROVED"
+  | "REJECTED"
+  | "WORK_SCHEDULED"
+  | "WORK_IN_PROGRESS"
+  | "WORK_ON_HOLD"
+  | "WORK_COMPLETED"
+  | "WORK_CANCELLED";
 
 type SortKey = "newest" | "oldest" | "status" | "estimate_high" | "estimate_low" | "confidence_high" | "confidence_low";
 
@@ -188,12 +236,19 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 ];
 
 const STATUS_RANK: Record<string, number> = {
-  draft: 0,
-  submitted: 1,
-  estimate_ready: 2,
-  estimate_expired: 3,
-  accepted: 4,
-  declined: 5,
+  DRAFT: 0,
+  SUBMITTED: 1,
+  ESTIMATE_READY: 2,
+  ESTIMATE_EXPIRED: 3,
+  ESTIMATE_ACCEPTED: 4,
+  ESTIMATE_DECLINED: 5,
+  APPROVED: 6,
+  REJECTED: 7,
+  WORK_SCHEDULED: 8,
+  WORK_IN_PROGRESS: 9,
+  WORK_ON_HOLD: 10,
+  WORK_COMPLETED: 11,
+  WORK_CANCELLED: 12,
 };
 
 const CONFIDENCE_RANK: Record<string, number> = {
@@ -554,11 +609,11 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
             Transfer & Documents
           </h4>
 
-          {/* Grant Application Status */}
-          <GrantStatusPanel
+          {/* Project Status */}
+          <ProjectStatusPanel
             projectId={project.id}
-            currentStatus={project.grantApplicationStatus}
-            history={project.grantApplicationStatusHistory}
+            currentStatus={project.status}
+            history={project.statusHistory}
           />
 
           {/* BuilderTrend */}
@@ -869,7 +924,7 @@ export function AdminDashboardClient({
 
   /* ---- Stats ---- */
   const totalProjects = projects.length;
-  const pendingReview = projects.filter((p) => p.status === "submitted" || p.status === "draft").length;
+  const pendingReview = projects.filter((p) => p.status === "SUBMITTED" || p.status === "DRAFT").length;
   const withEligibleGrants = projects.filter(
     (p) => p.eligibility?.overallDecision === "ELIGIBLE"
   ).length;
@@ -880,12 +935,19 @@ export function AdminDashboardClient({
 
   const filterButtons: { key: FilterStatus; label: string }[] = [
     { key: "all", label: `All (${totalProjects})` },
-    { key: "draft", label: "Draft" },
-    { key: "submitted", label: "Submitted" },
-    { key: "estimate_ready", label: "Estimate Ready" },
-    { key: "estimate_expired", label: "Estimate Expired" },
-    { key: "estimate_accepted", label: "Accepted" },
-    { key: "estimate_declined", label: "Declined" },
+    { key: "DRAFT", label: "Draft" },
+    { key: "SUBMITTED", label: "Submitted" },
+    { key: "ESTIMATE_READY", label: "Estimate Ready" },
+    { key: "ESTIMATE_EXPIRED", label: "Estimate Expired" },
+    { key: "ESTIMATE_ACCEPTED", label: "Accepted" },
+    { key: "ESTIMATE_DECLINED", label: "Declined" },
+    { key: "APPROVED", label: "Approved" },
+    { key: "REJECTED", label: "Rejected" },
+    { key: "WORK_SCHEDULED", label: "Work Scheduled" },
+    { key: "WORK_IN_PROGRESS", label: "Work In Progress" },
+    { key: "WORK_ON_HOLD", label: "Work On Hold" },
+    { key: "WORK_COMPLETED", label: "Work Completed" },
+    { key: "WORK_CANCELLED", label: "Work Cancelled" },
   ];
 
   return (

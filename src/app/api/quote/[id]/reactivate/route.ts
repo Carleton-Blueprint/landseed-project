@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { NotificationEventType, QuoteStatus } from "@prisma/client";
+import { NotificationEventType, ProjectStatus, QuoteStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
@@ -135,7 +135,7 @@ export async function POST(
       await tx.project.update({
         where: { id: quote.projectId },
         data: {
-          status: "estimate_ready",
+          status: ProjectStatus.ESTIMATE_READY,
         },
       });
 
@@ -159,7 +159,7 @@ export async function POST(
       },
       afterState: {
         quoteStatus: reactivatedQuote.status,
-        projectStatus: "estimate_ready",
+        projectStatus: ProjectStatus.ESTIMATE_READY,
         lastClientActivityAt: reactivatedQuote.lastClientActivityAt,
       },
       ...requestContext,

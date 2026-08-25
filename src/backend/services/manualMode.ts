@@ -461,11 +461,11 @@ export async function generateManualOutputPackage(
     });
     builderTrendTransferId = transfer.id;
 
-    // Approval gate (Ticket 1): only enqueue immediately if the grant application
+    // Approval gate (Ticket 1): only enqueue immediately if the project
     // is already APPROVED by the time staff generate the output package. If
-    // approval comes later, grantApplicationLifecycle.ts's
-    // transitionGrantApplicationStatus enqueues it at that point instead — the
-    // two triggers race independently. Reads grantApplicationStatus fresh, right
+    // approval comes later, projectStatusLifecycle.ts's
+    // transitionProjectStatus enqueues it at that point instead — the
+    // two triggers race independently. Reads status fresh, right
     // here after the transfer row above has committed, rather than reusing the
     // `project` fetched at function entry: real async work (markEstimateReadyForReview,
     // generateAndStoreGrantDocument) already ran in between, so that snapshot could be
@@ -477,10 +477,10 @@ export async function generateManualOutputPackage(
     // lands first, the other side's later read is guaranteed to observe it.
     const currentProject = await prisma.project.findUnique({
       where: { id: project.id },
-      select: { grantApplicationStatus: true },
+      select: { status: true },
     });
 
-    if (currentProject?.grantApplicationStatus === "APPROVED") {
+    if (currentProject?.status === "APPROVED") {
       await enqueueBuilderTrendTransfer(transfer.id);
     }
   } catch (error) {

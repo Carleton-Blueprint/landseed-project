@@ -1,7 +1,7 @@
 import {
-  GrantApplicationStatus,
   Prisma,
   ProjectAccessRole,
+  ProjectStatus,
 } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import type { GuidedData, IntakeData, PromoteIntakeData } from "@/backend/schemas/intakeDraft";
@@ -76,7 +76,7 @@ export async function mergeIntakeDraft(userId: string, input: MergeIntakeDraftIn
 async function findLegacyDraftProject(userId: string) {
   return prisma.project.findFirst({
     where: {
-      status: "draft",
+      status: ProjectStatus.DRAFT,
       draftData: { not: Prisma.DbNull },
       projectAccess: {
         some: {
@@ -134,8 +134,7 @@ async function createShellProject(userId: string) {
   return prisma.project.create({
     data: {
       userId,
-      status: "draft",
-      grantApplicationStatus: GrantApplicationStatus.DRAFT,
+      status: ProjectStatus.DRAFT,
       address: SHELL_PROJECT_ADDRESS,
       projectAccess: {
         create: {
@@ -144,10 +143,10 @@ async function createShellProject(userId: string) {
           grantedByUserId: userId,
         },
       },
-      grantApplicationStatusHistory: {
+      statusHistory: {
         create: {
           fromStatus: null,
-          toStatus: GrantApplicationStatus.DRAFT,
+          toStatus: ProjectStatus.DRAFT,
           changedByUserId: userId,
           metadata: {
             source: "intake_draft_shell",
@@ -168,7 +167,7 @@ export async function ensureShellProject(userId: string) {
       select: { id: true, status: true },
     });
 
-    if (project?.status === "draft") {
+    if (project?.status === ProjectStatus.DRAFT) {
       return { draft, project };
     }
   }
@@ -305,7 +304,7 @@ export async function deleteIntakeDraft(userId: string) {
         select: { status: true },
       });
 
-      if (project?.status === "draft") {
+      if (project?.status === ProjectStatus.DRAFT) {
         await tx.project.delete({ where: { id: draft.projectId } });
       }
     }

@@ -124,7 +124,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     //    and schedules the delayed job instead of quoting inline.
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-1",
-      status: "draft",
+      status: "DRAFT",
       draftData: {},
       quotes: [],
     });
@@ -139,11 +139,11 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     //    on the project's one photo.
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-1",
-      status: "submitted",
+      status: "SUBMITTED",
       quotes: [],
       photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
     });
-    mockedTxProjectFindUnique.mockResolvedValueOnce({ status: "submitted", quotes: [] });
+    mockedTxProjectFindUnique.mockResolvedValueOnce({ status: "SUBMITTED", quotes: [] });
     mockedTxPhotoUpdate.mockResolvedValueOnce({});
     mockedPrisma.photo.findMany.mockResolvedValueOnce([
       { declaredModificationCodes: ["WALK_IN_SHOWER"] },
@@ -161,7 +161,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     //    not the tag that was present at submit time.
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-1",
-      status: "submitted",
+      status: "SUBMITTED",
       photos: [{ declaredModificationCodes: ["WALK_IN_SHOWER"] }],
       quotes: [],
     });
@@ -191,7 +191,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
   it("uses the original intake photo tags when no override happens before the worker runs", async () => {
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-2",
-      status: "draft",
+      status: "DRAFT",
       draftData: {},
       quotes: [],
     });
@@ -202,7 +202,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
 
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-2",
-      status: "submitted",
+      status: "SUBMITTED",
       photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });
@@ -231,7 +231,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     // The delayed job fires first and generates a quote.
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-3",
-      status: "submitted",
+      status: "SUBMITTED",
       photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });
@@ -253,7 +253,7 @@ describe("FR-4.10: delayed estimate generation + pre-estimate override integrati
     // already exists -> must be rejected, not applied.
     mockedPrisma.project.findUnique.mockResolvedValueOnce({
       id: "proj-int-3",
-      status: "estimate_ready",
+      status: "ESTIMATE_READY",
       quotes: [{ id: "quote-int-3" }],
       photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
     });

@@ -10,7 +10,7 @@ import { builderTrendTransferQueue } from "@/backend/queue";
 import {
   processBuilderTrendTransfer,
   triggerManualFallbackForExhaustedTransfer,
-  triggerBuilderTrendTransferForApprovedGrant,
+  triggerBuilderTrendTransferForApprovedProject,
   retryBuilderTrendTransfer,
 } from "../buildertrend";
 
@@ -316,7 +316,7 @@ describe("triggerManualFallbackForExhaustedTransfer", () => {
   });
 });
 
-describe("triggerBuilderTrendTransferForApprovedGrant", () => {
+describe("triggerBuilderTrendTransferForApprovedProject", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
@@ -324,7 +324,7 @@ describe("triggerBuilderTrendTransferForApprovedGrant", () => {
   it("enqueues the PENDING transfer and logs an audit event", async () => {
     mockedBuilderTrendTransferFindFirst.mockResolvedValue({ id: "transfer-1", quoteId: "quote-1" });
 
-    const result = await triggerBuilderTrendTransferForApprovedGrant("project-1", "user-1");
+    const result = await triggerBuilderTrendTransferForApprovedProject("project-1", "user-1");
 
     expect(mockedBuilderTrendTransferFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { projectId: "project-1", status: "PENDING" } })
@@ -336,7 +336,7 @@ describe("triggerBuilderTrendTransferForApprovedGrant", () => {
     );
     expect(mockedAudit).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: "BUILDERTREND_TRANSFER_TRIGGERED_BY_GRANT_APPROVAL",
+        action: "BUILDERTREND_TRANSFER_TRIGGERED_BY_PROJECT_APPROVAL",
         outcome: "SUCCESS",
         actorUserId: "user-1",
         projectId: "project-1",
@@ -350,7 +350,7 @@ describe("triggerBuilderTrendTransferForApprovedGrant", () => {
   it("no-ops when no PENDING transfer exists for the project (none created yet, or already past PENDING)", async () => {
     mockedBuilderTrendTransferFindFirst.mockResolvedValue(null);
 
-    const result = await triggerBuilderTrendTransferForApprovedGrant("project-1", "user-1");
+    const result = await triggerBuilderTrendTransferForApprovedProject("project-1", "user-1");
 
     expect(mockedQueueAdd).not.toHaveBeenCalled();
     expect(mockedAudit).not.toHaveBeenCalled();

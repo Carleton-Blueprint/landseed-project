@@ -72,7 +72,7 @@ describe("DELETE /api/photos/[id]", () => {
       id: "photo-1",
       url: "https://test-account.r2.cloudflarestorage.com/test-bucket/projects/p1/photos/a.jpg",
       projectId: "project-1",
-      project: { status: "submitted" },
+      project: { status: "SUBMITTED" },
     });
 
     const res = await DELETE(buildRequest("http://localhost/api/photos/photo-1"), {
@@ -88,7 +88,7 @@ describe("DELETE /api/photos/[id]", () => {
       id: "photo-1",
       url: "https://test-account.r2.cloudflarestorage.com/test-bucket/projects/p1/photos/a.jpg",
       projectId: "project-1",
-      project: { status: "draft" },
+      project: { status: "DRAFT" },
     });
     (hasProjectAccess as jest.Mock).mockResolvedValue(true);
     (deleteObjectFromS3 as jest.Mock).mockResolvedValue(undefined);
@@ -160,7 +160,7 @@ describe("PATCH /api/photos/[id]", () => {
     (prisma.photo.findUnique as jest.Mock).mockResolvedValue({
       id: "photo-1",
       projectId: "project-1",
-      project: { status: "submitted" },
+      project: { status: "SUBMITTED" },
     });
 
     const res = await PATCH(
@@ -177,7 +177,7 @@ describe("PATCH /api/photos/[id]", () => {
     (prisma.photo.findUnique as jest.Mock).mockResolvedValue({
       id: "photo-1",
       projectId: "project-1",
-      project: { status: "draft" },
+      project: { status: "DRAFT" },
     });
     (hasProjectAccess as jest.Mock).mockResolvedValue(false);
 
@@ -195,7 +195,7 @@ describe("PATCH /api/photos/[id]", () => {
     (prisma.photo.findUnique as jest.Mock).mockResolvedValue({
       id: "photo-1",
       projectId: "project-1",
-      project: { status: "draft" },
+      project: { status: "DRAFT" },
     });
     (hasProjectAccess as jest.Mock).mockResolvedValue(true);
     (prisma.photo.update as jest.Mock).mockResolvedValue({
@@ -226,7 +226,7 @@ describe("PATCH /api/photos/[id]", () => {
     (prisma.photo.findUnique as jest.Mock).mockResolvedValue({
       id: "photo-1",
       projectId: "project-1",
-      project: { status: "draft" },
+      project: { status: "DRAFT" },
     });
     (hasProjectAccess as jest.Mock).mockResolvedValue(true);
     (prisma.photo.update as jest.Mock).mockResolvedValue({

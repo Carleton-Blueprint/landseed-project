@@ -47,12 +47,12 @@ describe("markEstimateReadyForReview", () => {
   it("updates project to estimate_ready and enqueues ESTIMATE_READY notification", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      status: "submitted",
+      status: "SUBMITTED",
       address: "10 Main St",
       user: { id: "user-1", name: "Client A", email: "client@example.com" },
     });
     mockedPrisma.quote.findUnique.mockResolvedValue({ id: "quote-1", projectId: "proj-1" });
-    mockedPrisma.project.update.mockResolvedValue({ id: "proj-1", status: "estimate_ready" });
+    mockedPrisma.project.update.mockResolvedValue({ id: "proj-1", status: "ESTIMATE_READY" });
 
     const result = await markEstimateReadyForReview({
       projectId: "proj-1",
@@ -62,7 +62,7 @@ describe("markEstimateReadyForReview", () => {
 
     expect(mockedPrisma.project.update).toHaveBeenCalledWith({
       where: { id: "proj-1" },
-      data: { status: "estimate_ready" },
+      data: { status: "ESTIMATE_READY" },
     });
     expect(mockedEnqueue).toHaveBeenCalledTimes(1);
     expect(mockedEnqueue).toHaveBeenCalledWith(
@@ -95,12 +95,12 @@ describe("markEstimateReadyForReview", () => {
   it("does not enqueue when recipient email is missing", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      status: "submitted",
+      status: "SUBMITTED",
       address: "10 Main St",
       user: { id: "user-1", name: "Client A", email: null },
     });
     mockedPrisma.quote.findUnique.mockResolvedValue({ id: "quote-1", projectId: "proj-1" });
-    mockedPrisma.project.update.mockResolvedValue({ id: "proj-1", status: "estimate_ready" });
+    mockedPrisma.project.update.mockResolvedValue({ id: "proj-1", status: "ESTIMATE_READY" });
 
     const result = await markEstimateReadyForReview({
       projectId: "proj-1",
@@ -129,7 +129,7 @@ describe("markEstimateReadyForReview", () => {
   it("throws when quote does not belong to project", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      status: "submitted",
+      status: "SUBMITTED",
       address: "10 Main St",
       user: { id: "user-1", name: "Client A", email: "client@example.com" },
     });

@@ -87,8 +87,7 @@ const { getOrGenerateReadyEstimate } = require("@/backend/services/estimateDocum
 const PROJECT_FIXTURE = {
   id: "project-1",
   address: "123 Main St",
-  status: "estimate_accepted",
-  grantApplicationStatus: "APPROVED",
+  status: "APPROVED",
   grantDocumentKey: null,
   draftData: {},
   user: { id: "user-1", name: "Jane Client", email: "jane@example.com" },
@@ -109,7 +108,7 @@ const PROJECT_FIXTURE = {
     },
   ],
   photos: [],
-  grantApplicationStatusHistory: [],
+  statusHistory: [],
 };
 
 function buildRequest(): import("../manualFallbackExport").ManualFallbackExportQueuedRequest {

@@ -26,9 +26,8 @@ jest.mock("next/navigation", () => ({
 const mockProjectWithSubmission: SerializedProject = {
   id: "proj-submission-1",
   address: "100 Senior Way",
-  status: "submitted",
-  grantApplicationStatus: "DRAFT",
-  grantApplicationStatusHistory: [],
+  status: "SUBMITTED",
+  statusHistory: [],
   createdAt: new Date("2026-07-01T10:00:00Z").toISOString(),
   updatedAt: new Date("2026-07-01T10:00:00Z").toISOString(),
   modificationType: "GRAB_BARS",
@@ -76,9 +75,8 @@ const mockProjectWithSubmission: SerializedProject = {
 const mockProjectEmptySubmission: SerializedProject = {
   id: "proj-empty-1",
   address: "200 Empty Rd",
-  status: "draft",
-  grantApplicationStatus: "DRAFT",
-  grantApplicationStatusHistory: [],
+  status: "DRAFT",
+  statusHistory: [],
   createdAt: new Date("2026-07-02T10:00:00Z").toISOString(),
   updatedAt: new Date("2026-07-02T10:00:00Z").toISOString(),
   modificationType: "RAMPS",

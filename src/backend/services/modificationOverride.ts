@@ -9,6 +9,7 @@
  * Operates on per-photo declaredModificationCodes (the source of truth for
  * a project's modification scope) rather than a project-level list.
  */
+import { ProjectStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import {
@@ -165,7 +166,7 @@ export async function overridePreEstimateModifications(
     throw estimateAlreadyGeneratedError();
   }
 
-  if (project.status !== "submitted") {
+  if (project.status !== ProjectStatus.SUBMITTED) {
     throw projectNotSubmittedError();
   }
 
@@ -184,7 +185,7 @@ export async function overridePreEstimateModifications(
       select: { status: true, quotes: { select: { id: true }, take: 1 } },
     });
 
-    if (!current || current.status !== "submitted" || current.quotes.length > 0) {
+    if (!current || current.status !== ProjectStatus.SUBMITTED || current.quotes.length > 0) {
       raceLost = true;
       return;
     }
