@@ -65,7 +65,6 @@ type ManualFallbackProjectSnapshot = {
   id: string;
   address: string;
   status: string;
-  grantApplicationStatus: string;
   grantDocumentKey: string | null;
   draftData: unknown;
   user: {
@@ -94,7 +93,7 @@ type ManualFallbackProjectSnapshot = {
     createdAt: Date;
     updatedAt: Date;
   }>;
-  grantApplicationStatusHistory: Array<{
+  statusHistory: Array<{
     id: string;
     fromStatus: string | null;
     toStatus: string;
@@ -115,7 +114,6 @@ export const MANUAL_FALLBACK_PROJECT_SELECT = {
   id: true,
   address: true,
   status: true,
-  grantApplicationStatus: true,
   grantDocumentKey: true,
   draftData: true,
   user: {
@@ -152,7 +150,7 @@ export const MANUAL_FALLBACK_PROJECT_SELECT = {
       updatedAt: true,
     },
   },
-  grantApplicationStatusHistory: {
+  statusHistory: {
     orderBy: [{ changedAt: "asc" }],
     select: {
       id: true,
@@ -378,7 +376,7 @@ async function buildArchiveForProject(
       counts: {
         quotes: project.quotes.length,
         photos: project.photos.length,
-        grantHistoryEntries: project.grantApplicationStatusHistory.length,
+        statusHistoryEntries: project.statusHistory.length,
       },
       generatedAt: new Date().toISOString(),
     },
@@ -393,7 +391,6 @@ async function buildArchiveForProject(
       id: project.id,
       address: project.address,
       status: project.status,
-      grantApplicationStatus: project.grantApplicationStatus,
       grantDocumentKey: project.grantDocumentKey,
       draftData: project.draftData,
       owner: {
@@ -423,9 +420,9 @@ async function buildArchiveForProject(
     archive,
     "grants.json",
     {
-      grantApplicationStatus: project.grantApplicationStatus,
+      status: project.status,
       grantDocumentKey: project.grantDocumentKey,
-      grantApplicationStatusHistory: project.grantApplicationStatusHistory.map((entry) => ({
+      statusHistory: project.statusHistory.map((entry) => ({
         id: entry.id,
         fromStatus: entry.fromStatus,
         toStatus: entry.toStatus,

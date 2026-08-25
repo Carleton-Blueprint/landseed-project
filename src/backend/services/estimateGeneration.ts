@@ -3,6 +3,7 @@
  * module's queue instead of generating a quote inline, so admins/advisory have
  * a window to override modification type/scope before pricing runs.
  */
+import { ProjectStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
@@ -81,7 +82,7 @@ export async function processScheduledEstimateGeneration(
     return { projectId: project.id, status: "skipped_quote_exists", quoteId: existingQuote.id };
   }
 
-  if (project.status !== "submitted") {
+  if (project.status !== ProjectStatus.SUBMITTED) {
     return { projectId: project.id, status: "skipped_project_not_submitted" };
   }
 

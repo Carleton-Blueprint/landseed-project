@@ -18,6 +18,7 @@
  */
 
 import "dotenv/config";
+import { ProjectStatus } from "@prisma/client";
 import { createVirusScanWorker, aiJobsQueue } from "./index";
 import { prisma } from "lib/prisma";
 import { PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE } from "@/backend/services/photoAnalysis";
@@ -253,7 +254,7 @@ const worker = createVirusScanWorker(async (job) => {
         // clean, unanalyzed photos at promotion time instead; this covers the race where a
         // scan finishes after the project is already promoted. Photos only — documents (grant
         // PDFs, etc.) aren't candidates for modification-type inference.
-        const isPromoted = photo?.project.status !== "draft";
+        const isPromoted = photo?.project.status !== ProjectStatus.DRAFT;
         const isManualMode = photo?.project.isManualMode ?? false;
         if (isManualMode) {
           console.log(`   🛠️  Project ${photo?.project.id} is in manual mode — skipping AI photo analysis for ${photoId}`);

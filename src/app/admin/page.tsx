@@ -55,7 +55,7 @@ export default async function AdminDashboardPage() {
       lastStatusCallbackAt: Date | null; lastManualSyncAt: Date | null;
     };
 
-    const [allDocuments, allQuotes, allAssessments, allGrantStatusHistory] = await Promise.all([
+    const [allDocuments, allQuotes, allAssessments, allStatusHistory] = await Promise.all([
       prisma.document.findMany({
         where: { projectId: { in: projectIds } },
         select: { projectId: true, id: true, documentType: true, reviewStatus: true },
@@ -74,7 +74,7 @@ export default async function AdminDashboardPage() {
         where: { projectId: { in: projectIds }, isLatest: true },
         orderBy: { createdAt: "desc" },
       }),
-      prisma.grantApplicationStatusHistory.findMany({
+      prisma.projectStatusHistory.findMany({
         where: { projectId: { in: projectIds } },
         orderBy: { changedAt: "desc" },
         select: {
@@ -122,11 +122,11 @@ export default async function AdminDashboardPage() {
     for (const t of allTransfers) { if (!transfersByProject.has(t.projectId)) transfersByProject.set(t.projectId, t); }
     const fallbackExportsByProject = new Map<string, (typeof allFallbackExports)[0]>();
     for (const item of allFallbackExports) { if (!fallbackExportsByProject.has(item.projectId)) fallbackExportsByProject.set(item.projectId, item); }
-    const grantStatusHistoryByProject = new Map<string, typeof allGrantStatusHistory>();
-    for (const h of allGrantStatusHistory) {
-      const arr = grantStatusHistoryByProject.get(h.projectId) ?? [];
+    const statusHistoryByProject = new Map<string, typeof allStatusHistory>();
+    for (const h of allStatusHistory) {
+      const arr = statusHistoryByProject.get(h.projectId) ?? [];
       arr.push(h);
-      grantStatusHistoryByProject.set(h.projectId, arr);
+      statusHistoryByProject.set(h.projectId, arr);
     }
 
     serialized = rawProjects.map((p) => {
@@ -135,7 +135,7 @@ export default async function AdminDashboardPage() {
       const latestAssessment = assessmentsByProject.get(p.id) ?? null;
       const latestTransfer = transfersByProject.get(p.id) ?? null;
       const latestFallbackExport = fallbackExportsByProject.get(p.id) ?? null;
-      const grantStatusHistory = grantStatusHistoryByProject.get(p.id) ?? [];
+      const statusHistory = statusHistoryByProject.get(p.id) ?? [];
       const aExtended = latestAssessment as typeof latestAssessment & {
         discoveredGrants?: unknown; discoveryProvider?: string | null;
       } | null;
@@ -155,8 +155,7 @@ export default async function AdminDashboardPage() {
 
       return {
         id: p.id, address: p.address, status: p.status,
-        grantApplicationStatus: p.grantApplicationStatus,
-        grantApplicationStatusHistory: grantStatusHistory.map((h) => ({
+        statusHistory: statusHistory.map((h) => ({
           id: h.id,
           fromStatus: h.fromStatus,
           toStatus: h.toStatus,
@@ -251,9 +250,8 @@ export default async function AdminDashboardPage() {
       {
         id: "proj-101",
         address: "105 Silver Birch Lane (Grab Bars & Safety Rails)",
-        status: "submitted",
-        grantApplicationStatus: "DRAFT",
-        grantApplicationStatusHistory: [],
+        status: "SUBMITTED",
+        statusHistory: [],
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
         updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         modificationType: "GRAB_BARS",
@@ -330,9 +328,8 @@ export default async function AdminDashboardPage() {
       {
         id: "proj-102",
         address: "442 Maplewood Avenue (Wheelchair Ramp Installation)",
-        status: "estimate_ready",
-        grantApplicationStatus: "SUBMITTED",
-        grantApplicationStatusHistory: [
+        status: "ESTIMATE_ACCEPTED",
+        statusHistory: [
           {
             id: "history-102-1",
             fromStatus: null,
@@ -418,9 +415,8 @@ export default async function AdminDashboardPage() {
       {
         id: "proj-103",
         address: "702 Oak Ridge Terrace (Multi-Floor Stair Lift)",
-        status: "draft",
-        grantApplicationStatus: "DRAFT",
-        grantApplicationStatusHistory: [],
+        status: "DRAFT",
+        statusHistory: [],
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         modificationType: "STAIR_LIFT",
@@ -478,9 +474,8 @@ export default async function AdminDashboardPage() {
       {
         id: "proj-104",
         address: "18 Pine Meadows Road (Walk-in Shower Conversion)",
-        status: "estimate_expired",
-        grantApplicationStatus: "UNDER_REVIEW",
-        grantApplicationStatusHistory: [
+        status: "ESTIMATE_EXPIRED",
+        statusHistory: [
           {
             id: "history-104-1",
             fromStatus: null,
@@ -488,14 +483,6 @@ export default async function AdminDashboardPage() {
             changedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 35).toISOString(),
             reason: null,
             changedByName: "Robert Chen",
-          },
-          {
-            id: "history-104-2",
-            fromStatus: "SUBMITTED",
-            toStatus: "UNDER_REVIEW",
-            changedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 32).toISOString(),
-            reason: null,
-            changedByName: "Team Member",
           },
         ],
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 40).toISOString(),
@@ -562,9 +549,8 @@ export default async function AdminDashboardPage() {
       {
         id: "proj-105",
         address: "59 Winding Creek Way (Door Widening & Hallways)",
-        status: "accepted",
-        grantApplicationStatus: "APPROVED",
-        grantApplicationStatusHistory: [
+        status: "WORK_IN_PROGRESS",
+        statusHistory: [
           {
             id: "history-105-1",
             fromStatus: null,
@@ -575,15 +561,7 @@ export default async function AdminDashboardPage() {
           },
           {
             id: "history-105-2",
-            fromStatus: "SUBMITTED",
-            toStatus: "UNDER_REVIEW",
-            changedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
-            reason: null,
-            changedByName: "Team Member",
-          },
-          {
-            id: "history-105-3",
-            fromStatus: "UNDER_REVIEW",
+            fromStatus: "ESTIMATE_ACCEPTED",
             toStatus: "APPROVED",
             changedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
             reason: null,

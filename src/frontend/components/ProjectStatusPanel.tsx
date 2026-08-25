@@ -3,45 +3,63 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export type GrantApplicationStatus = "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED";
+export type ProjectStatus =
+  | "DRAFT"
+  | "SUBMITTED"
+  | "ESTIMATE_READY"
+  | "ESTIMATE_EXPIRED"
+  | "ESTIMATE_ACCEPTED"
+  | "ESTIMATE_DECLINED"
+  | "APPROVED"
+  | "REJECTED"
+  | "WORK_SCHEDULED"
+  | "WORK_IN_PROGRESS"
+  | "WORK_ON_HOLD"
+  | "WORK_COMPLETED"
+  | "WORK_CANCELLED";
 
-export interface GrantApplicationStatusHistoryEntry {
+export interface ProjectStatusHistoryEntry {
   id: string;
-  fromStatus: GrantApplicationStatus | null;
-  toStatus: GrantApplicationStatus;
+  fromStatus: ProjectStatus | null;
+  toStatus: ProjectStatus;
   changedAt: string;
   reason: string | null;
   changedByName: string;
 }
 
-interface GrantStatusPanelProps {
+interface ProjectStatusPanelProps {
   projectId: string;
-  currentStatus: GrantApplicationStatus;
-  history: GrantApplicationStatusHistoryEntry[];
+  currentStatus: ProjectStatus;
+  history: ProjectStatusHistoryEntry[];
 }
 
-const GRANT_STATUS_STYLES: Record<GrantApplicationStatus, { label: string; badge: string }> = {
+const PROJECT_STATUS_STYLES: Record<ProjectStatus, { label: string; badge: string }> = {
   DRAFT: { label: "Draft", badge: "border-gray-200 bg-gray-50 text-gray-600" },
   SUBMITTED: { label: "Submitted", badge: "border-blue-200 bg-blue-50 text-blue-700" },
-  UNDER_REVIEW: { label: "Under Review", badge: "border-amber-200 bg-amber-50 text-amber-700" },
+  ESTIMATE_READY: { label: "Estimate Ready", badge: "border-violet-200 bg-violet-50 text-violet-700" },
+  ESTIMATE_EXPIRED: { label: "Estimate Expired", badge: "border-orange-200 bg-orange-50 text-orange-700" },
+  ESTIMATE_ACCEPTED: { label: "Estimate Accepted", badge: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  ESTIMATE_DECLINED: { label: "Estimate Declined", badge: "border-red-200 bg-red-50 text-red-600" },
   APPROVED: { label: "Approved", badge: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   REJECTED: { label: "Rejected", badge: "border-red-200 bg-red-50 text-red-600" },
+  WORK_SCHEDULED: { label: "Work Scheduled", badge: "border-sky-200 bg-sky-50 text-sky-700" },
+  WORK_IN_PROGRESS: { label: "Work In Progress", badge: "border-amber-200 bg-amber-50 text-amber-700" },
+  WORK_ON_HOLD: { label: "Work On Hold", badge: "border-orange-200 bg-orange-50 text-orange-700" },
+  WORK_COMPLETED: { label: "Work Completed", badge: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  WORK_CANCELLED: { label: "Work Cancelled", badge: "border-red-200 bg-red-50 text-red-600" },
 };
 
-/** Mirrors ALLOWED_TRANSITIONS in src/backend/services/grantApplicationLifecycle.ts.
- * Duplicated here (rather than imported) since that module is server-only. */
-const ALLOWED_TRANSITIONS: Record<GrantApplicationStatus, GrantApplicationStatus[]> = {
-  DRAFT: ["SUBMITTED"],
-  SUBMITTED: ["UNDER_REVIEW", "REJECTED"],
-  UNDER_REVIEW: ["APPROVED", "REJECTED"],
-  APPROVED: [],
-  REJECTED: [],
+/** Mirrors ALLOWED_TRANSITIONS in src/backend/services/projectStatusLifecycle.ts.
+ * Duplicated here (rather than imported) since that module is server-only.
+ * Only ESTIMATE_ACCEPTED has outgoing transitions through this panel — every
+ * other status change (DRAFT→SUBMITTED, the estimate sub-states, WORK_*) is
+ * driven by its own service or by inbound BuilderTrend callbacks, not by an
+ * admin action here. */
+const ALLOWED_TRANSITIONS: Partial<Record<ProjectStatus, ProjectStatus[]>> = {
+  ESTIMATE_ACCEPTED: ["APPROVED", "REJECTED"],
 };
 
-const TRANSITION_BUTTON_STYLES: Record<GrantApplicationStatus, string> = {
-  DRAFT: "border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
-  SUBMITTED: "border-blue-300 bg-white text-blue-700 hover:bg-blue-50",
-  UNDER_REVIEW: "border-amber-300 bg-white text-amber-700 hover:bg-amber-50",
+const TRANSITION_BUTTON_STYLES: Record<"APPROVED" | "REJECTED", string> = {
   APPROVED: "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700",
   REJECTED: "border-red-300 bg-white text-red-700 hover:bg-red-50",
 };
@@ -56,7 +74,7 @@ function fmtDateTime(iso: string) {
   });
 }
 
-export function GrantStatusPanel({ projectId, currentStatus, history }: GrantStatusPanelProps) {
+export function ProjectStatusPanel({ projectId, currentStatus, history }: ProjectStatusPanelProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,10 +82,10 @@ export function GrantStatusPanel({ projectId, currentStatus, history }: GrantSta
   const [rejectionReason, setRejectionReason] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const nextStatuses = ALLOWED_TRANSITIONS[currentStatus];
-  const currentStyle = GRANT_STATUS_STYLES[currentStatus];
+  const nextStatuses = ALLOWED_TRANSITIONS[currentStatus] ?? [];
+  const currentStyle = PROJECT_STATUS_STYLES[currentStatus];
 
-  async function handleTransition(toStatus: GrantApplicationStatus, reason?: string) {
+  async function handleTransition(toStatus: "APPROVED" | "REJECTED", reason?: string) {
     setSubmitting(true);
     setError(null);
     try {
@@ -78,13 +96,13 @@ export function GrantStatusPanel({ projectId, currentStatus, history }: GrantSta
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body?.error ?? "Failed to update grant status");
+        throw new Error(body?.error ?? "Failed to update project status");
       }
       setPendingRejection(false);
       setRejectionReason("");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update grant status");
+      setError(err instanceof Error ? err.message : "Failed to update project status");
     } finally {
       setSubmitting(false);
     }
@@ -93,7 +111,7 @@ export function GrantStatusPanel({ projectId, currentStatus, history }: GrantSta
   return (
     <div className="rounded-md bg-gray-50 p-2.5 space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-gray-700">Grant Application Status</span>
+        <span className="text-xs font-semibold text-gray-700">Project Status</span>
         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${currentStyle.badge}`}>
           {currentStyle.label}
         </span>
@@ -108,7 +126,7 @@ export function GrantStatusPanel({ projectId, currentStatus, history }: GrantSta
                 type="button"
                 disabled={submitting}
                 onClick={() => setPendingRejection(true)}
-                className={`rounded border px-2 py-1 text-[10px] font-medium disabled:opacity-50 ${TRANSITION_BUTTON_STYLES[status]}`}
+                className={`rounded border px-2 py-1 text-[10px] font-medium disabled:opacity-50 ${TRANSITION_BUTTON_STYLES.REJECTED}`}
               >
                 Reject
               </button>
@@ -117,10 +135,10 @@ export function GrantStatusPanel({ projectId, currentStatus, history }: GrantSta
                 key={status}
                 type="button"
                 disabled={submitting}
-                onClick={() => handleTransition(status)}
-                className={`rounded border px-2 py-1 text-[10px] font-medium disabled:opacity-50 ${TRANSITION_BUTTON_STYLES[status]}`}
+                onClick={() => handleTransition("APPROVED")}
+                className={`rounded border px-2 py-1 text-[10px] font-medium disabled:opacity-50 ${TRANSITION_BUTTON_STYLES.APPROVED}`}
               >
-                {submitting ? "Saving..." : `Move to ${GRANT_STATUS_STYLES[status].label}`}
+                {submitting ? "Saving..." : `Move to ${PROJECT_STATUS_STYLES[status].label}`}
               </button>
             )
           )}
@@ -176,8 +194,8 @@ export function GrantStatusPanel({ projectId, currentStatus, history }: GrantSta
               {history.map((entry) => (
                 <li key={entry.id} className="text-[10px] text-gray-500">
                   <span className="font-medium text-gray-700">
-                    {entry.fromStatus ? `${GRANT_STATUS_STYLES[entry.fromStatus].label} → ` : ""}
-                    {GRANT_STATUS_STYLES[entry.toStatus].label}
+                    {entry.fromStatus ? `${PROJECT_STATUS_STYLES[entry.fromStatus].label} → ` : ""}
+                    {PROJECT_STATUS_STYLES[entry.toStatus].label}
                   </span>
                   {" — "}
                   {entry.changedByName}, {fmtDateTime(entry.changedAt)}

@@ -4,7 +4,7 @@
  * PATCH – Update a photo's declared modification tags (draft projects only).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { ProjectAccessRole } from "@prisma/client";
+import { ProjectAccessRole, ProjectStatus } from "@prisma/client";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { prisma } from "lib/prisma";
@@ -54,7 +54,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Photo not found" }, { status: 404 });
     }
 
-    if (photo.project.status !== "draft") {
+    if (photo.project.status !== ProjectStatus.DRAFT) {
       return NextResponse.json(
         { error: "Photos can only be removed from draft projects" },
         { status: 403 }
@@ -139,7 +139,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Photo not found" }, { status: 404 });
     }
 
-    if (photo.project.status !== "draft") {
+    if (photo.project.status !== ProjectStatus.DRAFT) {
       return NextResponse.json(
         { error: "Modification tags can only be edited on draft projects" },
         { status: 403 }

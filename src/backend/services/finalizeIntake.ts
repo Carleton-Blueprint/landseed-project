@@ -1,3 +1,4 @@
+import { ProjectStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { estimateGenerationQueue, aiJobsQueue } from "@/backend/queue";
@@ -109,7 +110,7 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
     };
   }
 
-  if (project.status !== "draft") {
+  if (project.status !== ProjectStatus.DRAFT) {
     const latestQuote = project.quotes[0];
     const quoteData = latestQuote ? toQuoteRangeResult(latestQuote) : null;
 
@@ -127,10 +128,10 @@ export async function finalizeIntake(input: FinalizeIntakeInput): Promise<Finali
     return tx.project.updateMany({
       where: {
         id: project.id,
-        status: "draft",
+        status: ProjectStatus.DRAFT,
       },
       data: {
-        status: "submitted",
+        status: ProjectStatus.SUBMITTED,
       },
     });
   });
