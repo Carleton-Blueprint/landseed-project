@@ -39,15 +39,15 @@ describe("auditLog", () => {
 
   describe("logEligibilityAssessmentCreated", () => {
     it("builds the correct audit event", async () => {
-      const project = { id: "project-1" } as any;
+      const project = { id: "project-1" } as never;
       const assessment = {
         assessmentId: "assessment-1",
         overallDecision: EligibilityDecision.ELIGIBLE,
         programDecisions: { CMHC: EligibilityDecision.ELIGIBLE },
         reasonCodes: ["SOME_CODE"],
         missingRequirements: [],
-      } as any;
-      const performedBy = { id: "user-1" } as any;
+      } as never;
+      const performedBy = { id: "user-1" } as never;
 
       await logEligibilityAssessmentCreated(project, assessment, performedBy);
 
@@ -74,7 +74,7 @@ describe("auditLog", () => {
 
   describe("logEligibilityDecisionChanged", () => {
     it("builds the correct audit event with performedBy provided", async () => {
-      const performedBy = { id: "user-2" } as any;
+      const performedBy = { id: "user-2" } as never;
 
       await logEligibilityDecisionChanged(
         "project-2",
@@ -119,7 +119,7 @@ describe("auditLog", () => {
 
   describe("logEligibilityAssessmentReviewed", () => {
     it("includes notes in description and metadata when provided", async () => {
-      const reviewedBy = { id: "user-4", email: "staff@example.com" } as any;
+      const reviewedBy = { id: "user-4", email: "staff@example.com" } as never;
 
       await logEligibilityAssessmentReviewed(
         "project-4",
@@ -128,7 +128,18 @@ describe("auditLog", () => {
         "Looks good"
       );
 
-      const call = logAuditEventNonBlocking.mock.calls[0][0] as any;
+      const call = logAuditEventNonBlocking.mock.calls[0][0] as {
+      category: string;
+      action: string;
+      outcome: string;
+      sensitivityLevel: string;
+      projectId: string;
+      actorUserId?: string;
+      resourceType: string;
+      resourceId: string;
+      description: string;
+      metadata: { reviewedBy?: string; reviewNotes?: string; timestamp?: string };
+    };
       expect(call.category).toBe("SENSITIVE_ACCESS");
       expect(call.action).toBe("ELIGIBILITY_ASSESSMENT_REVIEWED");
       expect(call.outcome).toBe("SUCCESS");
@@ -144,11 +155,22 @@ describe("auditLog", () => {
     });
 
     it("omits notes suffix in description when notes are not provided", async () => {
-      const reviewedBy = { id: "user-5", email: "staff2@example.com" } as any;
+      const reviewedBy = { id: "user-5", email: "staff2@example.com" } as never;
 
       await logEligibilityAssessmentReviewed("project-5", "assessment-5", reviewedBy);
 
-      const call = logAuditEventNonBlocking.mock.calls[0][0] as any;
+      const call = logAuditEventNonBlocking.mock.calls[0][0] as {
+      category: string;
+      action: string;
+      outcome: string;
+      sensitivityLevel: string;
+      projectId: string;
+      actorUserId?: string;
+      resourceType: string;
+      resourceId: string;
+      description: string;
+      metadata: { reviewedBy?: string; reviewNotes?: string; timestamp?: string };
+    };
       expect(call.description).toBe("Staff reviewed eligibility assessment");
       expect(call.metadata.reviewNotes).toBeUndefined();
     });
@@ -215,7 +237,7 @@ describe("auditLog", () => {
 
   describe("logEligibilityAssessmentError", () => {
     it("builds the correct audit event with performedBy provided", async () => {
-      const performedBy = { id: "user-8" } as any;
+      const performedBy = { id: "user-8" } as never;
 
       await logEligibilityAssessmentError("project-8", "Discovery provider timed out", performedBy);
 

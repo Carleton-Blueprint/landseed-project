@@ -43,6 +43,7 @@ jest.mock("lib/prisma", () => ({
   },
 }));
 
+/* eslint-disable @typescript-eslint/no-require-imports */
 const {
   processBuilderTrendStatusCallback,
   recordBuilderTrendManualSync,

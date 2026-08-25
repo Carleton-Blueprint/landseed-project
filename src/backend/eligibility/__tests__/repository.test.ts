@@ -54,7 +54,7 @@ describe("createEligibilityAssessmentSnapshot", () => {
       }),
     };
 
-    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
 
     const result = await createEligibilityAssessmentSnapshot(baseInput());
 
@@ -71,7 +71,7 @@ describe("createEligibilityAssessmentSnapshot", () => {
       $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([{ id: "assessment-2" }]),
     };
-    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
 
     await createEligibilityAssessmentSnapshot(baseInput());
 
@@ -88,7 +88,7 @@ describe("createEligibilityAssessmentSnapshot", () => {
       $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([{ id: "assessment-3" }]),
     };
-    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
 
     const input = {
       projectId: "project-3",
@@ -131,7 +131,7 @@ describe("createEligibilityAssessmentSnapshot", () => {
       $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([{ id: "assessment-4" }]),
     };
-    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
 
     await createEligibilityAssessmentSnapshot(baseInput());
 
@@ -145,7 +145,7 @@ describe("createEligibilityAssessmentSnapshot", () => {
       $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([]),
     };
-    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
 
     const result = await createEligibilityAssessmentSnapshot(baseInput());
 

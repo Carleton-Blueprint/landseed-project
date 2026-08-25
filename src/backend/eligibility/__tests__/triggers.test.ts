@@ -44,7 +44,7 @@ function buildProject(overrides?: Record<string, unknown>) {
     id: "project-1",
     isManualMode: false,
     ...overrides,
-  } as any;
+  } as never;
 }
 
 describe("triggers", () => {

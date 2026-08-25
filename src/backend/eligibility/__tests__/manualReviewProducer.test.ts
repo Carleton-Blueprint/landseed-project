@@ -40,11 +40,11 @@ const { produceManualReviewFlagJob } = require("../manualReviewProducer") as {
 };
 
 function grant(confidence: "HIGH" | "MEDIUM" | "LOW") {
-  return { confidence } as any;
+  return { confidence };
 }
 
 function baseInput() {
-  return { required: { modificationCodes: [] } } as any;
+  return { required: { modificationCodes: [] } };
 }
 
 describe("produceManualReviewFlagJob", () => {
@@ -99,7 +99,7 @@ describe("produceManualReviewFlagJob", () => {
         reason: "HIGH_COMPLEXITY",
       });
 
-      const input = { some: "input", required: { modificationCodes: [] } } as any;
+      const input = { some: "input", required: { modificationCodes: [] } };
       const result = await produceManualReviewFlagJob(
         "project-3",
         "assessment-3",
@@ -133,7 +133,7 @@ describe("produceManualReviewFlagJob", () => {
     it("passes classifyManualReviewNeed the derived confidence and grant/candidate counts", async () => {
       classifyManualReviewNeed.mockReturnValue({ shouldFlag: false });
 
-      const input = { some: "input", required: { modificationCodes: [] } } as any;
+      const input = { some: "input", required: { modificationCodes: [] } };
       await produceManualReviewFlagJob(
         "project-4",
         "assessment-4",
