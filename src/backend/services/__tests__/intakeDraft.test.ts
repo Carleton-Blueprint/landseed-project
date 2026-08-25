@@ -126,7 +126,7 @@ describe("intakeDraft service", () => {
       });
       (prisma.project.findUnique as jest.Mock).mockResolvedValue({
         id: "project-1",
-        status: "draft",
+        status: "DRAFT",
       });
 
       const result = await ensureShellProject("user-1");
@@ -223,7 +223,7 @@ describe("intakeDraft service", () => {
       (prisma.photo.count as jest.Mock).mockResolvedValueOnce(2).mockResolvedValueOnce(0);
       (prisma.project.findUnique as jest.Mock).mockResolvedValue({
         id: "project-1",
-        status: "draft",
+        status: "DRAFT",
       });
       (prisma.intakeDraft.upsert as jest.Mock).mockResolvedValue({
         id: "draft-1",
@@ -258,7 +258,7 @@ describe("intakeDraft service", () => {
       });
       (prisma.project.findUnique as jest.Mock).mockResolvedValue({
         id: "project-1",
-        status: "draft",
+        status: "DRAFT",
       });
       (prisma.project.update as jest.Mock).mockResolvedValue({ id: "project-1" });
       (finalizeIntake as jest.Mock).mockResolvedValue({
@@ -302,7 +302,7 @@ describe("intakeDraft service", () => {
       (prisma.$transaction as jest.Mock).mockImplementation(async (callback) =>
         callback({
           project: {
-            findUnique: jest.fn().mockResolvedValue({ status: "draft" }),
+            findUnique: jest.fn().mockResolvedValue({ status: "DRAFT" }),
             delete: jest.fn(),
           },
           intakeDraft: {

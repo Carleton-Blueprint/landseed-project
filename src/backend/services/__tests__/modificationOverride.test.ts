@@ -68,7 +68,7 @@ describe("overridePreEstimateModifications", () => {
   it("throws ESTIMATE_ALREADY_GENERATED when a quote already exists", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      status: "estimate_ready",
+      status: "ESTIMATE_READY",
       quotes: [{ id: "quote-1" }],
       photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
     });
@@ -87,7 +87,7 @@ describe("overridePreEstimateModifications", () => {
   it("throws PROJECT_NOT_SUBMITTED when the project is still a draft", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-2",
-      status: "draft",
+      status: "DRAFT",
       quotes: [],
       photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
     });
@@ -106,7 +106,7 @@ describe("overridePreEstimateModifications", () => {
   it("rejects an empty photoModifications array", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-3",
-      status: "submitted",
+      status: "SUBMITTED",
       quotes: [],
       photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
     });
@@ -123,7 +123,7 @@ describe("overridePreEstimateModifications", () => {
   it("rejects a photoId that doesn't belong to the project", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-4",
-      status: "submitted",
+      status: "SUBMITTED",
       quotes: [],
       photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
     });
@@ -142,7 +142,7 @@ describe("overridePreEstimateModifications", () => {
   it("rejects duplicate photoIds in the same request", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-4b",
-      status: "submitted",
+      status: "SUBMITTED",
       quotes: [],
       photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
     });
@@ -162,7 +162,7 @@ describe("overridePreEstimateModifications", () => {
   it("rejects unrecognized modification codes", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-5",
-      status: "submitted",
+      status: "SUBMITTED",
       quotes: [],
       photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
     });
@@ -181,14 +181,14 @@ describe("overridePreEstimateModifications", () => {
   it("updates photo tags, writes a per-photo audit trail, and queues re-evaluation", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-6",
-      status: "submitted",
+      status: "SUBMITTED",
       quotes: [],
       photos: [
         { id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] },
         { id: "photo-2", declaredModificationCodes: [] },
       ],
     });
-    mockedTxProjectFindUnique.mockResolvedValue({ status: "submitted", quotes: [] });
+    mockedTxProjectFindUnique.mockResolvedValue({ status: "SUBMITTED", quotes: [] });
     mockedTxPhotoUpdate.mockResolvedValue({});
     mockedPrisma.photo.findMany.mockResolvedValue([
       { declaredModificationCodes: ["WALK_IN_SHOWER"] },
@@ -276,16 +276,16 @@ describe("overridePreEstimateModifications", () => {
       mockedPrisma.project.findUnique
         .mockResolvedValueOnce({
           id: "proj-7",
-          status: "submitted",
+          status: "SUBMITTED",
           quotes: [],
           photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
         })
         .mockResolvedValueOnce({
-          status: "estimate_ready",
+          status: "ESTIMATE_READY",
           quotes: [{ id: "quote-raced-in" }],
         });
       mockedTxProjectFindUnique.mockResolvedValue({
-        status: "estimate_ready",
+        status: "ESTIMATE_READY",
         quotes: [{ id: "quote-raced-in" }],
       });
 
@@ -306,12 +306,12 @@ describe("overridePreEstimateModifications", () => {
       mockedPrisma.project.findUnique
         .mockResolvedValueOnce({
           id: "proj-8",
-          status: "submitted",
+          status: "SUBMITTED",
           quotes: [],
           photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
         })
-        .mockResolvedValueOnce({ status: "draft", quotes: [] });
-      mockedTxProjectFindUnique.mockResolvedValue({ status: "draft", quotes: [] });
+        .mockResolvedValueOnce({ status: "DRAFT", quotes: [] });
+      mockedTxProjectFindUnique.mockResolvedValue({ status: "DRAFT", quotes: [] });
 
       await expect(
         overridePreEstimateModifications({

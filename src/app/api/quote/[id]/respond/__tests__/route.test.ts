@@ -104,7 +104,7 @@ function buildQuoteRecord(
     total: number;
     estimateMin: number | null;
     estimateMax: number | null;
-    grantApplicationStatus: string;
+    status: string;
   }> = {}
 ) {
   return {
@@ -119,11 +119,10 @@ function buildQuoteRecord(
     project: {
       id: "proj-1",
       address: "123 Main St",
-      status: "estimate_ready",
       // Defaults to APPROVED so existing tests exercise tier/payload behavior
       // without also having to think about the BuilderTrend approval gate —
       // see the dedicated "approval gate" tests below for that.
-      grantApplicationStatus: overrides.grantApplicationStatus ?? "APPROVED",
+      status: overrides.status ?? "APPROVED",
       draftData: { modificationItems: ["walk_in_shower"] },
       projectAccess: [{ userId: "user-1" }],
       user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
@@ -156,7 +155,7 @@ describe("POST /api/quote/[id]/respond", () => {
     mockedAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
     // Fresh post-commit read for the approval gate (see route.ts) — defaults to
     // APPROVED to match buildQuoteRecord's default, overridden per test below.
-    mockedPrisma.project.findUnique.mockResolvedValue({ grantApplicationStatus: "APPROVED" });
+    mockedPrisma.project.findUnique.mockResolvedValue({ status: "APPROVED" });
   });
 
   afterAll(() => {
@@ -245,11 +244,11 @@ describe("POST /api/quote/[id]/respond", () => {
     expect(payload.totalEstimate).toBe(500);
   });
 
-  it("approval gate: does not enqueue the transfer when the grant application isn't APPROVED yet", async () => {
+  it("approval gate: does not enqueue the transfer when the project isn't APPROVED yet", async () => {
     mockedPrisma.quote.findUnique.mockResolvedValue(
-      buildQuoteRecord(buildEstimate(500), { grantApplicationStatus: "UNDER_REVIEW" })
+      buildQuoteRecord(buildEstimate(500), { status: "ESTIMATE_ACCEPTED" })
     );
-    mockedPrisma.project.findUnique.mockResolvedValue({ grantApplicationStatus: "UNDER_REVIEW" });
+    mockedPrisma.project.findUnique.mockResolvedValue({ status: "ESTIMATE_ACCEPTED" });
 
     const txMock = makeTxMock([
       [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],
@@ -265,11 +264,11 @@ describe("POST /api/quote/[id]/respond", () => {
     expect(mockedEnqueue).not.toHaveBeenCalled();
   });
 
-  it("approval gate: enqueues immediately when the grant application is already APPROVED", async () => {
+  it("approval gate: enqueues immediately when the project is already APPROVED", async () => {
     mockedPrisma.quote.findUnique.mockResolvedValue(
-      buildQuoteRecord(buildEstimate(500), { grantApplicationStatus: "APPROVED" })
+      buildQuoteRecord(buildEstimate(500), { status: "APPROVED" })
     );
-    mockedPrisma.project.findUnique.mockResolvedValue({ grantApplicationStatus: "APPROVED" });
+    mockedPrisma.project.findUnique.mockResolvedValue({ status: "APPROVED" });
 
     const txMock = makeTxMock([
       [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],
@@ -287,12 +286,12 @@ describe("POST /api/quote/[id]/respond", () => {
 
   it("approval gate: enqueues based on a fresh post-commit read, not the pre-transaction snapshot (closes the race where approval lands mid-request)", async () => {
     // Simulates the exact race: the initial quote/project fetch (T0) is still
-    // UNDER_REVIEW, but by the time the fresh gate check runs (after the transfer
-    // row commits), a concurrent admin approval has already landed.
+    // ESTIMATE_ACCEPTED, but by the time the fresh gate check runs (after the
+    // transfer row commits), a concurrent admin approval has already landed.
     mockedPrisma.quote.findUnique.mockResolvedValue(
-      buildQuoteRecord(buildEstimate(500), { grantApplicationStatus: "UNDER_REVIEW" })
+      buildQuoteRecord(buildEstimate(500), { status: "ESTIMATE_ACCEPTED" })
     );
-    mockedPrisma.project.findUnique.mockResolvedValue({ grantApplicationStatus: "APPROVED" });
+    mockedPrisma.project.findUnique.mockResolvedValue({ status: "APPROVED" });
 
     const txMock = makeTxMock([
       [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],

@@ -1,23 +1,18 @@
-import { GrantApplicationStatus } from "@prisma/client";
+import { ProjectStatus } from "@prisma/client";
 import {
-  GrantLifecycleTransitionError,
-  isValidGrantApplicationStatus,
-  transitionGrantApplicationStatus,
-} from "../grantApplicationLifecycle";
-import { hasProjectAccess } from "@/backend/auth/projectAccess";
+  ProjectStatusTransitionError,
+  isValidProjectStatus,
+  transitionProjectStatus,
+} from "../projectStatusLifecycle";
 import {
   attachGrantMatchSummaryToBuilderTrendTransfer,
-  triggerBuilderTrendTransferForApprovedGrant,
+  triggerBuilderTrendTransferForApprovedProject,
 } from "@/backend/integrations/buildertrend";
 import { prisma } from "lib/prisma";
 
-jest.mock("@/backend/auth/projectAccess", () => ({
-  hasProjectAccess: jest.fn(),
-}));
-
 jest.mock("@/backend/integrations/buildertrend", () => ({
   attachGrantMatchSummaryToBuilderTrendTransfer: jest.fn(),
-  triggerBuilderTrendTransferForApprovedGrant: jest.fn(),
+  triggerBuilderTrendTransferForApprovedProject: jest.fn(),
 }));
 
 jest.mock("lib/prisma", () => ({
@@ -29,10 +24,9 @@ jest.mock("lib/prisma", () => ({
   },
 }));
 
-describe("grantApplicationLifecycle", () => {
-  const mockedHasProjectAccess = hasProjectAccess as jest.MockedFunction<typeof hasProjectAccess>;
+describe("projectStatusLifecycle", () => {
   const mockedAttachGrantMatchSummary = attachGrantMatchSummaryToBuilderTrendTransfer as jest.Mock;
-  const mockedTriggerBuilderTrendTransfer = triggerBuilderTrendTransferForApprovedGrant as jest.Mock;
+  const mockedTriggerBuilderTrendTransfer = triggerBuilderTrendTransferForApprovedProject as jest.Mock;
   const mockedPrisma = prisma as unknown as {
     project: {
       findUnique: jest.Mock;
@@ -47,20 +41,18 @@ describe("grantApplicationLifecycle", () => {
   });
 
   it("validates known status values", () => {
-    expect(isValidGrantApplicationStatus("DRAFT")).toBe(true);
-    expect(isValidGrantApplicationStatus("APPROVED")).toBe(true);
-    expect(isValidGrantApplicationStatus("INVALID")).toBe(false);
-    expect(isValidGrantApplicationStatus(123)).toBe(false);
+    expect(isValidProjectStatus("DRAFT")).toBe(true);
+    expect(isValidProjectStatus("APPROVED")).toBe(true);
+    expect(isValidProjectStatus("INVALID")).toBe(false);
+    expect(isValidProjectStatus(123)).toBe(false);
   });
 
-  it("rejects when user has no editor access", async () => {
-    mockedHasProjectAccess.mockResolvedValue(false);
-
+  it("rejects when isAdmin is not true", async () => {
     await expect(
-      transitionGrantApplicationStatus({
+      transitionProjectStatus({
         projectId: "proj-1",
         actorUserId: "user-1",
-        toStatus: GrantApplicationStatus.SUBMITTED,
+        toStatus: ProjectStatus.APPROVED,
       })
     ).rejects.toMatchObject({
       code: "FORBIDDEN",
@@ -68,14 +60,12 @@ describe("grantApplicationLifecycle", () => {
     });
   });
 
-  it("rejects an admin flag of false the same as a non-admin with no editor access", async () => {
-    mockedHasProjectAccess.mockResolvedValue(false);
-
+  it("rejects an admin flag of false the same as no admin flag at all", async () => {
     await expect(
-      transitionGrantApplicationStatus({
+      transitionProjectStatus({
         projectId: "proj-1",
         actorUserId: "user-1",
-        toStatus: GrantApplicationStatus.SUBMITTED,
+        toStatus: ProjectStatus.APPROVED,
         isAdmin: false,
       })
     ).rejects.toMatchObject({
@@ -84,46 +74,18 @@ describe("grantApplicationLifecycle", () => {
     });
   });
 
-  it("allows an admin with no ProjectAccess row to transition status", async () => {
-    mockedHasProjectAccess.mockResolvedValue(false);
-    mockedPrisma.project.findUnique.mockResolvedValue({
-      id: "proj-1",
-      grantApplicationStatus: GrantApplicationStatus.DRAFT,
-    });
-
-    const changedAt = new Date("2026-04-13T12:00:00.000Z");
-    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
-      const tx = {
-        project: { update: jest.fn().mockResolvedValue({}) },
-        grantApplicationStatusHistory: {
-          create: jest.fn().mockResolvedValue({ id: "history-admin", changedAt }),
-        },
-      };
-      return callback(tx);
-    });
-
-    const result = await transitionGrantApplicationStatus({
-      projectId: "proj-1",
-      actorUserId: "admin-1",
-      toStatus: GrantApplicationStatus.SUBMITTED,
-      isAdmin: true,
-    });
-
-    expect(result).toMatchObject({ toStatus: GrantApplicationStatus.SUBMITTED });
-  });
-
   it("rejects invalid transition matrix path", async () => {
-    mockedHasProjectAccess.mockResolvedValue(true);
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      grantApplicationStatus: GrantApplicationStatus.DRAFT,
+      status: ProjectStatus.SUBMITTED,
     });
 
     await expect(
-      transitionGrantApplicationStatus({
+      transitionProjectStatus({
         projectId: "proj-1",
-        actorUserId: "user-1",
-        toStatus: GrantApplicationStatus.APPROVED,
+        actorUserId: "admin-1",
+        toStatus: ProjectStatus.APPROVED,
+        isAdmin: true,
       })
     ).rejects.toMatchObject({
       code: "INVALID_TRANSITION",
@@ -132,17 +94,17 @@ describe("grantApplicationLifecycle", () => {
   });
 
   it("requires a reason when transitioning to rejected", async () => {
-    mockedHasProjectAccess.mockResolvedValue(true);
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      grantApplicationStatus: GrantApplicationStatus.SUBMITTED,
+      status: ProjectStatus.ESTIMATE_ACCEPTED,
     });
 
     await expect(
-      transitionGrantApplicationStatus({
+      transitionProjectStatus({
         projectId: "proj-1",
-        actorUserId: "user-1",
-        toStatus: GrantApplicationStatus.REJECTED,
+        actorUserId: "admin-1",
+        toStatus: ProjectStatus.REJECTED,
+        isAdmin: true,
       })
     ).rejects.toMatchObject({
       code: "INVALID_REASON",
@@ -151,10 +113,9 @@ describe("grantApplicationLifecycle", () => {
   });
 
   it("returns transition payload on valid transition", async () => {
-    mockedHasProjectAccess.mockResolvedValue(true);
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      grantApplicationStatus: GrantApplicationStatus.DRAFT,
+      status: ProjectStatus.ESTIMATE_ACCEPTED,
     });
 
     const changedAt = new Date("2026-04-13T12:00:00.000Z");
@@ -163,7 +124,7 @@ describe("grantApplicationLifecycle", () => {
         project: {
           update: jest.fn().mockResolvedValue({}),
         },
-        grantApplicationStatusHistory: {
+        projectStatusHistory: {
           create: jest.fn().mockResolvedValue({
             id: "history-1",
             changedAt,
@@ -173,19 +134,21 @@ describe("grantApplicationLifecycle", () => {
       return callback(tx);
     });
 
-    const result = await transitionGrantApplicationStatus({
+    const result = await transitionProjectStatus({
       projectId: "proj-1",
-      actorUserId: "user-1",
-      toStatus: GrantApplicationStatus.SUBMITTED,
+      actorUserId: "admin-1",
+      toStatus: ProjectStatus.REJECTED,
+      reason: "Ineligible after review",
+      isAdmin: true,
       metadata: { source: "test" },
     });
 
     expect(result).toEqual({
       projectId: "proj-1",
-      fromStatus: GrantApplicationStatus.DRAFT,
-      toStatus: GrantApplicationStatus.SUBMITTED,
+      fromStatus: ProjectStatus.ESTIMATE_ACCEPTED,
+      toStatus: ProjectStatus.REJECTED,
       changedAt,
-      changedByUserId: "user-1",
+      changedByUserId: "admin-1",
       historyId: "history-1",
     });
     expect(mockedAttachGrantMatchSummary).not.toHaveBeenCalled();
@@ -193,64 +156,63 @@ describe("grantApplicationLifecycle", () => {
   });
 
   it("attaches the grant match summary to BuilderTrend when transitioning to APPROVED", async () => {
-    mockedHasProjectAccess.mockResolvedValue(true);
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      grantApplicationStatus: GrantApplicationStatus.UNDER_REVIEW,
+      status: ProjectStatus.ESTIMATE_ACCEPTED,
     });
 
     const changedAt = new Date("2026-04-13T12:00:00.000Z");
     mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         project: { update: jest.fn().mockResolvedValue({}) },
-        grantApplicationStatusHistory: {
+        projectStatusHistory: {
           create: jest.fn().mockResolvedValue({ id: "history-2", changedAt }),
         },
       };
       return callback(tx);
     });
 
-    await transitionGrantApplicationStatus({
+    await transitionProjectStatus({
       projectId: "proj-1",
-      actorUserId: "user-1",
-      toStatus: GrantApplicationStatus.APPROVED,
+      actorUserId: "admin-1",
+      toStatus: ProjectStatus.APPROVED,
+      isAdmin: true,
     });
 
-    expect(mockedAttachGrantMatchSummary).toHaveBeenCalledWith("proj-1", "user-1");
+    expect(mockedAttachGrantMatchSummary).toHaveBeenCalledWith("proj-1", "admin-1");
   });
 
   it("triggers (enqueues) the BuilderTrend transfer when transitioning to APPROVED", async () => {
-    mockedHasProjectAccess.mockResolvedValue(true);
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      grantApplicationStatus: GrantApplicationStatus.UNDER_REVIEW,
+      status: ProjectStatus.ESTIMATE_ACCEPTED,
     });
 
     const changedAt = new Date("2026-04-13T12:00:00.000Z");
     mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         project: { update: jest.fn().mockResolvedValue({}) },
-        grantApplicationStatusHistory: {
+        projectStatusHistory: {
           create: jest.fn().mockResolvedValue({ id: "history-2b", changedAt }),
         },
       };
       return callback(tx);
     });
 
-    await transitionGrantApplicationStatus({
+    await transitionProjectStatus({
       projectId: "proj-1",
-      actorUserId: "user-1",
-      toStatus: GrantApplicationStatus.APPROVED,
+      actorUserId: "admin-1",
+      toStatus: ProjectStatus.APPROVED,
+      isAdmin: true,
     });
 
-    expect(mockedTriggerBuilderTrendTransfer).toHaveBeenCalledWith("proj-1", "user-1");
+    expect(mockedTriggerBuilderTrendTransfer).toHaveBeenCalledWith("proj-1", "admin-1");
   });
 
   it("does not fail the approval when the BuilderTrend attachment call rejects", async () => {
-    mockedHasProjectAccess.mockResolvedValue(true);
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      grantApplicationStatus: GrantApplicationStatus.UNDER_REVIEW,
+      status: ProjectStatus.ESTIMATE_ACCEPTED,
     });
     mockedAttachGrantMatchSummary.mockRejectedValue(new Error("BuilderTrend transfer lookup failed"));
 
@@ -258,7 +220,7 @@ describe("grantApplicationLifecycle", () => {
     mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         project: { update: jest.fn().mockResolvedValue({}) },
-        grantApplicationStatusHistory: {
+        projectStatusHistory: {
           create: jest.fn().mockResolvedValue({ id: "history-3", changedAt }),
         },
       };
@@ -266,19 +228,19 @@ describe("grantApplicationLifecycle", () => {
     });
 
     await expect(
-      transitionGrantApplicationStatus({
+      transitionProjectStatus({
         projectId: "proj-1",
-        actorUserId: "user-1",
-        toStatus: GrantApplicationStatus.APPROVED,
+        actorUserId: "admin-1",
+        toStatus: ProjectStatus.APPROVED,
+        isAdmin: true,
       })
-    ).resolves.toMatchObject({ toStatus: GrantApplicationStatus.APPROVED });
+    ).resolves.toMatchObject({ toStatus: ProjectStatus.APPROVED });
   });
 
   it("does not fail the approval when the BuilderTrend trigger call rejects", async () => {
-    mockedHasProjectAccess.mockResolvedValue(true);
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      grantApplicationStatus: GrantApplicationStatus.UNDER_REVIEW,
+      status: ProjectStatus.ESTIMATE_ACCEPTED,
     });
     mockedTriggerBuilderTrendTransfer.mockRejectedValue(new Error("Enqueue failed"));
 
@@ -286,7 +248,7 @@ describe("grantApplicationLifecycle", () => {
     mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         project: { update: jest.fn().mockResolvedValue({}) },
-        grantApplicationStatusHistory: {
+        projectStatusHistory: {
           create: jest.fn().mockResolvedValue({ id: "history-4", changedAt }),
         },
       };
@@ -294,16 +256,17 @@ describe("grantApplicationLifecycle", () => {
     });
 
     await expect(
-      transitionGrantApplicationStatus({
+      transitionProjectStatus({
         projectId: "proj-1",
-        actorUserId: "user-1",
-        toStatus: GrantApplicationStatus.APPROVED,
+        actorUserId: "admin-1",
+        toStatus: ProjectStatus.APPROVED,
+        isAdmin: true,
       })
-    ).resolves.toMatchObject({ toStatus: GrantApplicationStatus.APPROVED });
+    ).resolves.toMatchObject({ toStatus: ProjectStatus.APPROVED });
   });
 
   it("exposes structured lifecycle errors", () => {
-    const error = new GrantLifecycleTransitionError("x", 400, "NO_OP_TRANSITION");
+    const error = new ProjectStatusTransitionError("x", 400, "NO_OP_TRANSITION");
     expect(error.code).toBe("NO_OP_TRANSITION");
     expect(error.statusCode).toBe(400);
   });

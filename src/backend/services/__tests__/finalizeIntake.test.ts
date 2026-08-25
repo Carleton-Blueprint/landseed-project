@@ -99,7 +99,7 @@ describe("finalizeIntake", () => {
   it("returns an existing quote range for an already finalized project", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-2",
-      status: "submitted",
+      status: "SUBMITTED",
       draftData: null,
       quotes: [
         {
@@ -138,7 +138,7 @@ describe("finalizeIntake", () => {
   it("transitions draft project to submitted and schedules delayed estimate generation", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-3",
-      status: "draft",
+      status: "DRAFT",
       draftData: {
         modificationItems: ["Grab bars"],
       },
@@ -192,7 +192,7 @@ describe("finalizeIntake", () => {
   it("queues photo analysis for clean, unanalyzed photos on finalize (deferred pre-promotion uploads)", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-6",
-      status: "draft",
+      status: "DRAFT",
       draftData: {
         modificationItems: ["Grab bars"],
       },
@@ -222,7 +222,7 @@ describe("finalizeIntake", () => {
   it("queues image generation for clean, ungenerated photos on finalize (deferred pre-promotion uploads)", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-8",
-      status: "draft",
+      status: "DRAFT",
       draftData: { modificationItems: ["Grab bars"] },
       quotes: [],
     });
@@ -256,7 +256,7 @@ describe("finalizeIntake", () => {
   it("returns already_finalized when another request wins the draft-to-submitted race", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-5",
-      status: "draft",
+      status: "DRAFT",
       draftData: {
         modificationItems: ["Grab bars"],
       },

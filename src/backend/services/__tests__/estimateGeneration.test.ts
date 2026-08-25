@@ -110,7 +110,7 @@ describe("processScheduledEstimateGeneration", () => {
   it("skips generation when a quote already exists (idempotency)", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      status: "submitted",
+      status: "SUBMITTED",
       photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [{ id: "quote-existing" }],
     });
@@ -138,7 +138,7 @@ describe("processScheduledEstimateGeneration", () => {
   it("skips generation when the project is no longer submitted", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-2",
-      status: "draft",
+      status: "DRAFT",
       photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });
@@ -152,7 +152,7 @@ describe("processScheduledEstimateGeneration", () => {
   it("generates a quote from the current declared modification codes and marks estimate ready", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-3",
-      status: "submitted",
+      status: "SUBMITTED",
       photos: [{ declaredModificationCodes: ["WALK_IN_SHOWER"] }],
       quotes: [],
     });
@@ -213,7 +213,7 @@ describe("processScheduledEstimateGeneration", () => {
   it("still queues eligibility evaluation and rethrows when quote generation fails", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-4",
-      status: "submitted",
+      status: "SUBMITTED",
       photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });

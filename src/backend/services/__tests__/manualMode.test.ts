@@ -67,7 +67,7 @@ describe("generateManualOutputPackage", () => {
       // Defaults to APPROVED so existing tests exercise output-package
       // generation without also having to think about the BuilderTrend
       // approval gate — see the dedicated "approval gate" tests below for that.
-      grantApplicationStatus: "APPROVED",
+      status: "APPROVED",
       user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
       manualModeSubmission: {
         id: "submission-1",
@@ -136,11 +136,11 @@ describe("generateManualOutputPackage", () => {
     );
   });
 
-  it("approval gate: creates the transfer but does not enqueue it when the grant application isn't APPROVED yet", async () => {
+  it("approval gate: creates the transfer but does not enqueue it when the project isn't APPROVED yet", async () => {
     mockedProjectFindUnique.mockResolvedValue({
       id: "project-1",
       address: "123 Main St",
-      grantApplicationStatus: "UNDER_REVIEW",
+      status: "ESTIMATE_ACCEPTED",
       user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
       manualModeSubmission: {
         id: "submission-1",
