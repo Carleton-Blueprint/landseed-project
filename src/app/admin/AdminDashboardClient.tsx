@@ -714,11 +714,6 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
                 </Button>
               </Link>
             )}
-            <Link href={`/admin/projects/${project.id}/manual-mode`} className="flex-1">
-              <Button variant="outline" className="w-full text-xs h-8">
-                Manual Mode
-              </Button>
-            </Link>
           </div>
         </div>
       </div>
@@ -965,14 +960,24 @@ export function AdminDashboardClient({
                 Monitor all project requests and AI-driven assessments.
               </p>
             </div>
-            <Link href="/dashboard">
-              <Button variant="outline" className="gap-1.5 text-sm">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                </svg>
-                Project Tracker
-              </Button>
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link href="/admin/manual-mode/new">
+                <Button className="gap-1.5 text-sm">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  New Manual Project
+                </Button>
+              </Link>
+              <Link href="/dashboard">
+                <Button variant="outline" className="gap-1.5 text-sm">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                  </svg>
+                  Project Tracker
+                </Button>
+              </Link>
+            </div>
           </div>
 
           {/* Navigation Tabs */}

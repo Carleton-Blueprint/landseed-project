@@ -6,7 +6,8 @@
  * that manually-entered data.
  */
 import { randomUUID } from "node:crypto";
-import { Prisma, type ManualModeSubmissionStatus } from "@prisma/client";
+import { z } from "zod";
+import { Prisma, ProjectAccessRole, ProjectStatus, type ManualModeSubmissionStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { uploadToS3, S3_BUCKET } from "lib/s3";
 import { virusScanQueue } from "@/backend/queue";
@@ -20,6 +21,8 @@ import {
 } from "@/backend/integrations/builderTrendPayload";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
+import { deriveAddressFromIntakeData } from "@/backend/services/intakeDraft";
+import { provinces } from "@/backend/schemas/intakeDraft";
 
 export type ManualModeErrorCode =
   | "PROJECT_NOT_FOUND"
@@ -29,7 +32,9 @@ export type ManualModeErrorCode =
   | "INVALID_DOCUMENT_TYPE"
   | "SUBMISSION_NOT_FOUND"
   | "SUBMISSION_NOT_READY"
-  | "SUBMISSION_LOCKED";
+  | "SUBMISSION_LOCKED"
+  | "CLIENT_NOT_FOUND"
+  | "INVALID_ADDRESS";
 
 export class ManualModeError extends Error {
   statusCode: number;
@@ -341,6 +346,163 @@ export async function attachManualModeDocument(
     virusScanStatus: document.virusScanStatus,
     createdAt: document.createdAt,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Create-from-scratch: admin starts a brand-new project for a client, */
+/* decoupled from any client-initiated intake.                         */
+/* ------------------------------------------------------------------ */
+
+export interface ClientSearchResult {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+/** Searches registered clients by name/email for the Manual Mode project-creation picker. */
+export async function searchClientUsers(query: string): Promise<ClientSearchResult[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  return prisma.user.findMany({
+    where: {
+      OR: [
+        { name: { contains: trimmed, mode: "insensitive" } },
+        { email: { contains: trimmed, mode: "insensitive" } },
+      ],
+    },
+    select: { id: true, name: true, email: true, phone: true },
+    orderBy: { email: "asc" },
+    take: 10,
+  });
+}
+
+const manualModeProjectAddressSchema = z
+  .object({
+    addressLine1: z.string().min(1, "Street address is required").max(200),
+    addressLine2: z.string().max(50).optional().or(z.literal("")),
+    city: z.string().min(1, "City is required").max(100),
+    province: z.enum(provinces, { message: "Province is required" }),
+    postalCode: z
+      .string()
+      .min(1, "Postal code is required")
+      .max(10, "Postal code is too long")
+      .regex(/^[A-Za-z0-9 ]+$/, "Postal code can only contain letters, numbers, and spaces"),
+    ownershipStatus: z.enum(["owner", "tenant", "other"], {
+      message: "Please select owner, tenant, or other",
+    }),
+    ownershipOtherDetails: z.string().max(200).optional().or(z.literal("")),
+    landlordName: z.string().max(120).optional().or(z.literal("")),
+    landlordPhone: z
+      .string()
+      .regex(/^[\d\s\-+()]*$/, "Phone can only contain digits and + - ( )")
+      .max(24, "Phone number is too long")
+      .optional()
+      .or(z.literal("")),
+    urgency: z.enum(["immediate", "soon", "planning", "just exploring"]).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.ownershipStatus === "tenant" && !data.landlordName?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["landlordName"], message: "Landlord name is required for tenants" });
+    }
+    if (data.ownershipStatus === "other" && !data.ownershipOtherDetails?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ownershipOtherDetails"],
+        message: "Please explain the ownership status",
+      });
+    }
+  });
+
+export interface CreateManualModeProjectInput {
+  clientUserId: string;
+  actorUserId: string;
+  address: unknown;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
+export interface CreateManualModeProjectResult {
+  projectId: string;
+}
+
+/** Admin creates a brand-new project from scratch for an existing client, entering Manual Mode immediately. */
+export async function createManualModeProject(
+  input: CreateManualModeProjectInput
+): Promise<CreateManualModeProjectResult> {
+  const client = await prisma.user.findUnique({ where: { id: input.clientUserId }, select: { id: true } });
+  if (!client) {
+    throw new ManualModeError("Selected client not found", 404, "CLIENT_NOT_FOUND");
+  }
+
+  const parsed = manualModeProjectAddressSchema.safeParse(input.address);
+  if (!parsed.success) {
+    throw new ManualModeError(parsed.error.issues[0]?.message ?? "Invalid address details", 400, "INVALID_ADDRESS");
+  }
+  const addressData = parsed.data;
+
+  const address = deriveAddressFromIntakeData({
+    addressLine1: addressData.addressLine1,
+    city: addressData.city,
+    province: addressData.province,
+    postalCode: addressData.postalCode,
+  });
+
+  const draftData = {
+    addressLine1: addressData.addressLine1,
+    addressLine2: addressData.addressLine2 || "",
+    city: addressData.city,
+    province: addressData.province,
+    postalCode: addressData.postalCode,
+    ownershipStatus: addressData.ownershipStatus,
+    ownershipOtherDetails: addressData.ownershipOtherDetails || "",
+    landlordName: addressData.landlordName || "",
+    landlordPhone: addressData.landlordPhone || "",
+    urgency: addressData.urgency ?? null,
+  } satisfies Prisma.InputJsonValue;
+
+  const project = await prisma.project.create({
+    data: {
+      address,
+      status: ProjectStatus.DRAFT,
+      userId: client.id,
+      isManualMode: true,
+      draftData,
+      projectAccess: {
+        create: {
+          userId: client.id,
+          role: ProjectAccessRole.OWNER,
+          grantedByUserId: input.actorUserId,
+        },
+      },
+      statusHistory: {
+        create: {
+          fromStatus: null,
+          toStatus: ProjectStatus.DRAFT,
+          changedByUserId: input.actorUserId,
+          metadata: { source: "admin_manual_mode_create" } as Prisma.InputJsonValue,
+        },
+      },
+    },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "MANUAL_MODE_PROJECT_CREATED",
+    outcome: "SUCCESS",
+    sensitivityLevel: "CONFIDENTIAL",
+    actorUserId: input.actorUserId,
+    projectId: project.id,
+    resourceType: "project",
+    resourceId: project.id,
+    description: `Admin created project ${project.id} from scratch via Manual Mode for client ${client.id}`,
+    afterState: { address, clientUserId: client.id },
+    ipAddress: input.ipAddress ?? null,
+    userAgent: input.userAgent ?? null,
+  });
+
+  return { projectId: project.id };
 }
 
 export interface GenerateManualOutputPackageInput {

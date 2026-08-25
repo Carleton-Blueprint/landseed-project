@@ -6,7 +6,7 @@ import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend
 import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { prisma } from "lib/prisma";
-import { generateManualOutputPackage } from "../manualMode";
+import { generateManualOutputPackage, searchClientUsers, createManualModeProject, ManualModeError } from "../manualMode";
 
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
@@ -29,14 +29,18 @@ jest.mock("@/backend/queue", () => ({
 }));
 
 const mockedProjectFindUnique = jest.fn();
+const mockedProjectCreate = jest.fn();
 const mockedQuoteCreate = jest.fn();
 const mockedBuilderTrendTransferCreate = jest.fn();
 const mockedManualModeSubmissionUpdate = jest.fn();
+const mockedUserFindUnique = jest.fn();
+const mockedUserFindMany = jest.fn();
 
 jest.mock("lib/prisma", () => ({
   prisma: {
     project: {
       findUnique: (...args: unknown[]) => mockedProjectFindUnique(...args),
+      create: (...args: unknown[]) => mockedProjectCreate(...args),
     },
     quote: {
       create: (...args: unknown[]) => mockedQuoteCreate(...args),
@@ -46,6 +50,10 @@ jest.mock("lib/prisma", () => ({
     },
     manualModeSubmission: {
       update: (...args: unknown[]) => mockedManualModeSubmissionUpdate(...args),
+    },
+    user: {
+      findUnique: (...args: unknown[]) => mockedUserFindUnique(...args),
+      findMany: (...args: unknown[]) => mockedUserFindMany(...args),
     },
   },
 }));
@@ -156,5 +164,106 @@ describe("generateManualOutputPackage", () => {
     expect(mockedBuilderTrendTransferCreate).toHaveBeenCalled();
     expect(mockedEnqueueTransfer).not.toHaveBeenCalled();
     expect(result.builderTrendTransferId).toBe("transfer-1");
+  });
+});
+
+describe("searchClientUsers", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedUserFindMany.mockResolvedValue([
+      { id: "client-1", name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
+    ]);
+  });
+
+  it("returns an empty array without querying the database for a blank query", async () => {
+    const result = await searchClientUsers("   ");
+    expect(result).toEqual([]);
+    expect(mockedUserFindMany).not.toHaveBeenCalled();
+  });
+
+  it("searches by name/email (case-insensitive) and caps results at 10", async () => {
+    const result = await searchClientUsers("jane");
+
+    expect(mockedUserFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { name: { contains: "jane", mode: "insensitive" } },
+            { email: { contains: "jane", mode: "insensitive" } },
+          ],
+        },
+        take: 10,
+      })
+    );
+    expect(result).toEqual([{ id: "client-1", name: "Jane Client", email: "jane@example.com", phone: "555-0100" }]);
+  });
+});
+
+describe("createManualModeProject", () => {
+  const validAddress = {
+    addressLine1: "123 Main St",
+    addressLine2: "",
+    city: "Ottawa",
+    province: "ON",
+    postalCode: "K1A 0B1",
+    ownershipStatus: "owner" as const,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedUserFindUnique.mockResolvedValue({ id: "client-1" });
+    mockedProjectCreate.mockResolvedValue({ id: "project-new-1" });
+  });
+
+  it("rejects when the selected client doesn't exist", async () => {
+    mockedUserFindUnique.mockResolvedValue(null);
+
+    await expect(
+      createManualModeProject({ clientUserId: "missing", actorUserId: "staff-1", address: validAddress })
+    ).rejects.toMatchObject({ code: "CLIENT_NOT_FOUND" } satisfies Partial<ManualModeError>);
+    expect(mockedProjectCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid address details", async () => {
+    await expect(
+      createManualModeProject({
+        clientUserId: "client-1",
+        actorUserId: "staff-1",
+        address: { ...validAddress, addressLine1: "" },
+      })
+    ).rejects.toMatchObject({ code: "INVALID_ADDRESS" } satisfies Partial<ManualModeError>);
+    expect(mockedProjectCreate).not.toHaveBeenCalled();
+  });
+
+  it("requires landlord details when ownershipStatus is tenant", async () => {
+    await expect(
+      createManualModeProject({
+        clientUserId: "client-1",
+        actorUserId: "staff-1",
+        address: { ...validAddress, ownershipStatus: "tenant" },
+      })
+    ).rejects.toMatchObject({ code: "INVALID_ADDRESS" } satisfies Partial<ManualModeError>);
+  });
+
+  it("creates the project in DRAFT status with isManualMode true, owned by the selected client", async () => {
+    const result = await createManualModeProject({
+      clientUserId: "client-1",
+      actorUserId: "staff-1",
+      address: validAddress,
+    });
+
+    expect(mockedProjectCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "DRAFT",
+          userId: "client-1",
+          isManualMode: true,
+          projectAccess: expect.objectContaining({
+            create: expect.objectContaining({ userId: "client-1", role: "OWNER" }),
+          }),
+        }),
+      })
+    );
+    expect(result.projectId).toBe("project-new-1");
   });
 });
