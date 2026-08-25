@@ -1,74 +1,64 @@
-import { GrantApplicationStatus, Prisma, ProjectAccessRole } from "@prisma/client";
+import { Prisma, ProjectStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
-import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import {
   attachGrantMatchSummaryToBuilderTrendTransfer,
-  triggerBuilderTrendTransferForApprovedGrant,
+  triggerBuilderTrendTransferForApprovedProject,
 } from "@/backend/integrations/buildertrend";
 
-const ALLOWED_TRANSITIONS: Record<GrantApplicationStatus, GrantApplicationStatus[]> = {
-  DRAFT: ["SUBMITTED"],
-  SUBMITTED: ["UNDER_REVIEW", "REJECTED"],
-  UNDER_REVIEW: ["APPROVED", "REJECTED"],
-  APPROVED: [],
-  REJECTED: [],
+const ALLOWED_TRANSITIONS: Partial<Record<ProjectStatus, ProjectStatus[]>> = {
+  ESTIMATE_ACCEPTED: ["APPROVED", "REJECTED"],
 };
 
-type GrantLifecycleTransitionErrorCode =
+type ProjectStatusTransitionErrorCode =
   | "PROJECT_NOT_FOUND"
   | "FORBIDDEN"
   | "INVALID_TRANSITION"
   | "NO_OP_TRANSITION"
   | "INVALID_REASON";
 
-export class GrantLifecycleTransitionError extends Error {
+export class ProjectStatusTransitionError extends Error {
   statusCode: number;
-  code: GrantLifecycleTransitionErrorCode;
+  code: ProjectStatusTransitionErrorCode;
 
-  constructor(message: string, statusCode: number, code: GrantLifecycleTransitionErrorCode) {
+  constructor(message: string, statusCode: number, code: ProjectStatusTransitionErrorCode) {
     super(message);
     this.statusCode = statusCode;
     this.code = code;
   }
 }
 
-export interface GrantLifecycleTransitionInput {
+export interface ProjectStatusTransitionInput {
   projectId: string;
   actorUserId: string;
-  toStatus: GrantApplicationStatus;
+  toStatus: ProjectStatus;
   reason?: string | null;
   metadata?: Prisma.InputJsonValue;
   /** Resolved by the caller (route handler already has the session) via
-   * hasMinimumRole(session, "ADMIN"). ProjectAccess is a per-project ACL
-   * granted only to a project's creator, so without this, ADMIN-role staff
-   * with no personal ProjectAccess row on a given project would be unable
-   * to change its grant status at all. */
+   * hasMinimumRole(session, "ADMIN"). Approving/rejecting a project is an
+   * admin-only decision: a client's invited EDITOR (see ProjectAccess) must
+   * not be able to approve or reject their own project. */
   isAdmin?: boolean;
 }
 
-export interface GrantLifecycleTransitionResult {
+export interface ProjectStatusTransitionResult {
   projectId: string;
-  fromStatus: GrantApplicationStatus;
-  toStatus: GrantApplicationStatus;
+  fromStatus: ProjectStatus;
+  toStatus: ProjectStatus;
   changedAt: Date;
   changedByUserId: string;
   historyId: string;
 }
 
-export function isValidGrantApplicationStatus(value: unknown): value is GrantApplicationStatus {
-  return typeof value === "string" && Object.values(GrantApplicationStatus).includes(value as GrantApplicationStatus);
+export function isValidProjectStatus(value: unknown): value is ProjectStatus {
+  return typeof value === "string" && Object.values(ProjectStatus).includes(value as ProjectStatus);
 }
 
-export async function transitionGrantApplicationStatus(
-  input: GrantLifecycleTransitionInput
-): Promise<GrantLifecycleTransitionResult> {
-  const canEditProject =
-    input.isAdmin === true ||
-    (await hasProjectAccess(input.actorUserId, input.projectId, ProjectAccessRole.EDITOR));
-
-  if (!canEditProject) {
-    throw new GrantLifecycleTransitionError(
-      "Forbidden: You do not have access to change grant lifecycle status",
+export async function transitionProjectStatus(
+  input: ProjectStatusTransitionInput
+): Promise<ProjectStatusTransitionResult> {
+  if (input.isAdmin !== true) {
+    throw new ProjectStatusTransitionError(
+      "Forbidden: Only an administrator can approve or reject a project",
       403,
       "FORBIDDEN"
     );
@@ -78,26 +68,26 @@ export async function transitionGrantApplicationStatus(
     where: { id: input.projectId },
     select: {
       id: true,
-      grantApplicationStatus: true,
+      status: true,
     },
   });
 
   if (!project) {
-    throw new GrantLifecycleTransitionError("Project not found", 404, "PROJECT_NOT_FOUND");
+    throw new ProjectStatusTransitionError("Project not found", 404, "PROJECT_NOT_FOUND");
   }
 
-  const fromStatus = project.grantApplicationStatus;
+  const fromStatus = project.status;
   if (fromStatus === input.toStatus) {
-    throw new GrantLifecycleTransitionError(
+    throw new ProjectStatusTransitionError(
       "No-op transition is not allowed",
       400,
       "NO_OP_TRANSITION"
     );
   }
 
-  const nextStatuses = ALLOWED_TRANSITIONS[fromStatus];
+  const nextStatuses = ALLOWED_TRANSITIONS[fromStatus] ?? [];
   if (!nextStatuses.includes(input.toStatus)) {
-    throw new GrantLifecycleTransitionError(
+    throw new ProjectStatusTransitionError(
       `Invalid transition from ${fromStatus} to ${input.toStatus}`,
       422,
       "INVALID_TRANSITION"
@@ -106,7 +96,7 @@ export async function transitionGrantApplicationStatus(
 
   const normalizedReason = input.reason?.trim() ?? null;
   if (input.toStatus === "REJECTED" && !normalizedReason) {
-    throw new GrantLifecycleTransitionError(
+    throw new ProjectStatusTransitionError(
       "A reason is required when transitioning to REJECTED",
       400,
       "INVALID_REASON"
@@ -117,11 +107,11 @@ export async function transitionGrantApplicationStatus(
     await tx.project.update({
       where: { id: input.projectId },
       data: {
-        grantApplicationStatus: input.toStatus,
+        status: input.toStatus,
       },
     });
 
-    const historyEntry = await tx.grantApplicationStatusHistory.create({
+    const historyEntry = await tx.projectStatusHistory.create({
       data: {
         projectId: input.projectId,
         fromStatus,
@@ -146,7 +136,7 @@ export async function transitionGrantApplicationStatus(
     };
   });
 
-  // Grant approval is the BuilderTrend transfer's approval gate: a transfer row is
+  // Approval is the BuilderTrend transfer's send gate: a transfer row is
   // created at quote acceptance but held (never enqueued) until this fires. Also
   // pre-warms the Grant Match Summary PDF so it's already READY by send time (see
   // attachGrantMatchSummaryToBuilderTrendTransfer for why "no transfer yet" is
@@ -156,8 +146,8 @@ export async function transitionGrantApplicationStatus(
     attachGrantMatchSummaryToBuilderTrendTransfer(input.projectId, input.actorUserId).catch((err) => {
       console.warn("Failed to attach grant match summary to BuilderTrend transfer for project", input.projectId, err);
     });
-    triggerBuilderTrendTransferForApprovedGrant(input.projectId, input.actorUserId).catch((err) => {
-      console.warn("Failed to trigger BuilderTrend transfer after grant approval for project", input.projectId, err);
+    triggerBuilderTrendTransferForApprovedProject(input.projectId, input.actorUserId).catch((err) => {
+      console.warn("Failed to trigger BuilderTrend transfer after project approval for project", input.projectId, err);
     });
   }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, ProjectStatus } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
@@ -168,7 +168,7 @@ export async function POST(
       status === "ACCEPTED" && quoteIsTiered ? (selectedTier as PricingTierKey) : null;
 
     // Process the update
-    const updatedProjectStatus = status === "ACCEPTED" ? "estimate_accepted" : "estimate_declined";
+    const updatedProjectStatus = status === "ACCEPTED" ? ProjectStatus.ESTIMATE_ACCEPTED : ProjectStatus.ESTIMATE_DECLINED;
 
     const builderTrendPayload =
       status === "ACCEPTED"
@@ -387,11 +387,11 @@ export async function POST(
     }
 
     // Approval gate (Ticket 1): the transfer row above is always created on
-    // acceptance, but only enqueued for sending once the grant application has
-    // been APPROVED. If approval comes later, grantApplicationLifecycle.ts's
-    // transitionGrantApplicationStatus enqueues it at that point instead — the
+    // acceptance, but only enqueued for sending once the project has
+    // been APPROVED. If approval comes later, projectStatusLifecycle.ts's
+    // transitionProjectStatus enqueues it at that point instead — the
     // two triggers race independently, so this only covers "already approved
-    // by the time the quote is accepted." Reads grantApplicationStatus fresh,
+    // by the time the quote is accepted." Reads status fresh,
     // strictly after the transaction above has committed the transfer row —
     // not the `quote.project` snapshot fetched at the top of the request. That
     // snapshot predates the transfer row's commit by the whole request
@@ -407,14 +407,14 @@ export async function POST(
       status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew
         ? await prisma.project.findUnique({
             where: { id: quote.projectId },
-            select: { grantApplicationStatus: true },
+            select: { status: true },
           })
         : null;
 
     if (
       status === "ACCEPTED" &&
       updatedQuote.builderTrendTransfer?.isNew &&
-      currentProject?.grantApplicationStatus === "APPROVED"
+      currentProject?.status === "APPROVED"
     ) {
       try {
         await enqueueBuilderTrendTransfer(updatedQuote.builderTrendTransfer.id);

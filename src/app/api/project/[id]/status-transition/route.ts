@@ -1,7 +1,8 @@
-// Grant application status transition endpoint. Grant document (PDF)
-// generation is intentionally NOT triggered here — per FR-3.2, PDF
-// generation is tied only to the project becoming eligibility-ELIGIBLE
-// (see src/backend/eligibility/service.ts), not to grant status changes.
+// Project status transition endpoint (admin-only approve/reject decision).
+// Grant document (PDF) generation is intentionally NOT triggered here — per
+// FR-3.2, PDF generation is tied only to the project becoming
+// eligibility-ELIGIBLE (see src/backend/eligibility/service.ts), not to
+// status changes.
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
@@ -9,10 +10,10 @@ import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
 import {
-  GrantLifecycleTransitionError,
-  isValidGrantApplicationStatus,
-  transitionGrantApplicationStatus,
-} from "@/backend/services/grantApplicationLifecycle";
+  ProjectStatusTransitionError,
+  isValidProjectStatus,
+  transitionProjectStatus,
+} from "@/backend/services/projectStatusLifecycle";
 
 export async function POST(
   request: NextRequest,
@@ -26,13 +27,13 @@ export async function POST(
     if (!session?.user?.id) {
       await logAuditEventNonBlocking({
         category: "SENSITIVE_ACCESS",
-        action: "GRANT_APPLICATION_STATUS_CHANGE",
+        action: "PROJECT_STATUS_CHANGE",
         outcome: "DENIED",
         sensitivityLevel: "RESTRICTED",
         projectId,
-        resourceType: "grant_application_status",
+        resourceType: "project_status",
         resourceId: projectId,
-        description: "Unauthenticated grant application status transition attempt",
+        description: "Unauthenticated project status transition attempt",
         ...requestContext,
       });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -44,14 +45,14 @@ export async function POST(
     } catch {
       await logAuditEventNonBlocking({
         category: "MANUAL_CHANGE",
-        action: "GRANT_APPLICATION_STATUS_CHANGE",
+        action: "PROJECT_STATUS_CHANGE",
         outcome: "FAILURE",
         sensitivityLevel: "RESTRICTED",
         actorUserId: session.user.id,
         projectId,
-        resourceType: "grant_application_status",
+        resourceType: "project_status",
         resourceId: projectId,
-        description: "Grant status transition rejected due to invalid JSON body",
+        description: "Project status transition rejected due to invalid JSON body",
         ...requestContext,
       });
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
@@ -63,17 +64,17 @@ export async function POST(
       metadata?: unknown;
     };
 
-    if (!isValidGrantApplicationStatus(input.toStatus)) {
+    if (!isValidProjectStatus(input.toStatus)) {
       await logAuditEventNonBlocking({
         category: "MANUAL_CHANGE",
-        action: "GRANT_APPLICATION_STATUS_CHANGE",
+        action: "PROJECT_STATUS_CHANGE",
         outcome: "FAILURE",
         sensitivityLevel: "RESTRICTED",
         actorUserId: session.user.id,
         projectId,
-        resourceType: "grant_application_status",
+        resourceType: "project_status",
         resourceId: projectId,
-        description: "Grant status transition rejected due to invalid toStatus",
+        description: "Project status transition rejected due to invalid toStatus",
         metadata: {
           providedToStatus: input.toStatus,
         },
@@ -85,14 +86,14 @@ export async function POST(
     if (typeof input.reason !== "undefined" && input.reason !== null && typeof input.reason !== "string") {
       await logAuditEventNonBlocking({
         category: "MANUAL_CHANGE",
-        action: "GRANT_APPLICATION_STATUS_CHANGE",
+        action: "PROJECT_STATUS_CHANGE",
         outcome: "FAILURE",
         sensitivityLevel: "RESTRICTED",
         actorUserId: session.user.id,
         projectId,
-        resourceType: "grant_application_status",
+        resourceType: "project_status",
         resourceId: projectId,
-        description: "Grant status transition rejected due to invalid reason type",
+        description: "Project status transition rejected due to invalid reason type",
         metadata: {
           providedReasonType: typeof input.reason,
         },
@@ -103,7 +104,7 @@ export async function POST(
 
     const isAdmin = await hasMinimumRole(session, "ADMIN");
 
-    const transitionResult = await transitionGrantApplicationStatus({
+    const transitionResult = await transitionProjectStatus({
       projectId,
       actorUserId: session.user.id,
       toStatus: input.toStatus,
@@ -114,20 +115,20 @@ export async function POST(
 
     await logAuditEventNonBlocking({
       category: "MANUAL_CHANGE",
-      action: "GRANT_APPLICATION_STATUS_CHANGE",
+      action: "PROJECT_STATUS_CHANGE",
       outcome: "SUCCESS",
       sensitivityLevel: "RESTRICTED",
       actorUserId: session.user.id,
       projectId,
-      resourceType: "grant_application_status",
+      resourceType: "project_status",
       resourceId: transitionResult.historyId,
       reason: (input.reason as string | undefined) ?? null,
-      description: "Grant application lifecycle status updated",
+      description: "Project status updated",
       beforeState: {
-        grantApplicationStatus: transitionResult.fromStatus,
+        status: transitionResult.fromStatus,
       },
       afterState: {
-        grantApplicationStatus: transitionResult.toStatus,
+        status: transitionResult.toStatus,
       },
       metadata: {
         historyId: transitionResult.historyId,
@@ -144,14 +145,14 @@ export async function POST(
       { status: 200 }
     );
   } catch (error) {
-    if (error instanceof GrantLifecycleTransitionError) {
+    if (error instanceof ProjectStatusTransitionError) {
       await logAuditEventNonBlocking({
         category: "MANUAL_CHANGE",
-        action: "GRANT_APPLICATION_STATUS_CHANGE",
+        action: "PROJECT_STATUS_CHANGE",
         outcome: error.statusCode === 403 ? "DENIED" : "FAILURE",
         sensitivityLevel: "RESTRICTED",
         projectId,
-        resourceType: "grant_application_status",
+        resourceType: "project_status",
         resourceId: projectId,
         description: error.message,
         ...requestContext,
@@ -159,17 +160,17 @@ export async function POST(
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.statusCode });
     }
 
-    console.error("Grant application status transition error:", error);
+    console.error("Project status transition error:", error);
 
     await logAuditEventNonBlocking({
       category: "MANUAL_CHANGE",
-      action: "GRANT_APPLICATION_STATUS_CHANGE",
+      action: "PROJECT_STATUS_CHANGE",
       outcome: "FAILURE",
       sensitivityLevel: "RESTRICTED",
       projectId,
-      resourceType: "grant_application_status",
+      resourceType: "project_status",
       resourceId: projectId,
-      description: "Grant status transition failed due to internal error",
+      description: "Project status transition failed due to internal error",
       metadata: {
         errorMessage: error instanceof Error ? error.message : "Unknown error",
       },
