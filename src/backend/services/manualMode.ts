@@ -34,7 +34,8 @@ export type ManualModeErrorCode =
   | "SUBMISSION_NOT_READY"
   | "SUBMISSION_LOCKED"
   | "CLIENT_NOT_FOUND"
-  | "INVALID_ADDRESS";
+  | "INVALID_ADDRESS"
+  | "INVALID_FILE_TYPE";
 
 export class ManualModeError extends Error {
   statusCode: number;
@@ -345,6 +346,90 @@ export async function attachManualModeDocument(
     s3Url: document.s3Url,
     virusScanStatus: document.virusScanStatus,
     createdAt: document.createdAt,
+  };
+}
+
+export interface AttachManualModePhotoInput {
+  projectId: string;
+  actorUserId: string;
+  fileName: string;
+  mimeType: string;
+  buffer: Buffer;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
+export interface ManualModePhotoResult {
+  id: string;
+  url: string;
+  virusScanStatus: string;
+  createdAt: Date;
+}
+
+const MANUAL_MODE_PHOTO_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/**
+ * Attaches a reference photo to a manual-mode project. These are staff
+ * uploads for visual reference only — isManualMode already short-circuits
+ * the AI photo-analysis/image-generation pipeline for this project's
+ * photos (see virusScanWorker.ts), so no AI jobs are ever queued here.
+ */
+export async function attachManualModePhoto(
+  input: AttachManualModePhotoInput
+): Promise<ManualModePhotoResult> {
+  const project = await prisma.project.findUnique({ where: { id: input.projectId }, select: { id: true } });
+  if (!project) {
+    throw new ManualModeError("Project not found", 404, "PROJECT_NOT_FOUND");
+  }
+
+  if (!MANUAL_MODE_PHOTO_ALLOWED_TYPES.includes(input.mimeType)) {
+    throw new ManualModeError("Invalid file type. Allowed: JPEG, PNG, WebP.", 400, "INVALID_FILE_TYPE");
+  }
+
+  const timestamp = Date.now();
+  const randomId = randomUUID().slice(0, 8);
+  const extension = input.fileName.split(".").pop() || "jpg";
+  const s3Key = `projects/${project.id}/photos/${timestamp}-${randomId}.${extension}`;
+  const s3Url = await uploadToS3(input.buffer, s3Key, input.mimeType);
+
+  const photo = await prisma.photo.create({
+    data: {
+      url: s3Url,
+      projectId: project.id,
+      virus_scan_status: "pending",
+    },
+  });
+
+  try {
+    await virusScanQueue.add(
+      `scan-${photo.id}`,
+      { key: s3Key, photoId: photo.id, bucket: S3_BUCKET },
+      { priority: 1, removeOnComplete: 100, removeOnFail: 500 }
+    );
+  } catch (queueError) {
+    console.warn("Failed to queue virus scan for manual mode photo:", queueError);
+  }
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "MANUAL_MODE_PHOTO_ATTACHED",
+    outcome: "SUCCESS",
+    sensitivityLevel: "RESTRICTED",
+    actorUserId: input.actorUserId,
+    projectId: project.id,
+    resourceType: "photo",
+    resourceId: photo.id,
+    description: "Manual mode reference photo attached",
+    metadata: { fileName: input.fileName },
+    ipAddress: input.ipAddress ?? null,
+    userAgent: input.userAgent ?? null,
+  });
+
+  return {
+    id: photo.id,
+    url: photo.url,
+    virusScanStatus: photo.virus_scan_status,
+    createdAt: photo.createdAt,
   };
 }
 

@@ -31,6 +31,13 @@ export interface ManualModeDocumentData {
   createdAt: string;
 }
 
+export interface ManualModePhotoData {
+  id: string;
+  url: string;
+  virusScanStatus: string;
+  createdAt: string;
+}
+
 export interface ManualModeInitialData {
   projectId: string;
   address: string;
@@ -40,6 +47,7 @@ export interface ManualModeInitialData {
   hasExistingAiQuote: boolean;
   submission: ManualModeSubmissionData | null;
   documents: ManualModeDocumentData[];
+  photos: ManualModePhotoData[];
 }
 
 function fmtMoney(value: number): string {
@@ -60,7 +68,7 @@ const DOCUMENT_TYPE_LABEL: Record<string, string> = {
 
 export function ManualModeClient({ initialData }: { initialData: ManualModeInitialData }) {
   const router = useRouter();
-  const { projectId, submission: initialSubmission, documents } = initialData;
+  const { projectId, submission: initialSubmission, documents, photos } = initialData;
   const locked = initialSubmission?.status === "PACKAGE_GENERATED";
 
   const [modificationType, setModificationType] = useState(initialSubmission?.modificationType ?? "");
@@ -90,6 +98,9 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
   );
   const [uploadLabel, setUploadLabel] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const computedTotal = useMemo(
     () =>
@@ -184,6 +195,40 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
       setErrorMessage(error instanceof Error ? error.message : "Failed to upload document");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleUploadPhoto() {
+    if (!selectedPhoto) {
+      setErrorMessage("Choose a photo to upload first.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setUploadingPhoto(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedPhoto);
+
+      const response = await fetch(`/api/admin/projects/${projectId}/manual-mode/photos`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to upload photo");
+      }
+
+      setSuccessMessage(`Uploaded ${selectedPhoto.name}. Virus scan in progress.`);
+      setSelectedPhoto(null);
+      router.refresh();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to upload photo");
+    } finally {
+      setUploadingPhoto(false);
     }
   }
 
@@ -455,6 +500,57 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
               </div>
               <Button type="button" onClick={handleUpload} disabled={uploading}>
                 {uploading ? "Uploading..." : "Upload"}
+              </Button>
+            </div>
+          )}
+        </section>
+
+        {/* Photos */}
+        <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900">Photos</h2>
+          <p className="text-sm text-gray-600">
+            Reference photos for staff use. These are never sent through AI analysis or image generation.
+          </p>
+
+          {photos.length === 0 ? (
+            <p className="text-sm text-gray-500 italic">No photos attached yet.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+              {photos.map((photo) => (
+                <div key={photo.id} className="relative overflow-hidden rounded-md border bg-gray-50">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photo.url} alt="Manual mode reference" className="aspect-square w-full object-cover" />
+                  <span
+                    className={`absolute bottom-1 right-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase text-white shadow-sm ${
+                      photo.virusScanStatus === "clean"
+                        ? "bg-emerald-600"
+                        : photo.virusScanStatus === "infected" || photo.virusScanStatus === "failed"
+                        ? "bg-red-600"
+                        : "bg-amber-500"
+                    }`}
+                  >
+                    {photo.virusScanStatus}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!locked && (
+            <div className="flex flex-wrap items-end gap-2 border-t pt-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Photo</label>
+                <div className="flex h-10 items-center">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => setSelectedPhoto(e.target.files?.[0] ?? null)}
+                    className="text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-input file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700 file:shadow-sm file:transition-colors hover:file:bg-gray-50"
+                  />
+                </div>
+              </div>
+              <Button type="button" onClick={handleUploadPhoto} disabled={uploadingPhoto}>
+                {uploadingPhoto ? "Uploading..." : "Upload"}
               </Button>
             </div>
           )}

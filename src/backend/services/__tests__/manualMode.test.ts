@@ -6,7 +6,14 @@ import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend
 import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { prisma } from "lib/prisma";
-import { generateManualOutputPackage, searchClientUsers, createManualModeProject, ManualModeError } from "../manualMode";
+import { uploadToS3 } from "lib/s3";
+import {
+  generateManualOutputPackage,
+  searchClientUsers,
+  createManualModeProject,
+  attachManualModePhoto,
+  ManualModeError,
+} from "../manualMode";
 
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
@@ -24,8 +31,14 @@ jest.mock("@/backend/services/estimateReadyTransition", () => ({
   markEstimateReadyForReview: jest.fn(),
 }));
 
+const mockedVirusScanQueueAdd = jest.fn();
 jest.mock("@/backend/queue", () => ({
-  virusScanQueue: { add: jest.fn() },
+  virusScanQueue: { add: (...args: unknown[]) => mockedVirusScanQueueAdd(...args) },
+}));
+
+jest.mock("lib/s3", () => ({
+  uploadToS3: jest.fn().mockResolvedValue("https://example.com/fake-photo.jpg"),
+  S3_BUCKET: "test-bucket",
 }));
 
 const mockedProjectFindUnique = jest.fn();
@@ -35,6 +48,7 @@ const mockedBuilderTrendTransferCreate = jest.fn();
 const mockedManualModeSubmissionUpdate = jest.fn();
 const mockedUserFindUnique = jest.fn();
 const mockedUserFindMany = jest.fn();
+const mockedPhotoCreate = jest.fn();
 
 jest.mock("lib/prisma", () => ({
   prisma: {
@@ -54,6 +68,9 @@ jest.mock("lib/prisma", () => ({
     user: {
       findUnique: (...args: unknown[]) => mockedUserFindUnique(...args),
       findMany: (...args: unknown[]) => mockedUserFindMany(...args),
+    },
+    photo: {
+      create: (...args: unknown[]) => mockedPhotoCreate(...args),
     },
   },
 }));
@@ -265,5 +282,57 @@ describe("createManualModeProject", () => {
       })
     );
     expect(result.projectId).toBe("project-new-1");
+  });
+});
+
+describe("attachManualModePhoto", () => {
+  const validInput = {
+    projectId: "project-1",
+    actorUserId: "staff-1",
+    fileName: "bathroom.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.from("fake"),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedProjectFindUnique.mockResolvedValue({ id: "project-1" });
+    mockedPhotoCreate.mockResolvedValue({
+      id: "photo-1",
+      url: "https://example.com/fake-photo.jpg",
+      virus_scan_status: "pending",
+      createdAt: new Date(),
+    });
+  });
+
+  it("rejects when the project doesn't exist", async () => {
+    mockedProjectFindUnique.mockResolvedValue(null);
+
+    await expect(attachManualModePhoto(validInput)).rejects.toMatchObject({
+      code: "PROJECT_NOT_FOUND",
+    } satisfies Partial<ManualModeError>);
+    expect(mockedPhotoCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects disallowed file types", async () => {
+    await expect(
+      attachManualModePhoto({ ...validInput, mimeType: "application/pdf" })
+    ).rejects.toMatchObject({ code: "INVALID_FILE_TYPE" } satisfies Partial<ManualModeError>);
+    expect(mockedPhotoCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates the photo with pending scan status and queues a virus scan job, never AI analysis", async () => {
+    const result = await attachManualModePhoto(validInput);
+
+    expect(uploadToS3).toHaveBeenCalled();
+    expect(mockedPhotoCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ projectId: "project-1", virus_scan_status: "pending" }) })
+    );
+    expect(mockedVirusScanQueueAdd).toHaveBeenCalledWith(
+      "scan-photo-1",
+      expect.objectContaining({ photoId: "photo-1" }),
+      expect.anything()
+    );
+    expect(result.id).toBe("photo-1");
   });
 });

@@ -4,6 +4,7 @@ import { redirectToSignIn } from "lib/auth-redirect";
 import { redirect, notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
+import { signPhotosForDisplay } from "lib/photoUrls";
 import { ManualModeClient, type ManualModeInitialData } from "./ManualModeClient";
 
 export const metadata: Metadata = {
@@ -44,12 +45,18 @@ export default async function ManualModePage({
           createdAt: true,
         },
       },
+      photos: {
+        orderBy: { createdAt: "desc" },
+        select: { id: true, url: true, virus_scan_status: true, createdAt: true },
+      },
     },
   });
 
   if (!project) {
     notFound();
   }
+
+  const signedPhotos = await signPhotosForDisplay(project.photos);
 
   const initialData: ManualModeInitialData = {
     projectId: project.id,
@@ -80,6 +87,12 @@ export default async function ManualModePage({
       label: d.label,
       virusScanStatus: d.virusScanStatus,
       createdAt: d.createdAt.toISOString(),
+    })),
+    photos: signedPhotos.map((p) => ({
+      id: p.id,
+      url: p.url,
+      virusScanStatus: p.virus_scan_status,
+      createdAt: p.createdAt.toISOString(),
     })),
   };
 
