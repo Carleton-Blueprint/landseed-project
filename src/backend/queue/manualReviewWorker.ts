@@ -163,6 +163,13 @@ function buildFlagDescription(
         ? `Grant discovery marked eligible program(s) that contradict our own catalog data: ${contradictingGrantTitles.join(', ')}`
         : 'Grant discovery marked an eligible program that contradicts our own catalog data'
     );
+  } else if (reason === 'AI_JOB_RETRIES_EXHAUSTED') {
+    const jobType = metadata?.jobType;
+    const maxAttempts = metadata?.maxAttempts;
+    parts.push(
+      `AI job${typeof jobType === 'string' ? ` (${jobType})` : ''} failed after ` +
+        `${typeof maxAttempts === 'number' ? maxAttempts : 3} retry attempts and needs manual follow-up`
+    );
   }
 
   parts.push(`AI confidence level: ${aiConfidence}`);
