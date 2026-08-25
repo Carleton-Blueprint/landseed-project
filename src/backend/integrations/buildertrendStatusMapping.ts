@@ -1,19 +1,21 @@
+import { ProjectStatus } from "@prisma/client";
+
 /**
  * Maps BuilderTrend's external work-order status vocabulary to LandSeed's
- * internal Project.status strings. Project.status is a free-form string
- * (see prisma/schema.prisma), not an enum, so this mapping just extends that
- * existing convention with a "work_*" vocabulary for the post-transfer,
- * work-in-progress phase of a project's lifecycle.
+ * internal Project.status enum. These are the post-approval, work-in-progress
+ * states of the single unified ProjectStatus lifecycle (see
+ * prisma/schema.prisma) — reached only after a project has been admin-approved
+ * and its work order sent to BuilderTrend.
  */
 
-export const BUILDERTREND_STATUS_MAP: Record<string, string> = {
-  SCHEDULED: "work_scheduled",
-  IN_PROGRESS: "work_in_progress",
-  ON_HOLD: "work_on_hold",
-  COMPLETED: "work_completed",
-  CANCELLED: "work_cancelled",
+export const BUILDERTREND_STATUS_MAP: Record<string, ProjectStatus> = {
+  SCHEDULED: ProjectStatus.WORK_SCHEDULED,
+  IN_PROGRESS: ProjectStatus.WORK_IN_PROGRESS,
+  ON_HOLD: ProjectStatus.WORK_ON_HOLD,
+  COMPLETED: ProjectStatus.WORK_COMPLETED,
+  CANCELLED: ProjectStatus.WORK_CANCELLED,
 };
 
-export function mapBuilderTrendStatus(externalStatus: string): string | null {
+export function mapBuilderTrendStatus(externalStatus: string): ProjectStatus | null {
   return BUILDERTREND_STATUS_MAP[externalStatus.toUpperCase()] ?? null;
 }
