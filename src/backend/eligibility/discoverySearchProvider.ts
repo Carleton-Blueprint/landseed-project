@@ -9,7 +9,7 @@ import { EligibilityDecision, EligibilityInput, ModificationCode } from './types
 
 export type GrantDiscoveryScope = 'MUNICIPAL' | 'PROVINCIAL' | 'NATIONAL';
 
-export type GrantDiscoveryProvider = 'OPENAI' | 'HEURISTIC' | 'MOCK';
+export type GrantDiscoveryProvider = 'OPENAI' | 'HEURISTIC' | 'MOCK' | 'MANUAL';
 
 export interface DiscoveredGrant {
   grantId: string;

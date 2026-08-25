@@ -7,11 +7,14 @@ import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument"
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { prisma } from "lib/prisma";
 import { uploadToS3 } from "lib/s3";
+import { createEligibilityAssessmentSnapshot } from "@/backend/eligibility/repository";
+import { generateAndStoreGrantMatchSummaryDocument } from "@/backend/services/grantMatchSummaryDocument";
 import {
   generateManualOutputPackage,
   searchClientUsers,
   createManualModeProject,
   attachManualModePhoto,
+  saveManualGrantMatches,
   ManualModeError,
 } from "../manualMode";
 
@@ -25,6 +28,14 @@ jest.mock("@/backend/integrations/buildertrend", () => ({
 
 jest.mock("@/backend/services/grantDocument", () => ({
   generateAndStoreGrantDocument: jest.fn(),
+}));
+
+jest.mock("@/backend/services/grantMatchSummaryDocument", () => ({
+  generateAndStoreGrantMatchSummaryDocument: jest.fn(),
+}));
+
+jest.mock("@/backend/eligibility/repository", () => ({
+  createEligibilityAssessmentSnapshot: jest.fn(),
 }));
 
 jest.mock("@/backend/services/estimateReadyTransition", () => ({
@@ -81,6 +92,12 @@ const mockedGenerateGrantDocument = generateAndStoreGrantDocument as jest.Mocked
   typeof generateAndStoreGrantDocument
 >;
 const mockedMarkEstimateReady = markEstimateReadyForReview as jest.MockedFunction<typeof markEstimateReadyForReview>;
+const mockedGenerateGrantMatchSummary = generateAndStoreGrantMatchSummaryDocument as jest.MockedFunction<
+  typeof generateAndStoreGrantMatchSummaryDocument
+>;
+const mockedCreateEligibilitySnapshot = createEligibilityAssessmentSnapshot as jest.MockedFunction<
+  typeof createEligibilityAssessmentSnapshot
+>;
 
 describe("generateManualOutputPackage", () => {
   beforeEach(() => {
@@ -101,6 +118,7 @@ describe("generateManualOutputPackage", () => {
         total: 100,
         modificationType: "Custom ramp install",
       },
+      eligibilityAssessments: [],
     });
     mockedQuoteCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: "quote-1",
@@ -174,6 +192,7 @@ describe("generateManualOutputPackage", () => {
         total: 100,
         modificationType: "Custom ramp install",
       },
+      eligibilityAssessments: [],
     });
 
     const result = await generateManualOutputPackage({ projectId: "project-1", actorUserId: "staff-1" });
@@ -181,6 +200,44 @@ describe("generateManualOutputPackage", () => {
     expect(mockedBuilderTrendTransferCreate).toHaveBeenCalled();
     expect(mockedEnqueueTransfer).not.toHaveBeenCalled();
     expect(result.builderTrendTransferId).toBe("transfer-1");
+  });
+
+  it("skips grant match summary generation when no eligibility assessment exists", async () => {
+    const result = await generateManualOutputPackage({ projectId: "project-1", actorUserId: "staff-1" });
+
+    expect(mockedGenerateGrantMatchSummary).not.toHaveBeenCalled();
+    expect(result.grantMatchSummaryDocumentId).toBeNull();
+  });
+
+  it("generates grant match summary when a manually-entered eligibility assessment exists", async () => {
+    mockedProjectFindUnique.mockResolvedValue({
+      id: "project-1",
+      address: "123 Main St",
+      status: "APPROVED",
+      user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
+      manualModeSubmission: {
+        id: "submission-1",
+        status: "READY",
+        subtotal: 100,
+        total: 100,
+        modificationType: "Custom ramp install",
+      },
+      eligibilityAssessments: [{ id: "assessment-1" }],
+    });
+    mockedGenerateGrantMatchSummary.mockResolvedValue({
+      documentId: "summary-doc-1",
+      projectId: "project-1",
+      s3Key: "key",
+      fileName: "summary.pdf",
+      regenerated: true,
+    });
+
+    const result = await generateManualOutputPackage({ projectId: "project-1", actorUserId: "staff-1" });
+
+    expect(mockedGenerateGrantMatchSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "project-1", force: true })
+    );
+    expect(result.grantMatchSummaryDocumentId).toBe("summary-doc-1");
   });
 });
 
@@ -334,5 +391,80 @@ describe("attachManualModePhoto", () => {
       expect.anything()
     );
     expect(result.id).toBe("photo-1");
+  });
+});
+
+describe("saveManualGrantMatches", () => {
+  const eligibleGrant = {
+    title: "Senior Home Independence Grant",
+    scope: "MUNICIPAL" as const,
+    jurisdiction: "City of Ottawa",
+    sourceUrl: "https://example.com/grant",
+    summary: "Covers grab bars and bathroom modifications.",
+    decision: "ELIGIBLE" as const,
+    relevanceScore: 90,
+    confidence: "HIGH" as const,
+    rationale: "Client meets income and age requirements.",
+    estimatedFundingAmount: "$2,500",
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedProjectFindUnique.mockResolvedValue({ id: "project-1" });
+    mockedCreateEligibilitySnapshot.mockResolvedValue({ id: "assessment-1" } as never);
+  });
+
+  it("rejects when the project doesn't exist", async () => {
+    mockedProjectFindUnique.mockResolvedValue(null);
+
+    await expect(
+      saveManualGrantMatches({ projectId: "missing", actorUserId: "staff-1", grants: [eligibleGrant] })
+    ).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" } satisfies Partial<ManualModeError>);
+    expect(mockedCreateEligibilitySnapshot).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty grants array", async () => {
+    await expect(
+      saveManualGrantMatches({ projectId: "project-1", actorUserId: "staff-1", grants: [] })
+    ).rejects.toMatchObject({ code: "INVALID_GRANTS" } satisfies Partial<ManualModeError>);
+  });
+
+  it("rejects a malformed grant entry", async () => {
+    await expect(
+      saveManualGrantMatches({
+        projectId: "project-1",
+        actorUserId: "staff-1",
+        grants: [{ ...eligibleGrant, title: "" }],
+      })
+    ).rejects.toMatchObject({ code: "INVALID_GRANTS" } satisfies Partial<ManualModeError>);
+  });
+
+  it("derives overallDecision ELIGIBLE when any grant is eligible, and saves with discoveryProvider MANUAL", async () => {
+    const result = await saveManualGrantMatches({
+      projectId: "project-1",
+      actorUserId: "staff-1",
+      grants: [eligibleGrant, { ...eligibleGrant, title: "Other Grant", decision: "INELIGIBLE" }],
+    });
+
+    expect(mockedCreateEligibilitySnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "project-1",
+        overallDecision: "ELIGIBLE",
+        discoveryProvider: "MANUAL",
+        discoveredGrants: expect.arrayContaining([expect.objectContaining({ title: "Senior Home Independence Grant" })]),
+      })
+    );
+    expect(result.overallDecision).toBe("ELIGIBLE");
+    expect(result.grantCount).toBe(2);
+  });
+
+  it("derives overallDecision INELIGIBLE when every grant is ineligible", async () => {
+    const result = await saveManualGrantMatches({
+      projectId: "project-1",
+      actorUserId: "staff-1",
+      grants: [{ ...eligibleGrant, decision: "INELIGIBLE" }],
+    });
+
+    expect(result.overallDecision).toBe("INELIGIBLE");
   });
 });

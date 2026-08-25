@@ -31,6 +31,7 @@ export type ProjectWithPhotosForEligibility = Project & {
 export function outputSourceForDiscoveryProvider(provider: GrantDiscoveryMetadata['provider']): AiOutputSource {
   if (provider === 'OPENAI') return 'LIVE';
   if (provider === 'MOCK') return 'MOCK';
+  if (provider === 'MANUAL') return 'MANUAL';
   return 'HEURISTIC';
 }
 
@@ -307,7 +308,7 @@ export async function getLatestEligibilityAssessment(projectId: string) {
       discoveryMetadata:
         (assessmentWithDiscovery.discoveryMetadata as GrantDiscoveryMetadata | null) ?? null,
       discoveryProvider:
-        ((assessmentWithDiscovery.discoveryProvider as 'OPENAI' | 'HEURISTIC' | 'MOCK' | null) ?? 'HEURISTIC'),
+        ((assessmentWithDiscovery.discoveryProvider as 'OPENAI' | 'HEURISTIC' | 'MOCK' | 'MANUAL' | null) ?? 'HEURISTIC'),
       discoveryEngineVersion:
         (assessmentWithDiscovery.discoveryEngineVersion as string | null) ?? 'unknown',
       discoveryPromptVersion:

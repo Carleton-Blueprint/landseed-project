@@ -11,7 +11,7 @@ export interface PricingAuditSourceReference {
 }
 
 export interface PricingAuditAiOutput {
-  provider: 'OPENAI' | 'HEURISTIC' | 'MOCK' | 'UNKNOWN';
+  provider: 'OPENAI' | 'HEURISTIC' | 'MOCK' | 'MANUAL' | 'UNKNOWN';
   overallDecision?: string;
   rationaleSummary?: string;
   resultCount?: number;

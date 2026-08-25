@@ -23,6 +23,10 @@ import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTran
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 import { deriveAddressFromIntakeData } from "@/backend/services/intakeDraft";
 import { provinces } from "@/backend/schemas/intakeDraft";
+import { createEligibilityAssessmentSnapshot } from "@/backend/eligibility/repository";
+import { EligibilityDecision } from "@/backend/eligibility/types";
+import type { DiscoveredGrant } from "@/backend/eligibility/discoverySearchProvider";
+import { generateAndStoreGrantMatchSummaryDocument } from "@/backend/services/grantMatchSummaryDocument";
 
 export type ManualModeErrorCode =
   | "PROJECT_NOT_FOUND"
@@ -35,7 +39,8 @@ export type ManualModeErrorCode =
   | "SUBMISSION_LOCKED"
   | "CLIENT_NOT_FOUND"
   | "INVALID_ADDRESS"
-  | "INVALID_FILE_TYPE";
+  | "INVALID_FILE_TYPE"
+  | "INVALID_GRANTS";
 
 export class ManualModeError extends Error {
   statusCode: number;
@@ -434,6 +439,114 @@ export async function attachManualModePhoto(
 }
 
 /* ------------------------------------------------------------------ */
+/* Manual eligibility & grant entry: staff record which grants apply   */
+/* directly, instead of relying on AI-driven discovery.                */
+/* ------------------------------------------------------------------ */
+
+const manualGrantEntrySchema = z.object({
+  title: z.string().min(1, "Grant title is required").max(200),
+  scope: z.enum(["MUNICIPAL", "PROVINCIAL", "NATIONAL"], { message: "Scope is required" }),
+  jurisdiction: z.string().min(1, "Jurisdiction is required").max(200),
+  sourceUrl: z.string().url("Source URL must be a valid URL").optional().or(z.literal("")).nullable(),
+  summary: z.string().min(1, "Summary is required").max(2000),
+  decision: z.enum(["ELIGIBLE", "INELIGIBLE", "NEEDS_MORE_INFO", "MANUAL_REVIEW"], {
+    message: "Decision is required",
+  }),
+  relevanceScore: z.number().min(0).max(100),
+  confidence: z.enum(["HIGH", "MEDIUM", "LOW"], { message: "Confidence is required" }),
+  matchedCriteria: z.array(z.string()).optional().default([]),
+  missingCriteria: z.array(z.string()).optional().default([]),
+  rationale: z.string().min(1, "Rationale is required").max(1000),
+  estimatedFundingAmount: z.string().max(100).optional().or(z.literal("")).nullable(),
+});
+
+const manualGrantsSchema = z.array(manualGrantEntrySchema).min(1, "At least one grant entry is required");
+
+export interface SaveManualGrantMatchesInput {
+  projectId: string;
+  actorUserId: string;
+  grants: unknown;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
+export interface SaveManualGrantMatchesResult {
+  assessmentId: string;
+  overallDecision: EligibilityDecision;
+  grantCount: number;
+}
+
+/** Saves staff-entered grant matches as a real EligibilityAssessment snapshot, bypassing AI discovery entirely. */
+export async function saveManualGrantMatches(
+  input: SaveManualGrantMatchesInput
+): Promise<SaveManualGrantMatchesResult> {
+  const project = await prisma.project.findUnique({ where: { id: input.projectId }, select: { id: true } });
+  if (!project) {
+    throw new ManualModeError("Project not found", 404, "PROJECT_NOT_FOUND");
+  }
+
+  const parsed = manualGrantsSchema.safeParse(input.grants);
+  if (!parsed.success) {
+    throw new ManualModeError(parsed.error.issues[0]?.message ?? "Invalid grant details", 400, "INVALID_GRANTS");
+  }
+
+  const discoveredGrants: DiscoveredGrant[] = parsed.data.map((grant) => ({
+    grantId: randomUUID(),
+    title: grant.title,
+    scope: grant.scope,
+    jurisdiction: grant.jurisdiction,
+    sourceUrl: grant.sourceUrl || null,
+    summary: grant.summary,
+    decision: grant.decision as EligibilityDecision,
+    relevanceScore: grant.relevanceScore,
+    confidence: grant.confidence,
+    matchedCriteria: grant.matchedCriteria,
+    missingCriteria: grant.missingCriteria,
+    rationale: grant.rationale,
+    estimatedFundingAmount: grant.estimatedFundingAmount || null,
+  }));
+
+  const overallDecision: EligibilityDecision = discoveredGrants.some(
+    (grant) => grant.decision === EligibilityDecision.ELIGIBLE
+  )
+    ? EligibilityDecision.ELIGIBLE
+    : discoveredGrants.every((grant) => grant.decision === EligibilityDecision.INELIGIBLE)
+    ? EligibilityDecision.INELIGIBLE
+    : EligibilityDecision.NEEDS_MORE_INFO;
+
+  const assessment = await createEligibilityAssessmentSnapshot({
+    projectId: project.id,
+    overallDecision,
+    programDecisions: {},
+    reasonCodes: [],
+    missingRequirements: [],
+    discoveredGrants: discoveredGrants as unknown as Prisma.InputJsonValue,
+    discoveryProvider: "MANUAL",
+  });
+
+  await logAuditEventNonBlocking({
+    category: "MANUAL_CHANGE",
+    action: "MANUAL_MODE_GRANTS_SAVED",
+    outcome: "SUCCESS",
+    sensitivityLevel: "CONFIDENTIAL",
+    actorUserId: input.actorUserId,
+    projectId: project.id,
+    resourceType: "eligibility_assessment",
+    resourceId: assessment?.id ?? "",
+    description: `Manual mode: ${discoveredGrants.length} grant(s) manually entered`,
+    afterState: { overallDecision, grantCount: discoveredGrants.length },
+    ipAddress: input.ipAddress ?? null,
+    userAgent: input.userAgent ?? null,
+  });
+
+  return {
+    assessmentId: assessment?.id ?? "",
+    overallDecision,
+    grantCount: discoveredGrants.length,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* Create-from-scratch: admin starts a brand-new project for a client, */
 /* decoupled from any client-initiated intake.                         */
 /* ------------------------------------------------------------------ */
@@ -601,6 +714,7 @@ export interface GenerateManualOutputPackageResult {
   projectId: string;
   quoteId: string;
   grantDocumentKey: string | null;
+  grantMatchSummaryDocumentId: string | null;
   builderTrendTransferId: string | null;
   clientNotified: boolean;
 }
@@ -615,6 +729,7 @@ export async function generateManualOutputPackage(
       address: true,
       user: { select: { name: true, email: true, phone: true } },
       manualModeSubmission: true,
+      eligibilityAssessments: { where: { isLatest: true }, take: 1, select: { id: true } },
     },
   });
 
@@ -679,6 +794,20 @@ export async function generateManualOutputPackage(
     grantDocumentKey = grantResult.grantDocumentKey;
   } catch (error) {
     console.warn("Manual mode: grant document generation failed", error);
+  }
+
+  let grantMatchSummaryDocumentId: string | null = null;
+  if (project.eligibilityAssessments.length > 0) {
+    try {
+      const summaryResult = await generateAndStoreGrantMatchSummaryDocument({
+        projectId: project.id,
+        actorUserId: input.actorUserId,
+        force: true,
+      });
+      grantMatchSummaryDocumentId = summaryResult.documentId;
+    } catch (error) {
+      console.warn("Manual mode: grant match summary generation failed", error);
+    }
   }
 
   let builderTrendTransferId: string | null = null;
@@ -753,6 +882,7 @@ export async function generateManualOutputPackage(
     afterState: {
       quoteId: quote.id,
       grantDocumentKey,
+      grantMatchSummaryDocumentId,
       builderTrendTransferId,
       clientNotified,
       acceptanceRecordedBy: "STAFF",
@@ -765,6 +895,7 @@ export async function generateManualOutputPackage(
     projectId: project.id,
     quoteId: quote.id,
     grantDocumentKey,
+    grantMatchSummaryDocumentId,
     builderTrendTransferId,
     clientNotified,
   };

@@ -8,6 +8,7 @@ export type AiOutputSource =
   | "LIVE" // A live provider call produced the output.
   | "MOCK" // A hardcoded/placeholder mock produced the output (intentionally or as a fallback).
   | "HEURISTIC" // A deterministic non-AI algorithm produced the output (grant discovery's catalog scorer).
+  | "MANUAL" // A staff member entered the output directly — no AI involved (Manual Mode).
   | "NONE"; // No output was produced (live call failed or was skipped, with no fallback applied).
 
 export interface AiProvenanceMetadata {
