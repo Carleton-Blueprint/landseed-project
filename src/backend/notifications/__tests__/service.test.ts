@@ -364,7 +364,7 @@ describe("notifications/service", () => {
       expect(mockedPrisma.notificationDelivery.updateMany).toHaveBeenCalledWith({
         where: {
           idempotencyKey: "idem-1",
-          status: { not: NotificationDeliveryStatus.SENT },
+          status: { in: [NotificationDeliveryStatus.PENDING, NotificationDeliveryStatus.FAILED] },
         },
         data: { status: NotificationDeliveryStatus.PROCESSING },
       });
@@ -468,7 +468,7 @@ describe("notifications/service", () => {
         await processNotification(basePayload({ noticeId: "notice-2" }));
 
         expect(mockedPrisma.accountDeletionRequest.updateMany).toHaveBeenCalledWith({
-          where: { id: "request-2" },
+          where: { id: "request-2", status: "IN_GRACE_PERIOD" },
           data: { status: "READY_FOR_DELETION" },
         });
       });

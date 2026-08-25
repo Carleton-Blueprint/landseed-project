@@ -147,14 +147,16 @@ describe("processBuilderTrendTransfer", () => {
           schemaVersion: 1,
           client: { name: "Jane Client", email: null, phone: null },
           modificationType: ["walk_in_shower"],
-          quote: { pricing: { lineItems: [{}, {}] } },
-          photos: [{ id: "photo-1" }],
+          totalEstimate: 500,
         },
       },
     ]);
 
     await processBuilderTrendTransfer("transfer-1", { attemptsMade: 0, maxAttempts: 3 });
 
+    // Summary is a deliberately non-PII shape/field-presence summary (see
+    // summarizeBuilderTrendPayloadForAudit) — it doesn't duplicate line-item
+    // or photo detail already stored on the transfer row itself.
     expect(mockedAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "BUILDERTREND_TRANSFER_SENT",
@@ -163,8 +165,7 @@ describe("processBuilderTrendTransfer", () => {
           schemaVersion: 1,
           hasClientContact: true,
           modificationType: ["walk_in_shower"],
-          lineItemCount: 2,
-          photoCount: 1,
+          totalEstimate: 500,
         }),
       })
     );

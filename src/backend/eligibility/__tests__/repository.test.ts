@@ -39,7 +39,7 @@ describe("createEligibilityAssessmentSnapshot", () => {
     jest.clearAllMocks();
   });
 
-  it("runs $executeRaw before $queryRaw within the transaction, and returns rows[0]", async () => {
+  it("runs the advisory lock then $executeRaw then $queryRaw within the transaction, and returns rows[0]", async () => {
     const callOrder: string[] = [];
     const insertedRow = { id: "assessment-1", projectId: "project-1", isLatest: true };
 
@@ -59,9 +59,10 @@ describe("createEligibilityAssessmentSnapshot", () => {
     const result = await createEligibilityAssessmentSnapshot(baseInput());
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    // Once for the pg_advisory_xact_lock race guard, once for the UPDATE.
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
     expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(callOrder).toEqual(["$executeRaw", "$queryRaw"]);
+    expect(callOrder).toEqual(["$executeRaw", "$executeRaw", "$queryRaw"]);
     expect(result).toEqual(insertedRow);
   });
 
@@ -74,7 +75,9 @@ describe("createEligibilityAssessmentSnapshot", () => {
 
     await createEligibilityAssessmentSnapshot(baseInput());
 
-    const sqlArg = tx.$executeRaw.mock.calls[0][0] as { sql: string; values: unknown[] };
+    // Call 0 is the pg_advisory_xact_lock tagged-template race guard; call 1
+    // is the UPDATE ... isLatest = false statement.
+    const sqlArg = tx.$executeRaw.mock.calls[1][0] as { sql: string; values: unknown[] };
     expect(sqlArg.sql).toContain('UPDATE "EligibilityAssessment"');
     expect(sqlArg.sql).toContain('"isLatest" = false');
     expect(sqlArg.values).toContain("project-1");

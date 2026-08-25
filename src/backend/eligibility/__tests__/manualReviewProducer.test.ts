@@ -9,6 +9,10 @@ jest.mock("@/backend/eligibility/manualReviewClassifier", () => ({
   classifyManualReviewNeed: jest.fn(),
 }));
 
+jest.mock("@/backend/eligibility/discoverySearchProvider", () => ({
+  detectCatalogContradictions: jest.fn(),
+}));
+
 const mockManualReviewQueueAdd = jest.fn();
 jest.mock("@/backend/queue", () => ({
   manualReviewQueue: { add: (...args: unknown[]) => mockManualReviewQueueAdd(...args) },
@@ -20,6 +24,9 @@ const { isFeatureFlagEnabled } = require("@/backend/features/flags") as {
 };
 const { classifyManualReviewNeed } = require("@/backend/eligibility/manualReviewClassifier") as {
   classifyManualReviewNeed: jest.Mock;
+};
+const { detectCatalogContradictions } = require("@/backend/eligibility/discoverySearchProvider") as {
+  detectCatalogContradictions: jest.Mock;
 };
 
 const { produceManualReviewFlagJob } = require("../manualReviewProducer") as {
@@ -36,10 +43,17 @@ function grant(confidence: "HIGH" | "MEDIUM" | "LOW") {
   return { confidence } as any;
 }
 
+function baseInput() {
+  return { required: { modificationCodes: [] } } as any;
+}
+
 describe("produceManualReviewFlagJob", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockManualReviewQueueAdd.mockResolvedValue(undefined);
+    // No catalog contradictions by default; individual tests override this
+    // to exercise the DISCOVERY_CATALOG_CONTRADICTION path specifically.
+    detectCatalogContradictions.mockReturnValue([]);
   });
 
   it("returns false immediately without classifying or enqueueing when the feature flag is disabled", async () => {
@@ -48,7 +62,7 @@ describe("produceManualReviewFlagJob", () => {
     const result = await produceManualReviewFlagJob(
       "project-1",
       "assessment-1",
-      {} as any,
+      baseInput(),
       [grant("HIGH")],
       { candidateCount: 5 }
     );
@@ -69,7 +83,7 @@ describe("produceManualReviewFlagJob", () => {
       const result = await produceManualReviewFlagJob(
         "project-2",
         "assessment-2",
-        {} as any,
+        baseInput(),
         [grant("HIGH")],
         { candidateCount: 5 }
       );
@@ -85,7 +99,7 @@ describe("produceManualReviewFlagJob", () => {
         reason: "HIGH_COMPLEXITY",
       });
 
-      const input = { some: "input" } as any;
+      const input = { some: "input", required: { modificationCodes: [] } } as any;
       const result = await produceManualReviewFlagJob(
         "project-3",
         "assessment-3",
@@ -119,7 +133,7 @@ describe("produceManualReviewFlagJob", () => {
     it("passes classifyManualReviewNeed the derived confidence and grant/candidate counts", async () => {
       classifyManualReviewNeed.mockReturnValue({ shouldFlag: false });
 
-      const input = { some: "input" } as any;
+      const input = { some: "input", required: { modificationCodes: [] } } as any;
       await produceManualReviewFlagJob(
         "project-4",
         "assessment-4",
@@ -128,15 +142,16 @@ describe("produceManualReviewFlagJob", () => {
         { candidateCount: 8 }
       );
 
-      expect(classifyManualReviewNeed).toHaveBeenCalledWith(input, "LOW", 2, 8);
+      expect(classifyManualReviewNeed).toHaveBeenCalledWith(input, "LOW", 2, 8, []);
     });
 
     it("defaults totalCandidatesCount to 0 when discoveryMetadata.candidateCount is missing", async () => {
       classifyManualReviewNeed.mockReturnValue({ shouldFlag: false });
 
-      await produceManualReviewFlagJob("project-5", "assessment-5", {} as any, [], {});
+      const input = baseInput();
+      await produceManualReviewFlagJob("project-5", "assessment-5", input, [], {});
 
-      expect(classifyManualReviewNeed).toHaveBeenCalledWith({}, "MEDIUM", 0, 0);
+      expect(classifyManualReviewNeed).toHaveBeenCalledWith(input, "MEDIUM", 0, 0, []);
     });
 
     describe("deriveOverallAiConfidence (via aiConfidence in the enqueued payload)", () => {
@@ -145,7 +160,7 @@ describe("produceManualReviewFlagJob", () => {
       });
 
       it("defaults to MEDIUM when there are no discovered grants", async () => {
-        await produceManualReviewFlagJob("p", "a", {} as any, [], {});
+        await produceManualReviewFlagJob("p", "a", baseInput(), [], {});
         const data = mockManualReviewQueueAdd.mock.calls[0][1] as Record<string, unknown>;
         expect(data.aiConfidence).toBe("MEDIUM");
       });
@@ -154,7 +169,7 @@ describe("produceManualReviewFlagJob", () => {
         await produceManualReviewFlagJob(
           "p",
           "a",
-          {} as any,
+          baseInput(),
           [grant("HIGH"), grant("HIGH"), grant("MEDIUM")],
           {}
         );
@@ -166,7 +181,7 @@ describe("produceManualReviewFlagJob", () => {
         await produceManualReviewFlagJob(
           "p",
           "a",
-          {} as any,
+          baseInput(),
           [grant("HIGH"), grant("MEDIUM")],
           {}
         );
@@ -178,7 +193,7 @@ describe("produceManualReviewFlagJob", () => {
         await produceManualReviewFlagJob(
           "p",
           "a",
-          {} as any,
+          baseInput(),
           [grant("MEDIUM"), grant("LOW")],
           {}
         );
@@ -190,7 +205,7 @@ describe("produceManualReviewFlagJob", () => {
         await produceManualReviewFlagJob(
           "p",
           "a",
-          {} as any,
+          baseInput(),
           [grant("HIGH"), grant("MEDIUM"), grant("LOW")],
           {}
         );
@@ -202,7 +217,7 @@ describe("produceManualReviewFlagJob", () => {
         await produceManualReviewFlagJob(
           "p",
           "a",
-          {} as any,
+          baseInput(),
           [grant("LOW"), grant("LOW"), grant("MEDIUM")],
           {}
         );

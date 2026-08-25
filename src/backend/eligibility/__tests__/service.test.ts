@@ -11,6 +11,12 @@
  * grantPdfTrigger.test.ts for the same precedent.
  */
 
+// Give this file its own module scope (rather than a global script) so its
+// top-level mock/require const names (assembleEligibilityInput, baseProject,
+// etc.) don't collide with grantPdfTrigger.test.ts, which mocks the same
+// modules under the same names.
+export {};
+
 jest.mock('lib/prisma', () => ({
   prisma: {
     quote: { findFirst: jest.fn() },

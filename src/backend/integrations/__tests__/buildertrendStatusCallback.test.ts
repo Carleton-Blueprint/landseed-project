@@ -100,7 +100,7 @@ describe("processBuilderTrendStatusCallback", () => {
       id: "transfer-1",
       projectId: "project-1",
       externalStatus: null,
-      project: { id: "project-1", status: "draft" },
+      project: { id: "project-1", status: "DRAFT" },
     });
     mockedCallbackEventCreate.mockResolvedValueOnce({ id: "event-1" });
 
@@ -121,7 +121,7 @@ describe("processBuilderTrendStatusCallback", () => {
     });
     expect(mockedProjectUpdate).toHaveBeenCalledWith({
       where: { id: "project-1" },
-      data: { status: "work_in_progress" },
+      data: { status: "WORK_IN_PROGRESS" },
     });
     expect(mockedCallbackEventCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -130,8 +130,8 @@ describe("processBuilderTrendStatusCallback", () => {
         externalReference: "bt-ref-1",
         previousStatus: null,
         newStatus: "IN_PROGRESS",
-        previousProjectStatus: "draft",
-        newProjectStatus: "work_in_progress",
+        previousProjectStatus: "DRAFT",
+        newProjectStatus: "WORK_IN_PROGRESS",
         validationError: null,
       }),
     });
@@ -150,8 +150,8 @@ describe("processBuilderTrendStatusCallback", () => {
       projectId: "project-1",
       previousExternalStatus: null,
       newExternalStatus: "IN_PROGRESS",
-      previousProjectStatus: "draft",
-      newProjectStatus: "work_in_progress",
+      previousProjectStatus: "DRAFT",
+      newProjectStatus: "WORK_IN_PROGRESS",
       mapped: true,
     });
   });
@@ -161,7 +161,7 @@ describe("processBuilderTrendStatusCallback", () => {
       id: "transfer-1",
       projectId: "project-1",
       externalStatus: "SCHEDULED",
-      project: { id: "project-1", status: "work_scheduled" },
+      project: { id: "project-1", status: "WORK_SCHEDULED" },
     });
     mockedCallbackEventCreate.mockResolvedValueOnce({ id: "event-2" });
 
@@ -173,7 +173,7 @@ describe("processBuilderTrendStatusCallback", () => {
 
     expect(mockedTransferUpdate).toHaveBeenCalledTimes(1);
     expect(mockedProjectUpdate).not.toHaveBeenCalled();
-    expect(result.newProjectStatus).toBe("work_scheduled");
+    expect(result.newProjectStatus).toBe("WORK_SCHEDULED");
     expect(result.mapped).toBe(true);
   });
 
@@ -182,7 +182,7 @@ describe("processBuilderTrendStatusCallback", () => {
       id: "transfer-1",
       projectId: "project-1",
       externalStatus: "SCHEDULED",
-      project: { id: "project-1", status: "work_scheduled" },
+      project: { id: "project-1", status: "WORK_SCHEDULED" },
     });
     mockedCallbackEventCreate.mockResolvedValueOnce({ id: "event-2b" });
 
@@ -206,7 +206,7 @@ describe("processBuilderTrendStatusCallback", () => {
       id: "transfer-1",
       projectId: "project-1",
       externalStatus: null,
-      project: { id: "project-1", status: "draft" },
+      project: { id: "project-1", status: "DRAFT" },
     });
     mockedCallbackEventCreate.mockResolvedValueOnce({ id: "event-3" });
 
@@ -231,7 +231,7 @@ describe("processBuilderTrendStatusCallback", () => {
     );
     expect(result).toEqual(
       expect.objectContaining({
-        previousProjectStatus: "draft",
+        previousProjectStatus: "DRAFT",
         newProjectStatus: null,
         mapped: false,
       })
