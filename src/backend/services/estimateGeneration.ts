@@ -3,20 +3,16 @@
  * module's queue instead of generating a quote inline, so admins/advisory have
  * a window to override modification type/scope before pricing runs.
  */
+import { ProjectStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 import {
-  normalizeLabel,
-  normalizeModificationItems,
-  MODIFICATION_NORMALIZATION_MAP,
+  aggregateDeclaredModificationCodes,
+  buildQuoteItems,
 } from "@/backend/eligibility/modificationNormalization";
 import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
-import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
-import type { QuoteItem } from "@/backend/services/refinedEstimate";
-
-const UNRESOLVED_MODIFICATION_FALLBACK_PRICE = 150; // legacy placeholder for free-text items with no matching ModificationCode
 
 export const ESTIMATE_GENERATION_DELAY_MINUTES_ENV = "ESTIMATE_GENERATION_DELAY_MINUTES";
 export const DEFAULT_ESTIMATE_GENERATION_DELAY_MINUTES = 15;
@@ -44,45 +40,6 @@ export function buildEstimateGenerationJobId(projectId: string): string {
   return `estimate-generation-${projectId}`;
 }
 
-export function getIntakeModificationLabels(draftData: unknown): string[] {
-  const modificationItems =
-    draftData && typeof draftData === "object" && !Array.isArray(draftData)
-      ? (draftData as { modificationItems?: unknown }).modificationItems
-      : undefined;
-
-  if (!Array.isArray(modificationItems)) {
-    return [];
-  }
-
-  return modificationItems.map((item) => (typeof item === "string" ? item : String(item)));
-}
-
-export function buildQuoteItems(draftData: unknown): QuoteItem[] {
-  const modificationLabels = getIntakeModificationLabels(draftData);
-
-  if (modificationLabels.length === 0) {
-    return [
-      {
-        description: "Home modifications (initial intake estimate)",
-        quantity: 1,
-        unitPrice: UNRESOLVED_MODIFICATION_FALLBACK_PRICE,
-      },
-    ];
-  }
-
-  return modificationLabels.map((description) => {
-    const code = MODIFICATION_NORMALIZATION_MAP[normalizeLabel(description)];
-    const catalogEntry = code ? MODIFICATION_COST_CATALOG[code] : undefined;
-
-    return {
-      description,
-      quantity: 1,
-      unitPrice: catalogEntry?.fallbackUnitPrice ?? UNRESOLVED_MODIFICATION_FALLBACK_PRICE,
-      ...(code ? { modificationCode: code } : {}),
-    };
-  });
-}
-
 export interface ProcessScheduledEstimateGenerationInput {
   projectId: string;
   actorUserId?: string;
@@ -107,7 +64,7 @@ export async function processScheduledEstimateGeneration(
     select: {
       id: true,
       status: true,
-      draftData: true,
+      photos: { select: { declaredModificationCodes: true } },
       quotes: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -125,12 +82,12 @@ export async function processScheduledEstimateGeneration(
     return { projectId: project.id, status: "skipped_quote_exists", quoteId: existingQuote.id };
   }
 
-  if (project.status !== "submitted") {
+  if (project.status !== ProjectStatus.SUBMITTED) {
     return { projectId: project.id, status: "skipped_project_not_submitted" };
   }
 
-  const quoteItems = buildQuoteItems(project.draftData);
-  const modificationCodes = normalizeModificationItems(getIntakeModificationLabels(project.draftData));
+  const modificationCodes = aggregateDeclaredModificationCodes(project.photos);
+  const quoteItems = buildQuoteItems(modificationCodes);
 
   try {
     const quoteResult = await generateQuote({

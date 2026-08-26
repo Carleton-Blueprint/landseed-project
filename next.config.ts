@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "s3-bucket-blueprint.s3.ca-central-1.amazonaws.com",
+        hostname: "*.r2.cloudflarestorage.com",
       },
       {
         protocol: "https",

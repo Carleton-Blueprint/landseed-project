@@ -12,6 +12,23 @@ type PriceResult = {
   status: PriceResultStatus;
 };
 
+export interface PriceCandidate {
+  name: string;
+  price: number;
+  currency: string | null;
+  store: string | null;
+  link: string | null;
+  thumbnail: string | null;
+  isPreferredStore: boolean;
+}
+
+export interface PriceCandidatesResult {
+  query: string;
+  status: PriceResultStatus;
+  candidates: PriceCandidate[];
+  fetchedAt: string;
+}
+
 const preferredStores = [
   "home depot",
   "lowe",
@@ -70,6 +87,15 @@ function emptyResult(query: string, status: PriceResultStatus): PriceResult {
   };
 }
 
+function emptyCandidatesResult(query: string, status: PriceResultStatus): PriceCandidatesResult {
+  return {
+    query,
+    status,
+    candidates: [],
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
 function parsePrice(priceStr: string | undefined): number | null {
   if (!priceStr) return null;
 
@@ -86,7 +112,15 @@ function isPreferredStore(source: string | undefined): boolean {
   return preferredStores.some((store) => lower.includes(store));
 }
 
-async function fetchFromSerpAPI(query: string): Promise<PriceResult> {
+// Picks the same match the old single-result lookup did: the cheapest preferred-store
+// candidate if one exists, else the cheapest candidate overall. Relies on `candidates`
+// already being price-ascending (see sort_by=1 note below).
+export function pickBestCandidate(candidates: PriceCandidate[]): PriceCandidate | null {
+  if (candidates.length === 0) return null;
+  return candidates.find((candidate) => candidate.isPreferredStore) ?? candidates[0];
+}
+
+async function fetchCandidatesFromSerpAPI(query: string, floorPrice?: number): Promise<PriceCandidatesResult> {
   const apiKey = process.env.SERP_API_KEY;
   const startedAt = Date.now();
 
@@ -96,7 +130,7 @@ async function fetchFromSerpAPI(query: string): Promise<PriceResult> {
   }
 
   // sort_by=1 = "Price: low to high" — shopping_results below comes back price-ascending,
-  // which the best-match loop relies on to break early on the first preferred-store hit.
+  // which pickBestCandidate relies on to break early on the first preferred-store hit.
   const url = `https://serpapi.com/search.json?engine=google_shopping&q=${encodeURIComponent(
     query
   )}&gl=ca&hl=en&location=Ottawa,+Ontario,+Canada&sort_by=1&api_key=${apiKey}`;
@@ -129,44 +163,40 @@ async function fetchFromSerpAPI(query: string): Promise<PriceResult> {
 
   if (!results || results.length === 0) {
     logQueryCost({ query, outcome: "empty", httpStatus: res.status, latencyMs });
-    return emptyResult(query, "empty");
+    return emptyCandidatesResult(query, "empty");
   }
 
-  // Best result is the lowest price
-  let best = null;
+  const candidates: PriceCandidate[] = [];
 
   for (const item of results) {
     const price = parsePrice(item.price);
 
     if (!price) continue;
+    if (floorPrice !== undefined && price < floorPrice) continue;
 
-    if (isPreferredStore(item.source)) {
-      best = item;
-      break;
-    }
-
-    if (!best) {
-      best = item;
-    }
+    candidates.push({
+      name: item.title || query,
+      price,
+      currency: item.price || null,
+      store: item.source || null,
+      link: item.product_link || null,
+      thumbnail: item.thumbnail || null,
+      isPreferredStore: isPreferredStore(item.source),
+    });
   }
 
-  if (!best) {
+  if (candidates.length === 0) {
     logQueryCost({ query, outcome: "empty", httpStatus: res.status, latencyMs });
-    return emptyResult(query, "empty");
+    return emptyCandidatesResult(query, "empty");
   }
 
   logQueryCost({ query, outcome: "success", httpStatus: res.status, latencyMs });
 
   return {
-    name: best.title || query,
-    price: parsePrice(best.price),
-    currency: best.price || null,
-    store: best.source || null,
-    link: best.product_link || null,
-    thumbnail: best.thumbnail || null,
     query,
-    fetchedAt: new Date().toISOString(),
     status: "ok",
+    candidates,
+    fetchedAt: new Date().toISOString(),
   };
 }
 
@@ -177,10 +207,51 @@ export async function getMaterialPrice(query: string): Promise<PriceResult> {
   }
 
   try {
-    return await fetchFromSerpAPI(query);
+    const result = await fetchCandidatesFromSerpAPI(query);
+    const best = pickBestCandidate(result.candidates);
+
+    if (!best) {
+      return emptyResult(query, "empty");
+    }
+
+    return {
+      name: best.name,
+      price: best.price,
+      currency: best.currency,
+      store: best.store,
+      link: best.link,
+      thumbnail: best.thumbnail,
+      query,
+      fetchedAt: result.fetchedAt,
+      status: "ok",
+    };
   } catch (error) {
     console.error("Pricing service error:", error);
 
     return emptyResult(query, "error");
+  }
+}
+
+/**
+ * Like getMaterialPrice, but returns every parsed shopping result (price-ascending)
+ * instead of collapsing to a single best match — lets a caller pick several distinct
+ * price points (e.g. tiered pricing) from one SerpAPI query. Pass floorPrice to drop
+ * results priced implausibly below a known anchor before they're returned.
+ */
+export async function getMaterialPriceCandidates(
+  query: string,
+  options?: { floorPrice?: number }
+): Promise<PriceCandidatesResult> {
+
+  if (!query || query.trim().length === 0) {
+    throw new Error("Invalid query");
+  }
+
+  try {
+    return await fetchCandidatesFromSerpAPI(query, options?.floorPrice);
+  } catch (error) {
+    console.error("Pricing service error:", error);
+
+    return emptyCandidatesResult(query, "error");
   }
 }

@@ -4,7 +4,7 @@
  * Uploads to S3, creates Document record, and queues virus scan job.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { uploadToS3 } from "lib/s3";
+import { uploadToS3, S3_BUCKET } from "lib/s3";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
         {
           key: s3Key,
           photoId: document.id, // reuse photoId field; worker handles both photo and document scans
-          bucket: process.env.AWS_S3_BUCKET,
+          bucket: S3_BUCKET,
         },
         {
           priority: 1,

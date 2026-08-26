@@ -13,6 +13,9 @@ jest.mock("lib/prisma", () => ({
     quote: {
       findUnique: jest.fn(),
     },
+    project: {
+      findUnique: jest.fn(),
+    },
     $transaction: jest.fn(),
   },
 }));
@@ -33,10 +36,15 @@ jest.mock("@/backend/integrations/buildertrend", () => ({
   enqueueBuilderTrendTransfer: jest.fn(),
 }));
 
+jest.mock("@/backend/services/grantMatchSummaryDocument", () => ({
+  getOrGenerateReadyGrantMatchSummary: jest.fn().mockResolvedValue(null),
+}));
+
 import { POST } from "../route";
 
 const mockedPrisma = prisma as unknown as {
   quote: { findUnique: jest.Mock };
+  project: { findUnique: jest.Mock };
   $transaction: jest.Mock;
 };
 const mockedAuth = auth as jest.MockedFunction<typeof auth>;
@@ -89,7 +97,16 @@ function buildTieredEstimate(): TieredRefinedEstimate {
   };
 }
 
-function buildQuoteRecord(refinedEstimate: unknown, overrides: Partial<{ subtotal: number; total: number; estimateMin: number | null; estimateMax: number | null }> = {}) {
+function buildQuoteRecord(
+  refinedEstimate: unknown,
+  overrides: Partial<{
+    subtotal: number;
+    total: number;
+    estimateMin: number | null;
+    estimateMax: number | null;
+    status: string;
+  }> = {}
+) {
   return {
     id: "quote-1",
     projectId: "proj-1",
@@ -102,11 +119,14 @@ function buildQuoteRecord(refinedEstimate: unknown, overrides: Partial<{ subtota
     project: {
       id: "proj-1",
       address: "123 Main St",
-      status: "estimate_ready",
+      // Defaults to APPROVED so existing tests exercise tier/payload behavior
+      // without also having to think about the BuilderTrend approval gate —
+      // see the dedicated "approval gate" tests below for that.
+      status: overrides.status ?? "APPROVED",
       draftData: { modificationItems: ["walk_in_shower"] },
       projectAccess: [{ userId: "user-1" }],
       user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
-      photos: [{ id: "photo-1", url: "https://example.com/photo1.jpg" }],
+      photos: [{ id: "photo-1", url: "https://example.com/photo1.jpg", declaredModificationCodes: ["WALK_IN_SHOWER"] }],
     },
   };
 }
@@ -133,6 +153,9 @@ describe("POST /api/quote/[id]/respond", () => {
     jest.clearAllMocks();
     setNodeEnv("production");
     mockedAuth.mockResolvedValue({ user: { id: "user-1" } } as never);
+    // Fresh post-commit read for the approval gate (see route.ts) — defaults to
+    // APPROVED to match buildQuoteRecord's default, overridden per test below.
+    mockedPrisma.project.findUnique.mockResolvedValue({ status: "APPROVED" });
   });
 
   afterAll(() => {
@@ -189,12 +212,11 @@ describe("POST /api/quote/[id]/respond", () => {
 
     const insertCall = txMock.$queryRaw.mock.calls[1][0] as { values: unknown[] };
     const payload = JSON.parse(insertCall.values[3] as string);
-    expect(payload.quote.pricing.selectedTier).toBe("premium");
-    expect(payload.quote.pricing.total).toBe(1700);
-    expect(payload.quote.pricing.lineItems).toHaveLength(1);
+    expect(payload.totalEstimate).toBe(1700);
     expect(payload.client).toEqual({ name: "Jane Client", email: "jane@example.com", phone: "555-0100" });
-    expect(payload.modificationType).toEqual(["walk_in_shower"]);
-    expect(payload.photos).toEqual([{ id: "photo-1", url: "https://example.com/photo1.jpg" }]);
+    expect(payload.modificationType).toEqual(["Walk-In Shower"]);
+    expect(payload).not.toHaveProperty("photos");
+    expect(payload).not.toHaveProperty("quote");
 
     expect(mockedEnqueue).toHaveBeenCalledWith("transfer-1");
   });
@@ -219,8 +241,69 @@ describe("POST /api/quote/[id]/respond", () => {
 
     const insertCall = txMock.$queryRaw.mock.calls[1][0] as { values: unknown[] };
     const payload = JSON.parse(insertCall.values[3] as string);
-    expect(payload.quote.pricing.selectedTier).toBeNull();
-    expect(payload.quote.pricing.lineItems).toHaveLength(1);
-    expect(payload.quote.pricing.total).toBe(500);
+    expect(payload.totalEstimate).toBe(500);
+  });
+
+  it("approval gate: does not enqueue the transfer when the project isn't APPROVED yet", async () => {
+    mockedPrisma.quote.findUnique.mockResolvedValue(
+      buildQuoteRecord(buildEstimate(500), { status: "ESTIMATE_ACCEPTED" })
+    );
+    mockedPrisma.project.findUnique.mockResolvedValue({ status: "ESTIMATE_ACCEPTED" });
+
+    const txMock = makeTxMock([
+      [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],
+      [{ id: "transfer-1", status: "PENDING" }],
+    ]);
+    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(txMock));
+
+    const res = await POST(buildRequest({ status: "ACCEPTED" }), {
+      params: Promise.resolve({ id: "quote-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockedEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("approval gate: enqueues immediately when the project is already APPROVED", async () => {
+    mockedPrisma.quote.findUnique.mockResolvedValue(
+      buildQuoteRecord(buildEstimate(500), { status: "APPROVED" })
+    );
+    mockedPrisma.project.findUnique.mockResolvedValue({ status: "APPROVED" });
+
+    const txMock = makeTxMock([
+      [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],
+      [{ id: "transfer-1", status: "PENDING" }],
+    ]);
+    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(txMock));
+
+    const res = await POST(buildRequest({ status: "ACCEPTED" }), {
+      params: Promise.resolve({ id: "quote-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockedEnqueue).toHaveBeenCalledWith("transfer-1");
+  });
+
+  it("approval gate: enqueues based on a fresh post-commit read, not the pre-transaction snapshot (closes the race where approval lands mid-request)", async () => {
+    // Simulates the exact race: the initial quote/project fetch (T0) is still
+    // ESTIMATE_ACCEPTED, but by the time the fresh gate check runs (after the
+    // transfer row commits), a concurrent admin approval has already landed.
+    mockedPrisma.quote.findUnique.mockResolvedValue(
+      buildQuoteRecord(buildEstimate(500), { status: "ESTIMATE_ACCEPTED" })
+    );
+    mockedPrisma.project.findUnique.mockResolvedValue({ status: "APPROVED" });
+
+    const txMock = makeTxMock([
+      [{ id: "quote-1", status: "ACCEPTED", declinedReason: null }],
+      [{ id: "transfer-1", status: "PENDING" }],
+    ]);
+    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(txMock));
+
+    const res = await POST(buildRequest({ status: "ACCEPTED" }), {
+      params: Promise.resolve({ id: "quote-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockedEnqueue).toHaveBeenCalledWith("transfer-1");
   });
 });

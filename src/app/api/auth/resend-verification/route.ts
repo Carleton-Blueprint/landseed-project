@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
 import { enqueueEmailVerificationIfNeeded } from "@/backend/auth/authEmailNotification";
@@ -7,7 +7,7 @@ import { buildRateLimitKey, checkRateLimit } from "@/backend/auth/rateLimit";
 const RESEND_VERIFICATION_LIMIT = 3;
 const RESEND_VERIFICATION_WINDOW_SECONDS = 5 * 60;
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     const session = await auth();
     if (!session?.user?.id) {

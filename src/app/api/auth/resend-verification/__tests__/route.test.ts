@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { POST } from "../route";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
@@ -35,9 +34,7 @@ describe("POST /api/auth/resend-verification", () => {
   it("returns 401 when unsigned", async () => {
     (auth as jest.Mock).mockResolvedValue(null);
 
-    const response = await POST(new NextRequest("http://localhost:3000/api/auth/resend-verification", {
-      method: "POST",
-    }));
+    const response = await POST();
 
     expect(response.status).toBe(401);
   });
@@ -51,9 +48,7 @@ describe("POST /api/auth/resend-verification", () => {
       emailVerified: null,
     });
 
-    const response = await POST(new NextRequest("http://localhost:3000/api/auth/resend-verification", {
-      method: "POST",
-    }));
+    const response = await POST();
 
     expect(response.status).toBe(200);
     expect(enqueueEmailVerificationIfNeeded).toHaveBeenCalledWith({
@@ -73,9 +68,7 @@ describe("POST /api/auth/resend-verification", () => {
       emailVerified: new Date(),
     });
 
-    const response = await POST(new NextRequest("http://localhost:3000/api/auth/resend-verification", {
-      method: "POST",
-    }));
+    const response = await POST();
 
     expect(response.status).toBe(200);
     expect(enqueueEmailVerificationIfNeeded).not.toHaveBeenCalled();

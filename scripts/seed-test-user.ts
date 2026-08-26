@@ -17,17 +17,18 @@ const name = process.env.SEED_TEST_USER_NAME ?? "Test User";
 async function main() {
   const passwordHash = await hashPassword(password);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const user = await prisma.user.upsert({
     where: { email },
     create: {
       email,
       name,
       passwordHash,
-    },
+    } as any,
     update: {
       name,
       passwordHash,
-    },
+    } as any,
   });
 
   console.log(`Seeded test user: ${user.email} (id: ${user.id})`);

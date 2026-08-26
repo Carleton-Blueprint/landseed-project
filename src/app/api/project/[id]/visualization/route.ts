@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
-import { isLiveImageGenerationEnabled } from "lib/openai";
+import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { generateMockAccessibilityVisual, modificationItemsFromDraft } from "@/backend/services/imageGeneration";
 
 export async function GET(
   request: NextRequest,
@@ -45,24 +44,21 @@ export async function GET(
       );
     }
 
-    const modificationItems = modificationItemsFromDraft(project.draftData);
-
     const photos = await Promise.all(
       project.photos.map(async (photo) => {
         let generatedImageUrl: string | null;
 
-        if (photo.generationStatus === "READY" && photo.generatedImageUrl) {
-          generatedImageUrl = photo.generatedImageUrl.includes(".amazonaws.com")
+        if (photo.generatedImageUrl) {
+          // Set by a successful live generation, or by the ai-jobs worker's
+          // mock fallback once live retries are exhausted — either way there's
+          // an image to serve.
+          generatedImageUrl = isPrivateS3PhotoUrl(photo.generatedImageUrl)
             ? await getSignedDownloadUrlFromS3Url(photo.generatedImageUrl, 900)
             : photo.generatedImageUrl;
-        } else if (isLiveImageGenerationEnabled()) {
-          // Generation is pending, in progress, or failed — leave null so callers
-          // can show a pending/placeholder state rather than a stale mock visual.
-          generatedImageUrl = null;
         } else {
-          generatedImageUrl = await generateMockAccessibilityVisual(photo.url, {
-            modificationCodes: modificationItems,
-          });
+          // Generation is pending or in progress — leave null so callers
+          // can show a pending state rather than a stale mock visual.
+          generatedImageUrl = null;
         }
 
         return {

@@ -71,6 +71,7 @@ function buildGrant(confidence: Confidence = 'HIGH'): DiscoveredGrant {
     matchedCriteria: ['criterion-1'],
     missingCriteria: [],
     rationale: 'Test rationale',
+    estimatedFundingAmount: null,
   };
 }
 

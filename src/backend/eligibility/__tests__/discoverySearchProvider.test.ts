@@ -1,7 +1,16 @@
 /// <reference types="jest" />
 
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { discoverAndEvaluateGrants, resolveGrantDiscoveryMetadata } from '../discoverySearchProvider';
+import {
+  discoverAndEvaluateGrants,
+  resolveGrantDiscoveryMetadata,
+  detectCatalogContradictions,
+  scoreCandidate,
+  dedupeAiCandidates,
+  DiscoveredGrant,
+  GrantDiscoveryScope,
+} from '../discoverySearchProvider';
+import { GrantDiscoverySourceEntry } from '../discoverySourceCatalog';
 import { EligibilityDecision, EligibilityInput } from '../types';
 
 const originalFetch = globalThis.fetch;
@@ -88,6 +97,7 @@ function mockOpenAiDecision(overrides: Partial<{
   missingCriteria: string[];
   confidence: string;
   rationale: string;
+  estimatedFundingAmount: string | null;
 }> = {}) {
   return {
     grantId: 'live_hatc_canada',
@@ -223,7 +233,8 @@ describe('discoverAndEvaluateGrants', () => {
         malformedDraftFields: [],
       });
 
-      expect(result.discoveryMetadata.provider).toBe('OPENAI');
+      // MOCK, not OPENAI — the hardcoded mock decisions must not be mislabeled as a live call.
+      expect(result.discoveryMetadata.provider).toBe('MOCK');
       expect(result.discoveryMetadata.returnedCount).toBeGreaterThanOrEqual(3);
       expect(result.discoveredGrants.map((grant) => grant.grantId)).toEqual(
         expect.arrayContaining(['mock_hatc_canada', 'mock_on_rrap', 'mock_municipal_toronto'])
@@ -400,6 +411,72 @@ describe('discoverAndEvaluateGrants', () => {
         expect.arrayContaining(['live_hatc_canada'])
       );
       expect(result.programDecisions.live_hatc_canada).toBe(EligibilityDecision.ELIGIBLE);
+    } finally {
+      restoreDiscoveryEnv(savedEnv);
+    }
+  });
+
+  it('carries the AI-supplied estimatedFundingAmount through to the discovered grant', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+
+    try {
+      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                decisions: [mockOpenAiDecision({ estimatedFundingAmount: 'Up to $20,000' })],
+              }),
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      const result = await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      const grant = result.discoveredGrants.find((g) => g.grantId === 'live_hatc_canada');
+      expect(grant?.estimatedFundingAmount).toBe('Up to $20,000');
+    } finally {
+      restoreDiscoveryEnv(savedEnv);
+    }
+  });
+
+  it('defaults estimatedFundingAmount to null when the AI omits it', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+
+    try {
+      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                decisions: [mockOpenAiDecision()],
+              }),
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      const result = await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      const grant = result.discoveredGrants.find((g) => g.grantId === 'live_hatc_canada');
+      expect(grant?.estimatedFundingAmount).toBeNull();
     } finally {
       restoreDiscoveryEnv(savedEnv);
     }
@@ -667,6 +744,286 @@ describe('discoverAndEvaluateGrants', () => {
       } else {
         process.env.OPENAI_ORG_ID = originalOrgId;
       }
+      restoreDiscoveryEnv(savedEnv);
+    }
+  });
+});
+
+describe('detectCatalogContradictions', () => {
+  function makeGrant(overrides: Partial<DiscoveredGrant>): DiscoveredGrant {
+    return {
+      grantId: 'on_adp',
+      title: 'Ontario Assistive Devices Program (ADP)',
+      scope: 'PROVINCIAL',
+      jurisdiction: 'ON',
+      sourceUrl: 'https://www.ontario.ca/page/assistive-devices-program',
+      summary: 'Funds assistive devices.',
+      decision: EligibilityDecision.ELIGIBLE,
+      relevanceScore: 80,
+      confidence: 'HIGH',
+      matchedCriteria: [],
+      missingCriteria: [],
+      rationale: 'test',
+      estimatedFundingAmount: null,
+      ...overrides,
+    };
+  }
+
+  it('flags a grant marked ELIGIBLE whose catalog entry has an empty eligibleModificationCodes list (not modification-specific)', () => {
+    const grants = [makeGrant({ grantId: 'on_adp', decision: EligibilityDecision.ELIGIBLE })];
+
+    const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
+
+    expect(contradictions).toHaveLength(1);
+    expect(contradictions[0].grantId).toBe('on_adp');
+  });
+
+  it('flags a grant marked ELIGIBLE whose catalog entry has no overlap with the requested modification codes', () => {
+    // hatc_canada covers GRAB_BARS/RAISED_TOILET/WALK_IN_SHOWER/WIDENED_DOORWAY/STAIR_LIFT/HANDRAILS —
+    // none of which is requested here.
+    const grants = [
+      makeGrant({
+        grantId: 'hatc_canada',
+        title: 'Home Accessibility Tax Credit (HATC)',
+        decision: EligibilityDecision.ELIGIBLE,
+      }),
+    ];
+
+    const contradictions = detectCatalogContradictions(grants, []);
+
+    expect(contradictions).toHaveLength(1);
+  });
+
+  it('does not flag a grant whose catalog entry overlaps the requested modification codes', () => {
+    const grants = [
+      makeGrant({
+        grantId: 'hatc_canada',
+        title: 'Home Accessibility Tax Credit (HATC)',
+        decision: EligibilityDecision.ELIGIBLE,
+      }),
+    ];
+
+    const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
+
+    expect(contradictions).toHaveLength(0);
+  });
+
+  it('does not flag a grant that is not ELIGIBLE, even if the catalog has no overlap', () => {
+    const grants = [makeGrant({ grantId: 'on_adp', decision: EligibilityDecision.INELIGIBLE })];
+
+    const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
+
+    expect(contradictions).toHaveLength(0);
+  });
+
+  it('does not flag a grant whose grantId has no matching catalog entry (novel AI discovery)', () => {
+    const grants = [
+      makeGrant({
+        grantId: 'some_novel_program_the_ai_found',
+        decision: EligibilityDecision.ELIGIBLE,
+      }),
+    ];
+
+    const contradictions = detectCatalogContradictions(grants, ['GRAB_BARS']);
+
+    expect(contradictions).toHaveLength(0);
+  });
+});
+
+describe('scoreCandidate', () => {
+  // Deliberately maxes out every non-modification signal (jurisdiction, text
+  // overlap, keyword overlap, owner-occupied, consent) so that, pre-fix, the
+  // combined score alone clears eligibleThreshold (75) with no modification
+  // overlap at all — reproducing the on_adp-style false positive.
+  function makeMaxSignalSource(
+    overrides: Partial<GrantDiscoverySourceEntry>
+  ): GrantDiscoverySourceEntry {
+    return {
+      id: 'test_program',
+      title: 'Test Device Program',
+      scope: 'PROVINCIAL',
+      jurisdiction: 'ON',
+      sourceUrl: 'https://example.com/test-program',
+      summary: 'A synthetic program used for testing.',
+      keywords: ['alpha', 'beta', 'gamma', 'delta'],
+      requiresOwnerOccupied: true,
+      requiresConsentConfirmed: true,
+      ...overrides,
+    };
+  }
+
+  const maxSignalQueryTokens = [
+    'test', 'device', 'program', 'synthetic', 'testing', 'alpha', 'beta', 'gamma', 'delta',
+  ];
+
+  it('caps a device-only program (empty eligibleModificationCodes) below ELIGIBLE even when every other signal maxes out', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: [] });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.score).toBeLessThan(75);
+    expect(result.decision).not.toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.missingCriteria).toContain('no_modification_overlap');
+  });
+
+  it('caps a modification-specific program with zero code overlap below ELIGIBLE even when every other signal maxes out', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: ['RAISED_TOILET'] });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.score).toBeLessThan(75);
+    expect(result.decision).not.toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.missingCriteria).toContain('no_modification_overlap');
+  });
+
+  it('still allows ELIGIBLE when the program overlaps the requested modification codes', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: ['GRAB_BARS', 'HANDRAILS'] });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.decision).toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.matchedCriteria.some((c) => c.startsWith('modification_overlap_'))).toBe(true);
+  });
+
+  it('does not exclude on modification codes when the project requests none', () => {
+    const source = makeMaxSignalSource({ eligibleModificationCodes: [] });
+    const input: EligibilityInput = {
+      ...baseEligibilityInput,
+      required: { ...baseEligibilityInput.required, modificationCodes: [] },
+    };
+
+    const result = scoreCandidate(input, source, maxSignalQueryTokens);
+
+    expect(result.decision).toBe(EligibilityDecision.ELIGIBLE);
+    expect(result.missingCriteria).not.toContain('no_modification_overlap');
+  });
+
+  it('extracts an "up to $X" funding figure from the catalog summary', () => {
+    const source = makeMaxSignalSource({
+      eligibleModificationCodes: ['GRAB_BARS'],
+      summary: 'Federal tax credit on up to $20,000 of eligible home renovation expenses.',
+    });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.estimatedFundingAmount).toBe('up to $20,000');
+  });
+
+  it('falls back to the first bare dollar figure when no "up to" phrasing is present', () => {
+    const source = makeMaxSignalSource({
+      eligibleModificationCodes: ['GRAB_BARS'],
+      summary: 'A forgivable loan program providing $40,000 toward accessibility renovations.',
+    });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.estimatedFundingAmount).toBe('$40,000');
+  });
+
+  it('returns null estimatedFundingAmount when no dollar figure appears in the summary', () => {
+    const source = makeMaxSignalSource({
+      eligibleModificationCodes: ['GRAB_BARS'],
+      summary: 'A program with no stated funding amount in its description.',
+    });
+
+    const result = scoreCandidate(baseEligibilityInput, source, maxSignalQueryTokens);
+
+    expect(result.estimatedFundingAmount).toBeNull();
+  });
+});
+
+describe('dedupeAiCandidates', () => {
+  function makeCandidate(overrides: Partial<{
+    grantId: string;
+    title: string;
+    sourceUrl: string;
+    score: number;
+  }> = {}) {
+    const { grantId = 'grant_a', title = 'Home and Vehicle Modification Program', sourceUrl = 'https://www.ontario.ca/page/home-and-vehicle-modification-program', score = 70 } = overrides;
+    return {
+      source: {
+        id: grantId,
+        title,
+        scope: 'PROVINCIAL' as GrantDiscoveryScope,
+        jurisdiction: 'ON',
+        sourceUrl,
+        summary: 'A grant program.',
+      },
+      score,
+      decision: EligibilityDecision.ELIGIBLE,
+      matchedCriteria: [],
+      missingCriteria: [],
+      confidence: 'HIGH' as const,
+      rationale: 'test',
+      estimatedFundingAmount: null,
+    };
+  }
+
+  it('collapses duplicate grantIds, keeping the higher-scoring entry', () => {
+    const candidates = [makeCandidate({ score: 60 }), makeCandidate({ score: 90 })];
+
+    const deduped = dedupeAiCandidates(candidates);
+
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0].score).toBe(90);
+  });
+
+  it('collapses entries with the same title and sourceUrl even under different grantIds', () => {
+    const candidates = [
+      makeCandidate({ grantId: 'on_hvmp', score: 55 }),
+      makeCandidate({ grantId: 'on_hvmp_duplicate', score: 55 }),
+    ];
+
+    const deduped = dedupeAiCandidates(candidates);
+
+    expect(deduped).toHaveLength(1);
+  });
+
+  it('keeps distinct programs separate', () => {
+    const candidates = [
+      makeCandidate({ grantId: 'on_hvmp' }),
+      makeCandidate({
+        grantId: 'hatc_canada',
+        title: 'Home Accessibility Tax Credit (HATC)',
+        sourceUrl: 'https://www.canada.ca/en/revenue-agency/hatc',
+      }),
+    ];
+
+    const deduped = dedupeAiCandidates(candidates);
+
+    expect(deduped).toHaveLength(2);
+  });
+
+  it('is reflected end-to-end when the AI returns a duplicate decision', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+
+    try {
+      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('api.openai.com/v1/responses')) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                decisions: [mockOpenAiDecision(), mockOpenAiDecision()],
+              }),
+              usage: { prompt_tokens: 1200, completion_tokens: 400 },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+
+        return catalogFetchFallback();
+      });
+
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      const result = await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      const liveHatcEntries = result.discoveredGrants.filter((grant) => grant.grantId === 'live_hatc_canada');
+      expect(liveHatcEntries).toHaveLength(1);
+    } finally {
       restoreDiscoveryEnv(savedEnv);
     }
   });

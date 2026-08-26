@@ -4,6 +4,13 @@ import React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
+import { StaffNotesPanel } from "@/frontend/components/StaffNotesPanel";
+import {
+  ProjectStatusPanel,
+  type ProjectStatus,
+  type ProjectStatusHistoryEntry,
+} from "@/frontend/components/ProjectStatusPanel";
+import { ProjectAdminDocuments } from "@/app/admin/ProjectAdminDocuments";
 import {
   CheckCircleIcon,
   ClipboardIcon,
@@ -15,10 +22,6 @@ import {
   FileIcon,
   CameraIcon,
 } from "@/frontend/components/icons";
-import { ProjectStaffNotes } from "./ProjectStaffNotes";
-import { ProjectAdminDocuments } from "./ProjectAdminDocuments";
-import { ProjectEstimateReview } from "./ProjectEstimateReview";
-import type { AnyRefinedEstimate } from "@/backend/services/pricingTiers";
 
 /* ================================================================== */
 /*  Types                                                              */
@@ -27,7 +30,8 @@ import type { AnyRefinedEstimate } from "@/backend/services/pricingTiers";
 export interface SerializedProject {
   id: string;
   address: string;
-  status: string;
+  status: ProjectStatus;
+  statusHistory: ProjectStatusHistoryEntry[];
   createdAt: string;
   updatedAt: string;
   modificationType: string;
@@ -50,7 +54,6 @@ export interface SerializedProject {
     openQuestions: number;
     estimateMin?: string | null;
     estimateMax?: string | null;
-    refinedEstimate?: AnyRefinedEstimate | null;
   } | null;
   eligibility: {
     id: string;
@@ -78,6 +81,34 @@ export interface SerializedProject {
     lastStatusCallbackAt: string | null;
     lastManualSyncAt: string | null;
   } | null;
+  submissionData?: {
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    addressLine1?: string | null;
+    addressLine2?: string | null;
+    city?: string | null;
+    province?: string | null;
+    postalCode?: string | null;
+    ownershipStatus?: string | null;
+    ownershipOtherDetails?: string | null;
+    landlordName?: string | null;
+    landlordPhone?: string | null;
+    isCaregiver?: boolean;
+    seniorName?: string | null;
+    relationshipToSenior?: string | null;
+    caregiverConsentConfirmed?: boolean;
+    modificationItems?: string[];
+    additionalDetails?: string | null;
+    urgency?: string | null;
+    submittedAt?: string | null;
+  };
+  photos?: Array<{
+    id: string;
+    url: string;
+    virus_scan_status: string;
+    createdAt: string;
+  }>;
 }
 
 /* ================================================================== */
@@ -85,33 +116,68 @@ export interface SerializedProject {
 /* ================================================================== */
 
 const STATUS_STYLES: Record<string, { label: string; dot: string; badge: string }> = {
-  draft: {
+  DRAFT: {
     label: "Draft",
     dot: "bg-gray-400",
     badge: "border-gray-200 bg-gray-50 text-gray-600",
   },
-  submitted: {
+  SUBMITTED: {
     label: "Submitted",
     dot: "bg-blue-500",
     badge: "border-blue-200 bg-blue-50 text-blue-700",
   },
-  estimate_ready: {
+  ESTIMATE_READY: {
     label: "Estimate Ready",
     dot: "bg-violet-500",
     badge: "border-violet-200 bg-violet-50 text-violet-700",
   },
-  estimate_expired: {
+  ESTIMATE_EXPIRED: {
     label: "Estimate Expired",
     dot: "bg-orange-500",
     badge: "border-orange-200 bg-orange-50 text-orange-700",
   },
-  estimate_accepted: {
+  ESTIMATE_ACCEPTED: {
     label: "Accepted",
     dot: "bg-emerald-500",
     badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
-  estimate_declined: {
+  ESTIMATE_DECLINED: {
     label: "Declined",
+    dot: "bg-red-400",
+    badge: "border-red-200 bg-red-50 text-red-600",
+  },
+  APPROVED: {
+    label: "Approved",
+    dot: "bg-emerald-500",
+    badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  REJECTED: {
+    label: "Rejected",
+    dot: "bg-red-400",
+    badge: "border-red-200 bg-red-50 text-red-600",
+  },
+  WORK_SCHEDULED: {
+    label: "Work Scheduled",
+    dot: "bg-sky-500",
+    badge: "border-sky-200 bg-sky-50 text-sky-700",
+  },
+  WORK_IN_PROGRESS: {
+    label: "Work In Progress",
+    dot: "bg-amber-500",
+    badge: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  WORK_ON_HOLD: {
+    label: "Work On Hold",
+    dot: "bg-orange-500",
+    badge: "border-orange-200 bg-orange-50 text-orange-700",
+  },
+  WORK_COMPLETED: {
+    label: "Work Completed",
+    dot: "bg-emerald-500",
+    badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  WORK_CANCELLED: {
+    label: "Work Cancelled",
     dot: "bg-red-400",
     badge: "border-red-200 bg-red-50 text-red-600",
   },
@@ -133,11 +199,26 @@ const QUOTE_STATUS_STYLES: Record<string, { label: string; color: string }> = {
 
 const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
   PENDING: { label: "Pending", dot: "bg-amber-500" },
+  RETRYING: { label: "Retrying", dot: "bg-orange-500" },
   SENT: { label: "Sent", dot: "bg-emerald-500" },
   FAILED: { label: "Failed", dot: "bg-red-500" },
 };
 
-type FilterStatus = "all" | "draft" | "submitted" | "estimate_ready" | "estimate_expired" | "estimate_accepted" | "estimate_declined";
+type FilterStatus =
+  | "all"
+  | "DRAFT"
+  | "SUBMITTED"
+  | "ESTIMATE_READY"
+  | "ESTIMATE_EXPIRED"
+  | "ESTIMATE_ACCEPTED"
+  | "ESTIMATE_DECLINED"
+  | "APPROVED"
+  | "REJECTED"
+  | "WORK_SCHEDULED"
+  | "WORK_IN_PROGRESS"
+  | "WORK_ON_HOLD"
+  | "WORK_COMPLETED"
+  | "WORK_CANCELLED";
 
 type SortKey = "newest" | "oldest" | "status" | "estimate_high" | "estimate_low" | "confidence_high" | "confidence_low";
 
@@ -155,12 +236,19 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 ];
 
 const STATUS_RANK: Record<string, number> = {
-  draft: 0,
-  submitted: 1,
-  estimate_ready: 2,
-  estimate_expired: 3,
-  accepted: 4,
-  declined: 5,
+  DRAFT: 0,
+  SUBMITTED: 1,
+  ESTIMATE_READY: 2,
+  ESTIMATE_EXPIRED: 3,
+  ESTIMATE_ACCEPTED: 4,
+  ESTIMATE_DECLINED: 5,
+  APPROVED: 6,
+  REJECTED: 7,
+  WORK_SCHEDULED: 8,
+  WORK_IN_PROGRESS: 9,
+  WORK_ON_HOLD: 10,
+  WORK_COMPLETED: 11,
+  WORK_CANCELLED: 12,
 };
 
 const CONFIDENCE_RANK: Record<string, number> = {
@@ -243,13 +331,15 @@ function StatCard({
 /*  Expanded Row Detail Panel                                          */
 /* ================================================================== */
 
-function ProjectDetailPanel({ project, userId }: { project: SerializedProject, userId: string }) {
+function ProjectDetailPanel({ project }: { project: SerializedProject }) {
   const router = useRouter();
   const eligibility = project.eligibility;
   const quote = project.quote;
   const transfer = project.builderTrendTransfer;
   const [syncing, setSyncing] = React.useState(false);
   const [syncMessage, setSyncMessage] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
+  const [retryMessage, setRetryMessage] = React.useState<string | null>(null);
 
   async function handleMarkSynced() {
     setSyncing(true);
@@ -271,8 +361,137 @@ function ProjectDetailPanel({ project, userId }: { project: SerializedProject, u
     }
   }
 
+  async function handleRetryTransfer() {
+    if (!transfer) return;
+    setRetrying(true);
+    setRetryMessage(null);
+    try {
+      const response = await fetch(`/api/buildertrend-transfer/${transfer.id}/retry`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.error ?? "Failed to retry transfer");
+      }
+      setRetryMessage("Retry queued.");
+      router.refresh();
+    } catch (error) {
+      setRetryMessage(error instanceof Error ? error.message : "Failed to retry transfer");
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="border-t bg-gray-50/70 px-6 py-5 space-y-5">
+      {/* ── Client Intake Submission Details ── */}
+      <div className="rounded-lg border bg-white p-5 shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b pb-3">
+          <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+            <ClipboardIcon size={16} className="text-blue-600" />
+            Client Intake Submission Details
+          </h4>
+          <span className="text-xs text-gray-500">
+            Submitted: {project.submissionData?.submittedAt ? fmtDate(project.submissionData.submittedAt) : fmtDate(project.createdAt)}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs">
+          {/* Client & Property Details */}
+          <div className="space-y-2">
+            <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Client & Property Info</h5>
+            <div className="space-y-1.5 text-gray-600">
+              <p><strong className="text-gray-900">Name:</strong> {project.submissionData?.name || project.client.name || "Not provided"}</p>
+              <p><strong className="text-gray-900">Email:</strong> {project.submissionData?.email || project.client.email || "Not provided"}</p>
+              <p><strong className="text-gray-900">Phone:</strong> {project.submissionData?.phone || "Not provided"}</p>
+              <p><strong className="text-gray-900">Address:</strong> {project.submissionData?.addressLine1 || project.address}{project.submissionData?.addressLine2 ? `, ${project.submissionData.addressLine2}` : ""}</p>
+              {(project.submissionData?.city || project.submissionData?.province || project.submissionData?.postalCode) && (
+                <p className="text-gray-500">{[project.submissionData?.city, project.submissionData?.province, project.submissionData?.postalCode].filter(Boolean).join(", ")}</p>
+              )}
+              <p><strong className="text-gray-900">Ownership:</strong> <span className="capitalize">{project.submissionData?.ownershipStatus || "Not provided"}</span></p>
+              {project.submissionData?.ownershipStatus === "tenant" && (
+                <div className="mt-1.5 rounded bg-amber-50 p-2 border border-amber-200 text-amber-800 space-y-0.5">
+                  <p className="font-semibold text-[11px]">Landlord Contact:</p>
+                  <p>Name: {project.submissionData.landlordName || "Not provided"}</p>
+                  <p>Phone: {project.submissionData.landlordPhone || "Not provided"}</p>
+                </div>
+              )}
+              {project.submissionData?.ownershipStatus === "other" && project.submissionData.ownershipOtherDetails && (
+                <p className="italic text-gray-500">Note: {project.submissionData.ownershipOtherDetails}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Requested Modifications & Scope */}
+          <div className="space-y-2">
+            <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Requested Scope</h5>
+            <div className="space-y-2.5 text-gray-600">
+              <div>
+                <strong className="text-gray-900 block mb-1">Modification Items:</strong>
+                {project.submissionData?.modificationItems && project.submissionData.modificationItems.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {project.submissionData.modificationItems.map((item, idx) => (
+                      <span key={idx} className="inline-flex items-center rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-gray-400 italic">No specific items listed ({project.modificationType})</span>
+                )}
+              </div>
+              <p><strong className="text-gray-900">Urgency:</strong> <span className="capitalize">{project.submissionData?.urgency || "Not specified"}</span></p>
+              {project.submissionData?.additionalDetails && (
+                <div className="rounded bg-gray-50 p-2 border text-gray-700">
+                  <strong className="text-gray-900 block text-[11px] mb-0.5">Additional Notes:</strong>
+                  <p className="italic">{project.submissionData.additionalDetails}</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Caregiver & Submitted Photos */}
+          <div className="space-y-3">
+            {project.submissionData?.isCaregiver ? (
+              <div className="space-y-2">
+                <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Caregiver Information</h5>
+                <div className="rounded bg-blue-50/50 p-2.5 border border-blue-100 text-gray-700 space-y-1">
+                  <p><strong className="text-gray-900">Senior Name:</strong> {project.submissionData.seniorName || "Not provided"}</p>
+                  <p><strong className="text-gray-900">Relationship:</strong> {project.submissionData.relationshipToSenior || "Not provided"}</p>
+                  <p className="flex items-center gap-1 text-emerald-700 font-medium mt-1">
+                    <CheckCircleIcon size={14} className="text-emerald-600" />
+                    {project.submissionData.caregiverConsentConfirmed ? "Caregiver consent confirmed" : "Consent pending"}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Caregiver Information</h5>
+                <p className="text-gray-500 italic">Submitted directly by client (not a caregiver).</p>
+              </div>
+            )}
+
+            <div className="space-y-2 pt-1">
+              <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">Submitted Photos ({project.photos?.length ?? project.photoCount})</h5>
+              {project.photos && project.photos.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {project.photos.map((photo) => (
+                    <a key={photo.id} href={photo.url} target="_blank" rel="noopener noreferrer" className="group relative block aspect-square rounded overflow-hidden border bg-gray-100">
+                      <img src={photo.url} alt="Submitted photo" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                      <span className={`absolute bottom-1 right-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase text-white shadow-sm ${photo.virus_scan_status === "clean" ? "bg-emerald-600" : photo.virus_scan_status === "infected" ? "bg-red-600" : "bg-amber-500"}`}>
+                        {photo.virus_scan_status}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-400 italic">No photos uploaded.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
         {/* ── AI Estimation ── */}
         <div className="rounded-lg border bg-white p-4 shadow-sm space-y-3">
@@ -323,7 +542,11 @@ function ProjectDetailPanel({ project, userId }: { project: SerializedProject, u
             AI Grant Discovery
             {eligibility && (
               <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-violet-100 border border-violet-200 px-1.5 py-0.5 text-[10px] font-medium text-violet-600">
-                {eligibility.provider === "OPENAI" ? "AI Search" : "Heuristic"}
+                {eligibility.provider === "OPENAI"
+                  ? "AI Search"
+                  : eligibility.provider === "MOCK"
+                  ? "Mock"
+                  : "Heuristic"}
               </span>
             )}
           </h4>
@@ -386,6 +609,13 @@ function ProjectDetailPanel({ project, userId }: { project: SerializedProject, u
             Transfer & Documents
           </h4>
 
+          {/* Project Status */}
+          <ProjectStatusPanel
+            projectId={project.id}
+            currentStatus={project.status}
+            history={project.statusHistory}
+          />
+
           {/* BuilderTrend */}
           {transfer ? (
             <div className="rounded-md bg-gray-50 p-2.5 space-y-1">
@@ -434,6 +664,17 @@ function ProjectDetailPanel({ project, userId }: { project: SerializedProject, u
                   {syncing ? "Syncing..." : "Mark Manually Synced"}
                 </button>
                 {syncMessage && <span className="text-[10px] text-gray-400">{syncMessage}</span>}
+                {transfer.status === "FAILED" && (
+                  <button
+                    type="button"
+                    onClick={handleRetryTransfer}
+                    disabled={retrying}
+                    className="text-[10px] font-medium text-blue-600 hover:underline disabled:opacity-50"
+                  >
+                    {retrying ? "Retrying..." : "Retry Transfer"}
+                  </button>
+                )}
+                {retryMessage && <span className="text-[10px] text-gray-400">{retryMessage}</span>}
               </div>
             </div>
           ) : (
@@ -473,21 +714,15 @@ function ProjectDetailPanel({ project, userId }: { project: SerializedProject, u
                 </Button>
               </Link>
             )}
-            <Link href={`/admin/projects/${project.id}/manual-mode`} className="flex-1">
-              <Button variant="outline" className="w-full text-xs h-8">
-                Manual Mode
-              </Button>
-            </Link>
           </div>
         </div>
       </div>
 
-      <ProjectEstimateReview project={project} />
+      {/* Internal Staff Notes */}
+      <StaffNotesPanel projectId={project.id} />
 
-      <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <ProjectAdminDocuments projectId={project.id} />
-        <ProjectStaffNotes projectId={project.id} currentUserId={userId} />
-      </div>
+      {/* Project Documents */}
+      <ProjectAdminDocuments projectId={project.id} />
     </div>
   );
 }
@@ -499,11 +734,9 @@ function ProjectDetailPanel({ project, userId }: { project: SerializedProject, u
 export function AdminDashboardClient({
   projects,
   userName,
-  userId,
 }: {
   projects: SerializedProject[];
   userName: string;
-  userId: string;
 }) {
   const [activeTab, setActiveTab] = React.useState<"projects" | "analytics">("projects");
   const [search, setSearch] = React.useState("");
@@ -686,7 +919,7 @@ export function AdminDashboardClient({
 
   /* ---- Stats ---- */
   const totalProjects = projects.length;
-  const pendingReview = projects.filter((p) => p.status === "submitted" || p.status === "draft").length;
+  const pendingReview = projects.filter((p) => p.status === "SUBMITTED" || p.status === "DRAFT").length;
   const withEligibleGrants = projects.filter(
     (p) => p.eligibility?.overallDecision === "ELIGIBLE"
   ).length;
@@ -697,12 +930,19 @@ export function AdminDashboardClient({
 
   const filterButtons: { key: FilterStatus; label: string }[] = [
     { key: "all", label: `All (${totalProjects})` },
-    { key: "draft", label: "Draft" },
-    { key: "submitted", label: "Submitted" },
-    { key: "estimate_ready", label: "Estimate Ready" },
-    { key: "estimate_expired", label: "Estimate Expired" },
-    { key: "estimate_accepted", label: "Accepted" },
-    { key: "estimate_declined", label: "Declined" },
+    { key: "DRAFT", label: "Draft" },
+    { key: "SUBMITTED", label: "Submitted" },
+    { key: "ESTIMATE_READY", label: "Estimate Ready" },
+    { key: "ESTIMATE_EXPIRED", label: "Estimate Expired" },
+    { key: "ESTIMATE_ACCEPTED", label: "Accepted" },
+    { key: "ESTIMATE_DECLINED", label: "Declined" },
+    { key: "APPROVED", label: "Approved" },
+    { key: "REJECTED", label: "Rejected" },
+    { key: "WORK_SCHEDULED", label: "Work Scheduled" },
+    { key: "WORK_IN_PROGRESS", label: "Work In Progress" },
+    { key: "WORK_ON_HOLD", label: "Work On Hold" },
+    { key: "WORK_COMPLETED", label: "Work Completed" },
+    { key: "WORK_CANCELLED", label: "Work Cancelled" },
   ];
 
   return (
@@ -720,14 +960,24 @@ export function AdminDashboardClient({
                 Monitor all project requests and AI-driven assessments.
               </p>
             </div>
-            <Link href="/dashboard">
-              <Button variant="outline" className="gap-1.5 text-sm">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                </svg>
-                Project Tracker
-              </Button>
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link href="/admin/manual-mode/new">
+                <Button className="gap-1.5 text-sm">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  New Manual Project
+                </Button>
+              </Link>
+              <Link href="/dashboard">
+                <Button variant="outline" className="gap-1.5 text-sm">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                  </svg>
+                  Project Tracker
+                </Button>
+              </Link>
+            </div>
           </div>
 
           {/* Navigation Tabs */}
@@ -942,7 +1192,7 @@ export function AdminDashboardClient({
                         )}
                         {analyticsData.inRangeCount > 0 && (
                           <div
-                            className="bg-emerald-700 text-white flex items-center justify-center text-[10px] font-bold transition-all"
+                            className="bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold transition-all"
                             style={{ width: `${(analyticsData.inRangeCount / analyticsData.quoteCount) * 100}%` }}
                             title={`In Range: ${analyticsData.inRangeCount}`}
                           >
@@ -1426,7 +1676,7 @@ export function AdminDashboardClient({
                     </button>
 
                     {/* Expanded detail panel */}
-                    {isExpanded && <ProjectDetailPanel project={project} userId={userId} />}
+                    {isExpanded && <ProjectDetailPanel project={project} />}
                   </div>
                 );
               })}

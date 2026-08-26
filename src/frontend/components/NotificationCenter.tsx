@@ -159,22 +159,33 @@ export function NotificationCenter({
                   <div
                     className={`flex gap-3 px-4 py-3 transition-colors ${
                       n.read ? "bg-white" : "bg-blue-50/60"
-                    } ${n.href ? "hover:bg-gray-50" : ""}`}
+                    } ${n.href ? "hover:bg-gray-50" : ""} ${
+                      n.urgent
+                        ? "border-l-4 border-red-500 bg-red-50/20 hover:bg-red-50/30"
+                        : ""
+                    }`}
                   >
                     <div className={`mt-0.5 shrink-0 ${meta.color}`}>
                       <Icon className="h-5 w-5" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
-                        <p
-                          className={`text-sm ${
-                            n.read
-                              ? "font-medium text-gray-700"
-                              : "font-semibold text-gray-900"
-                          }`}
-                        >
-                          {n.title}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p
+                            className={`text-sm ${
+                              n.read
+                                ? "font-medium text-gray-700"
+                                : "font-semibold text-gray-900"
+                            }`}
+                          >
+                            {n.title}
+                          </p>
+                          {n.urgent && (
+                            <span className="inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800 border border-red-200">
+                              Urgent
+                            </span>
+                          )}
+                        </div>
                         {!n.read && (
                           <span
                             aria-hidden

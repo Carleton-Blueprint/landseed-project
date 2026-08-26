@@ -5,6 +5,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client';
 import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
+import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import {
   logPricingDecisionAuditNonBlocking,
   normalizePricingDecisionAuditMetadata,
@@ -21,6 +22,8 @@ import {
   type AnyRefinedEstimate,
 } from '@/backend/services/pricingTiers';
 import { getPricingSourceFromRefinedEstimate } from '@/backend/services/pricingSource';
+import { ALERT_THRESHOLD_KEYS } from '@/backend/services/alertThresholds';
+import { recordFailureAndMaybeAlert } from '@/backend/services/criticalFailureAlerts';
 import type { ModificationCode } from '@/backend/eligibility/types';
 
 const prisma = new PrismaClient();
@@ -42,10 +45,28 @@ interface QuoteResult {
   refinedEstimate: AnyRefinedEstimate;
 }
 
+// generateQuote always calls this on an estimate it just generated, before any
+// tier has been selected (selection happens later, in the accept flow at
+// src/app/api/quote/[id]/respond/route.ts, on a separate request against the
+// persisted quote) - so there's no selectedTier to honor here yet.
 function getPrimaryEstimate(refinedEstimate: AnyRefinedEstimate): RefinedEstimate {
-  return isTieredEstimate(refinedEstimate)
-    ? refinedEstimate.tiers[refinedEstimate.selectedTier ?? DEFAULT_PRICING_TIER]
-    : refinedEstimate;
+  return isTieredEstimate(refinedEstimate) ? refinedEstimate.tiers[DEFAULT_PRICING_TIER] : refinedEstimate;
+}
+
+// Tiers are ordered economy <= standard <= premium by construction (each tier's
+// per-item price is the min/median/capped-max of the same fetched candidate list -
+// see refinedEstimate.ts's selectTierPrices), so economy's floor and premium's
+// ceiling span the full price range regardless of which tier the client ends up
+// selecting - unlike subtotal/total, a single tier's range isn't representative here.
+function getEstimateRange(refinedEstimate: AnyRefinedEstimate): { estimateMin: number; estimateMax: number } {
+  if (isTieredEstimate(refinedEstimate)) {
+    return {
+      estimateMin: refinedEstimate.tiers.economy.estimateMin,
+      estimateMax: refinedEstimate.tiers.premium.estimateMax,
+    };
+  }
+
+  return { estimateMin: refinedEstimate.estimateMin, estimateMax: refinedEstimate.estimateMax };
 }
 
 interface PricingDecisionAuditTrailEntry {
@@ -80,14 +101,15 @@ export async function generateQuote(
 
   const refinedEstimate = await generateMockRefinedEstimate(input.items, input.modificationCodes ?? []);
   const primaryEstimate = getPrimaryEstimate(refinedEstimate);
+  const estimateRange = getEstimateRange(refinedEstimate);
 
   const quote = await prisma.quote.create({
     data: {
       projectId: input.projectId,
       subtotal: new Prisma.Decimal(primaryEstimate.subtotal),
       total: new Prisma.Decimal(primaryEstimate.total),
-      estimateMin: new Prisma.Decimal(primaryEstimate.estimateMin),
-      estimateMax: new Prisma.Decimal(primaryEstimate.estimateMax),
+      estimateMin: new Prisma.Decimal(estimateRange.estimateMin),
+      estimateMax: new Prisma.Decimal(estimateRange.estimateMax),
       refinedEstimate: refinedEstimate as unknown as Prisma.InputJsonValue,
       lastClientActivityAt: new Date(),
       eligibilityAssessmentId: latestEligibility?.assessmentId,
@@ -103,12 +125,51 @@ export async function generateQuote(
     sourceUrl: grant.sourceUrl ?? null,
   }));
 
+  const pricingSource = getPricingSourceFromRefinedEstimate(primaryEstimate);
+  const fallbackLineItems = primaryEstimate.lineItems
+    .filter((item) => item.pricingSource === 'fallback')
+    .map((item) => ({
+      description: item.description,
+      query: item.pricingQuery,
+      fallbackUnitPrice: item.materialUnitCost,
+      reason: item.fallbackReason ?? undefined,
+    }));
+
+  // Mirrors the eligibility HEURISTIC-fallback pattern (Step 3.5 in
+  // eligibility/service.ts): a quote can otherwise ship with synthetic
+  // 0.85/1/1.25 catalog pricing instead of real market data and nothing
+  // would surface it to an admin — logFallbackPricingUsed in
+  // refinedEstimate.ts is only a console.warn gated behind PRICING_DEBUG,
+  // not an audit event or a monitored failure signal.
+  if (fallbackLineItems.length > 0) {
+    await logAuditEventNonBlocking({
+      category: 'MANUAL_CHANGE',
+      action: 'PRICING_TIER_FALLBACK',
+      outcome: 'FAILURE',
+      resourceType: 'Quote',
+      resourceId: quote.id,
+      projectId: input.projectId,
+      quoteId: quote.id,
+      actorUserId: projectWithUser.user.id,
+      description: `Quote pricing fell back to synthetic catalog pricing for ${fallbackLineItems.length} line item(s); SerpAPI pricing was unusable or implausible.`,
+      metadata: { fallbackLineItems, fallbackCount: fallbackLineItems.length },
+    });
+
+    void recordFailureAndMaybeAlert({
+      key: ALERT_THRESHOLD_KEYS.PRICING_TIER_FALLBACK,
+      summary: `Quote ${quote.id} used synthetic fallback pricing for ${fallbackLineItems.length} line item(s)`,
+      details: { quoteId: quote.id, projectId: input.projectId, fallbackLineItems },
+    });
+  }
+
   await logPricingDecisionAuditNonBlocking({
     projectId: input.projectId,
     quoteId: quote.id,
     actorUserId: projectWithUser.user.id,
     subtotal: primaryEstimate.subtotal,
     total: primaryEstimate.total,
+    pricingSource,
+    fallbackLineItems,
     eligibilityAssessmentId: latestEligibility?.assessmentId,
     discoveryVersion: {
       engineVersion: latestEligibility?.discoveryEngineVersion,
@@ -141,7 +202,7 @@ export async function generateQuote(
     eligibilityAssessmentId: latestEligibility?.assessmentId,
     estimateMin: Number(quote.estimateMin!.toString()),
     estimateMax: Number(quote.estimateMax!.toString()),
-    pricingSource: getPricingSourceFromRefinedEstimate(primaryEstimate),
+    pricingSource,
     refinedEstimate,
   };
 }

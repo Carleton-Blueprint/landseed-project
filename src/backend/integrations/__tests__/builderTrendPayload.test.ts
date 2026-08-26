@@ -86,49 +86,87 @@ describe("resolveBuilderTrendPricingBreakdown", () => {
 });
 
 describe("buildBuilderTrendWorkOrderPayload", () => {
-  it("packages client contact info, modification type, pricing, and photos", async () => {
-    const payload = await buildBuilderTrendWorkOrderPayload({
+  it("packages only summary-level client, project, modification type, and total estimate fields", () => {
+    const payload = buildBuilderTrendWorkOrderPayload({
       project: {
         id: "proj-1",
         address: "123 Main St",
-        draftData: { modificationItems: ["walk_in_shower", "grab_bars"] },
         user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
-        photos: [{ id: "photo-1", url: "https://example.com/photo1.jpg" }],
+        photos: [{ declaredModificationCodes: ["WALK_IN_SHOWER", "GRAB_BARS"] }],
       },
-      quote: { id: "quote-1", ...baseQuoteRow },
-      approvedAt: new Date("2026-07-28T12:00:00.000Z"),
+      quote: baseQuoteRow,
       refinedEstimate: buildEstimate(500),
       quoteIsTiered: false,
       acceptedTier: null,
     });
 
-    expect(payload.schemaVersion).toBe(BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION);
-    expect(payload.project).toEqual({ id: "proj-1", address: "123 Main St" });
-    expect(payload.client).toEqual({ name: "Jane Client", email: "jane@example.com", phone: "555-0100" });
-    expect(payload.modificationType).toEqual(["walk_in_shower", "grab_bars"]);
-    expect(payload.quote.id).toBe("quote-1");
-    expect(payload.quote.approvedAt).toBe("2026-07-28T12:00:00.000Z");
-    expect(payload.quote.pricing.total).toBe(500);
-    expect(payload.photos).toEqual([{ id: "photo-1", url: "https://example.com/photo1.jpg" }]);
+    expect(payload).toEqual({
+      schemaVersion: BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
+      project: { id: "proj-1", address: "123 Main St" },
+      client: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
+      modificationType: ["Grab Bars", "Walk-In Shower"],
+      totalEstimate: 500,
+    });
   });
 
-  it("leaves non-S3 photo URLs untouched (no external signing call for them)", async () => {
-    const payload = await buildBuilderTrendWorkOrderPayload({
+  it("never includes raw itemized data (line items, photo URLs, or attachment fields)", () => {
+    const payload = buildBuilderTrendWorkOrderPayload({
       project: {
         id: "proj-1",
         address: "123 Main St",
-        draftData: null,
         user: { name: null, email: null, phone: null },
-        photos: [{ id: "photo-1", url: "https://cdn.example.com/photo1.jpg" }],
+        photos: [{ declaredModificationCodes: [] }],
       },
-      quote: { id: "quote-1", ...baseQuoteRow },
-      approvedAt: new Date("2026-07-28T12:00:00.000Z"),
+      quote: baseQuoteRow,
+      refinedEstimate: buildEstimate(500),
+      quoteIsTiered: false,
+      acceptedTier: null,
+    });
+
+    expect(payload).not.toHaveProperty("quote");
+    expect(payload).not.toHaveProperty("photos");
+    expect(payload).not.toHaveProperty("attachments");
+    expect(Object.keys(payload).sort()).toEqual(
+      ["client", "modificationType", "project", "schemaVersion", "totalEstimate"].sort()
+    );
+  });
+
+  it("uses the accepted tier's total for a tiered quote", () => {
+    const tiered: TieredRefinedEstimate = {
+      tiers: { economy: buildEstimate(1000), standard: buildEstimate(1300), premium: buildEstimate(1700) },
+    };
+
+    const payload = buildBuilderTrendWorkOrderPayload({
+      project: {
+        id: "proj-1",
+        address: "123 Main St",
+        user: { name: null, email: null, phone: null },
+        photos: [],
+      },
+      quote: baseQuoteRow,
+      refinedEstimate: tiered,
+      quoteIsTiered: true,
+      acceptedTier: "premium",
+    });
+
+    expect(payload.totalEstimate).toBe(1700);
+  });
+
+  it("falls back to the Quote row's total when no refinedEstimate breakdown exists", () => {
+    const payload = buildBuilderTrendWorkOrderPayload({
+      project: {
+        id: "proj-1",
+        address: "123 Main St",
+        user: { name: null, email: null, phone: null },
+        photos: [],
+      },
+      quote: baseQuoteRow,
       refinedEstimate: null,
       quoteIsTiered: false,
       acceptedTier: null,
     });
 
-    expect(payload.photos).toEqual([{ id: "photo-1", url: "https://cdn.example.com/photo1.jpg" }]);
+    expect(payload.totalEstimate).toBe(1300);
     expect(payload.modificationType).toEqual([]);
     expect(payload.client).toEqual({ name: null, email: null, phone: null });
   });

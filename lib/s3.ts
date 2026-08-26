@@ -1,24 +1,26 @@
 /**
- * S3 client placeholder for photo uploads. This file exposes the bucket name and a stub for the client.
- * When ready: install @aws-sdk/client-s3, implement getS3Client(), and set AWS_S3_BUCKET + AWS_* in env.
+ * Cloudflare R2 client for photo/document uploads, accessed through the S3-compatible API
+ * (@aws-sdk/client-s3 works unmodified against R2). Configured via R2_* env vars.
  */
 import { S3Client, PutObjectCommand, ListBucketsCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "node:stream";
 
-export const S3_BUCKET = process.env.AWS_S3_BUCKET ?? "";
-const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
+export const S3_BUCKET = process.env.R2_BUCKET ?? "";
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? "";
+export const R2_ENDPOINT = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
 
 let s3Client: S3Client | null = null;
 
 export function getS3Client() {
-  // Placeholder: return actual S3 client instance
   if (!s3Client) {
     s3Client = new S3Client({
-      region: AWS_REGION,
+      region: "auto",
+      endpoint: R2_ENDPOINT,
+      forcePathStyle: true,
       credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
+        accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
       },
     });
   }
@@ -47,8 +49,27 @@ export async function uploadStreamToS3(
 
   await client.send(command);
 
-  // Return the S3 URL
-  return `https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+  // Path-style URL, since R2 doesn't do virtual-hosted-style bucket subdomains
+  return `${R2_ENDPOINT}/${S3_BUCKET}/${key}`;
+}
+
+export async function getObjectBuffer(key: string): Promise<Buffer> {
+  const client = getS3Client();
+  const command = new GetObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: key,
+  });
+
+  const response = await client.send(command);
+  if (!response.Body) {
+    throw new Error(`S3 object has no body: ${key}`);
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of response.Body as Readable) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }
 
 export async function getSignedDownloadUrl(key: string, expiresIn: number = 3600): Promise<string> {
@@ -66,7 +87,8 @@ export async function getSignedDownloadUrlFromS3Url(
   expiresIn: number = 3600
 ): Promise<string> {
   const parsedUrl = new URL(s3Url);
-  const key = decodeURIComponent(parsedUrl.pathname.replace(/^\/+/, ""));
+  const path = decodeURIComponent(parsedUrl.pathname.replace(/^\/+/, ""));
+  const key = path.startsWith(`${S3_BUCKET}/`) ? path.slice(S3_BUCKET.length + 1) : path;
 
   if (!key) {
     throw new Error("Cannot sign S3 URL without an object key");

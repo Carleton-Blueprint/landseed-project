@@ -23,6 +23,7 @@ export async function authorizePasswordCredentials(credentials: PasswordCredenti
       email: true,
       image: true,
       passwordHash: true,
+      role: true,
     },
   });
 
@@ -38,5 +39,6 @@ export async function authorizePasswordCredentials(credentials: PasswordCredenti
     name: user.name,
     email: user.email,
     image: user.image || null,
+    role: user.role,
   };
 }

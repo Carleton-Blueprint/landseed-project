@@ -17,8 +17,11 @@ describe("assembleEligibilityInput", () => {
         ownershipStatus: "owner",
         isCaregiver: false,
         clientConsentConfirmed: true,
-        modificationItems: ["Grab bars", "Walk-in shower"],
       },
+      photos: [
+        { declaredModificationCodes: ["GRAB_BARS"] },
+        { declaredModificationCodes: ["WALK_IN_SHOWER"] },
+      ],
     });
 
     expect(result.project).toEqual({
@@ -53,8 +56,8 @@ describe("assembleEligibilityInput", () => {
         relationshipToSenior: "daughter",
         caregiverConsentConfirmed: false,
         clientConsentConfirmed: false,
-        modificationItems: [],
       },
+      photos: [],
     });
 
     expect(result.required.province).toBeNull();
@@ -85,9 +88,9 @@ describe("assembleEligibilityInput", () => {
         clientConsentConfirmed: "yes",
         isCaregiver: "true",
         caregiverConsentConfirmed: "no",
-        modificationItems: ["Grab bars", 22, null, "Unknown custom item", "Grab bars"],
         landlordPhone: 1000,
       },
+      photos: [{ declaredModificationCodes: ["GRAB_BARS", "not a code", "GRAB_BARS"] }],
     });
 
     expect(result.required.province).toBeNull();
@@ -99,7 +102,6 @@ describe("assembleEligibilityInput", () => {
       "province",
       "ownershipStatus",
       "clientConsentConfirmed",
-      "modificationItems",
       "landlordPhone",
       "isCaregiver",
       "caregiverConsentConfirmed",

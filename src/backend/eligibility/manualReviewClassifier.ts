@@ -47,19 +47,38 @@ export const COMPLEXITY_CONFIG = {
 
 /**
  * Analyze a project's eligibility evaluation to determine manual review classification.
- * 
+ *
  * @param input - Eligibility assessment input (after discovery/evaluation complete)
  * @param aiConfidence - AI confidence level from discovery (HIGH, MEDIUM, LOW)
  * @param discoveredGrantsCount - Number of grants discovered
  * @param totalCandidatesCount - Total candidates evaluated
+ * @param contradictingGrantTitles - Titles of grants the AI marked ELIGIBLE that
+ *   contradict our own catalog's known eligibleModificationCodes for that
+ *   program (see detectCatalogContradictions in discoverySearchProvider.ts).
+ *   Non-empty regardless of AI confidence — a factual contradiction is worth
+ *   flagging even at HIGH confidence, since confidence alone wouldn't catch it
+ *   (see docs/grant-discovery-verification-2026-08-14.md).
  * @returns Classification result with flag decision and reason
  */
 export function classifyManualReviewNeed(
   input: EligibilityInput,
   aiConfidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'MEDIUM',
   discoveredGrantsCount: number = 0,
-  totalCandidatesCount: number = 0
+  totalCandidatesCount: number = 0,
+  contradictingGrantTitles: string[] = []
 ): ManualReviewClassificationResult {
+  // CATALOG CONTRADICTION = IMMEDIATE TRIGGER, checked first — a factual
+  // mismatch against our own trusted data is more actionable than a
+  // confidence heuristic and isn't caught by the LOW_CONFIDENCE check below.
+  if (contradictingGrantTitles.length > 0) {
+    return {
+      reason: ProjectManualReviewReason.DISCOVERY_CATALOG_CONTRADICTION,
+      shouldFlag: true,
+      description: `Grant discovery marked eligible program(s) that contradict our own catalog data: ${contradictingGrantTitles.join(', ')}.`,
+      aiConfidence,
+    };
+  }
+
   // LOW CONFIDENCE = IMMEDIATE TRIGGER (no complexity check needed)
   if (aiConfidence === 'LOW') {
     return {

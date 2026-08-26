@@ -3,7 +3,17 @@
  */
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
+import { getOrGenerateReadyEstimate } from "@/backend/services/estimateDocument";
+import { getOrGenerateReadyGrantMatchSummary } from "@/backend/services/grantMatchSummaryDocument";
+import { getObjectBuffer } from "lib/s3";
 import { builderTrendTransferQueue } from "@/backend/queue";
+import {
+  processBuilderTrendTransfer,
+  triggerManualFallbackForExhaustedTransfer,
+  triggerBuilderTrendTransferForApprovedProject,
+  retryBuilderTrendTransfer,
+  enqueueBuilderTrendTransfer,
+} from "../buildertrend";
 
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
@@ -20,9 +30,23 @@ jest.mock("@/backend/services/manualFallbackExport", () => ({
   requestManualFallbackExport: jest.fn(),
 }));
 
+jest.mock("@/backend/services/estimateDocument", () => ({
+  getOrGenerateReadyEstimate: jest.fn(),
+}));
+
+jest.mock("@/backend/services/grantMatchSummaryDocument", () => ({
+  getOrGenerateReadyGrantMatchSummary: jest.fn(),
+}));
+
+jest.mock("lib/s3", () => ({
+  getObjectBuffer: jest.fn(),
+}));
+
 const mockedQueryRaw = jest.fn();
 const mockedExecuteRaw = jest.fn();
 const mockedProjectFindUnique = jest.fn();
+const mockedQuoteFindUnique = jest.fn();
+const mockedBuilderTrendTransferFindFirst = jest.fn();
 
 jest.mock("lib/prisma", () => ({
   prisma: {
@@ -31,14 +55,14 @@ jest.mock("lib/prisma", () => ({
     project: {
       findUnique: (...args: unknown[]) => mockedProjectFindUnique(...args),
     },
+    quote: {
+      findUnique: (...args: unknown[]) => mockedQuoteFindUnique(...args),
+    },
+    builderTrendTransfer: {
+      findFirst: (...args: unknown[]) => mockedBuilderTrendTransferFindFirst(...args),
+    },
   },
 }));
-
-const {
-  processBuilderTrendTransfer,
-  triggerManualFallbackForExhaustedTransfer,
-  retryBuilderTrendTransfer,
-} = require("../buildertrend") as typeof import("../buildertrend");
 
 const mockedQueueGetJob = builderTrendTransferQueue.getJob as jest.MockedFunction<
   typeof builderTrendTransferQueue.getJob
@@ -49,6 +73,13 @@ const mockedAudit = logAuditEventNonBlocking as jest.MockedFunction<typeof logAu
 const mockedRequestManualFallbackExport = requestManualFallbackExport as jest.MockedFunction<
   typeof requestManualFallbackExport
 >;
+const mockedGetOrGenerateReadyEstimate = getOrGenerateReadyEstimate as jest.MockedFunction<
+  typeof getOrGenerateReadyEstimate
+>;
+const mockedGetOrGenerateReadyGrantMatchSummary = getOrGenerateReadyGrantMatchSummary as jest.MockedFunction<
+  typeof getOrGenerateReadyGrantMatchSummary
+>;
+const mockedGetObjectBuffer = getObjectBuffer as jest.MockedFunction<typeof getObjectBuffer>;
 
 const baseTransferRow = {
   id: "transfer-1",
@@ -56,18 +87,88 @@ const baseTransferRow = {
   quoteId: "quote-1",
   status: "PENDING",
   attempts: 0,
-  payload: null,
+  payload: { schemaVersion: 2, project: { id: "project-1", address: "1 Main St" }, client: {}, modificationType: [], totalEstimate: 500 },
 };
+
+describe("enqueueBuilderTrendTransfer", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("adds a job to the BuilderTrend transfer queue keyed by transferId", async () => {
+    await enqueueBuilderTrendTransfer("transfer-1");
+
+    expect(mockedQueueAdd).toHaveBeenCalledWith(
+      "buildertrend-transfer:transfer-1",
+      { transferId: "transfer-1" },
+      expect.objectContaining({
+        jobId: "transfer-1",
+        removeOnComplete: 100,
+        removeOnFail: 500,
+        priority: 1,
+      })
+    );
+  });
+});
 
 describe("processBuilderTrendTransfer", () => {
   const originalMockFailEnv = process.env.BUILDERTREND_MOCK_FAIL;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedQuoteFindUnique.mockResolvedValue({ id: "quote-1", projectId: "project-1", status: "ACCEPTED" });
+    mockedProjectFindUnique.mockResolvedValue({ userId: "user-1" });
+    mockedGetOrGenerateReadyEstimate.mockResolvedValue(null);
+    mockedGetOrGenerateReadyGrantMatchSummary.mockResolvedValue(null);
+    mockedGetObjectBuffer.mockResolvedValue(Buffer.from("pdf-bytes"));
   });
 
   afterAll(() => {
     process.env.BUILDERTREND_MOCK_FAIL = originalMockFailEnv;
+  });
+
+  it("throws when the transfer is not found", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([]);
+
+    await expect(
+      processBuilderTrendTransfer("missing-transfer", { attemptsMade: 0, maxAttempts: 3 })
+    ).rejects.toThrow("BuilderTrend transfer missing-transfer not found");
+
+    expect(mockedExecuteRaw).not.toHaveBeenCalled();
+    expect(mockedAudit).not.toHaveBeenCalled();
+  });
+
+  it("includes a payload summary in the audit metadata when a payload is present", async () => {
+    process.env.BUILDERTREND_MOCK_FAIL = "false";
+    mockedQueryRaw.mockResolvedValueOnce([
+      {
+        ...baseTransferRow,
+        payload: {
+          schemaVersion: 1,
+          client: { name: "Jane Client", email: null, phone: null },
+          modificationType: ["walk_in_shower"],
+          totalEstimate: 500,
+        },
+      },
+    ]);
+
+    await processBuilderTrendTransfer("transfer-1", { attemptsMade: 0, maxAttempts: 3 });
+
+    // Summary is a deliberately non-PII shape/field-presence summary (see
+    // summarizeBuilderTrendPayloadForAudit) — it doesn't duplicate line-item
+    // or photo detail already stored on the transfer row itself.
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "BUILDERTREND_TRANSFER_SENT",
+        metadata: expect.objectContaining({
+          payloadPresent: true,
+          schemaVersion: 1,
+          hasClientContact: true,
+          modificationType: ["walk_in_shower"],
+          totalEstimate: 500,
+        }),
+      })
+    );
   });
 
   it("returns early without re-querying status when the transfer is already SENT", async () => {
@@ -77,6 +178,28 @@ describe("processBuilderTrendTransfer", () => {
 
     expect(mockedExecuteRaw).not.toHaveBeenCalled();
     expect(mockedAudit).not.toHaveBeenCalled();
+  });
+
+  it("marks the transfer FAILED and logs a blocked audit event when the quote is not accepted", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([baseTransferRow]);
+    mockedQuoteFindUnique.mockResolvedValue({ id: "quote-1", projectId: "project-1", status: "DECLINED" });
+
+    await processBuilderTrendTransfer("transfer-1", { attemptsMade: 0, maxAttempts: 3 });
+
+    expect(mockedExecuteRaw).toHaveBeenCalledTimes(1);
+    expect(mockedExecuteRaw.mock.calls[0][0].sql).toContain("'FAILED'::\"BuilderTrendTransferStatus\"");
+    expect(mockedExecuteRaw.mock.calls[0][0].values).toEqual(
+      expect.arrayContaining(["Work order creation blocked: ESTIMATE_DECLINED"])
+    );
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "WORK_ORDER_CREATION_BLOCKED",
+        outcome: "DENIED",
+        quoteId: "quote-1",
+        projectId: "project-1",
+        metadata: expect.objectContaining({ reason: "ESTIMATE_DECLINED" }),
+      })
+    );
   });
 
   it("marks the transfer SENT and logs attemptNumber 1 on a first-try success", async () => {
@@ -90,7 +213,62 @@ describe("processBuilderTrendTransfer", () => {
       expect.objectContaining({
         action: "BUILDERTREND_TRANSFER_SENT",
         outcome: "SUCCESS",
-        metadata: expect.objectContaining({ transferStatus: "SENT", attemptNumber: 1 }),
+        metadata: expect.objectContaining({
+          transferStatus: "SENT",
+          attemptNumber: 1,
+          attachmentCount: 0,
+          attachmentFileNames: [],
+        }),
+      })
+    );
+  });
+
+  it("resolves the Estimate and Grant Match Summary PDFs as file buffers and includes them in the sent audit metadata", async () => {
+    process.env.BUILDERTREND_MOCK_FAIL = "false";
+    mockedQueryRaw.mockResolvedValueOnce([baseTransferRow]);
+    mockedGetOrGenerateReadyEstimate.mockResolvedValue({
+      s3Key: "projects/project-1/estimate/estimate-v1.pdf",
+      fileName: "estimate-v1.pdf",
+    });
+    mockedGetOrGenerateReadyGrantMatchSummary.mockResolvedValue({
+      s3Key: "projects/project-1/grant-match-summary/grant-match-summary-v1.pdf",
+      fileName: "grant-match-summary-v1.pdf",
+    });
+
+    await processBuilderTrendTransfer("transfer-1", { attemptsMade: 0, maxAttempts: 3 });
+
+    expect(mockedGetOrGenerateReadyEstimate).toHaveBeenCalledWith("quote-1", "user-1");
+    expect(mockedGetOrGenerateReadyGrantMatchSummary).toHaveBeenCalledWith("project-1", "user-1");
+    expect(mockedGetObjectBuffer).toHaveBeenCalledWith("projects/project-1/estimate/estimate-v1.pdf");
+    expect(mockedGetObjectBuffer).toHaveBeenCalledWith(
+      "projects/project-1/grant-match-summary/grant-match-summary-v1.pdf"
+    );
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "BUILDERTREND_TRANSFER_SENT",
+        metadata: expect.objectContaining({
+          attachmentCount: 2,
+          attachmentFileNames: ["estimate-v1.pdf", "grant-match-summary-v1.pdf"],
+        }),
+      })
+    );
+  });
+
+  it("omits an attachment whose S3 download fails, without failing the transfer", async () => {
+    process.env.BUILDERTREND_MOCK_FAIL = "false";
+    mockedQueryRaw.mockResolvedValueOnce([baseTransferRow]);
+    mockedGetOrGenerateReadyEstimate.mockResolvedValue({
+      s3Key: "projects/project-1/estimate/estimate-v1.pdf",
+      fileName: "estimate-v1.pdf",
+    });
+    mockedGetObjectBuffer.mockRejectedValueOnce(new Error("S3 unavailable"));
+
+    await processBuilderTrendTransfer("transfer-1", { attemptsMade: 0, maxAttempts: 3 });
+
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "BUILDERTREND_TRANSFER_SENT",
+        metadata: expect.objectContaining({ attachmentCount: 0, attachmentFileNames: [] }),
       })
     );
   });
@@ -204,9 +382,62 @@ describe("triggerManualFallbackForExhaustedTransfer", () => {
   });
 });
 
+describe("triggerBuilderTrendTransferForApprovedProject", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("enqueues the PENDING transfer and logs an audit event", async () => {
+    mockedBuilderTrendTransferFindFirst.mockResolvedValue({ id: "transfer-1", quoteId: "quote-1" });
+
+    const result = await triggerBuilderTrendTransferForApprovedProject("project-1", "user-1");
+
+    expect(mockedBuilderTrendTransferFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { projectId: "project-1", status: "PENDING" } })
+    );
+    expect(mockedQueueAdd).toHaveBeenCalledWith(
+      "buildertrend-transfer:transfer-1",
+      { transferId: "transfer-1" },
+      expect.objectContaining({ jobId: "transfer-1" })
+    );
+    expect(mockedAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "BUILDERTREND_TRANSFER_TRIGGERED_BY_PROJECT_APPROVAL",
+        outcome: "SUCCESS",
+        actorUserId: "user-1",
+        projectId: "project-1",
+        quoteId: "quote-1",
+        resourceId: "transfer-1",
+      })
+    );
+    expect(result).toEqual({ triggered: true, transferId: "transfer-1" });
+  });
+
+  it("no-ops when no PENDING transfer exists for the project (none created yet, or already past PENDING)", async () => {
+    mockedBuilderTrendTransferFindFirst.mockResolvedValue(null);
+
+    const result = await triggerBuilderTrendTransferForApprovedProject("project-1", "user-1");
+
+    expect(mockedQueueAdd).not.toHaveBeenCalled();
+    expect(mockedAudit).not.toHaveBeenCalled();
+    expect(result).toEqual({ triggered: false, transferId: null });
+  });
+});
+
 describe("retryBuilderTrendTransfer", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("throws when the transfer is not found", async () => {
+    mockedQueryRaw.mockResolvedValueOnce([]);
+
+    await expect(retryBuilderTrendTransfer({ transferId: "missing-transfer" })).rejects.toThrow(
+      "BuilderTrend transfer missing-transfer not found"
+    );
+
+    expect(mockedQueueGetJob).not.toHaveBeenCalled();
+    expect(mockedExecuteRaw).not.toHaveBeenCalled();
   });
 
   it("enqueues a fresh job when no job exists yet for this transfer", async () => {

@@ -1,58 +1,23 @@
 /**
  * FR-3.1 Automatic Evaluation Triggers
- * 
- * Evaluates eligibility automatically when:
- * - Project is created or updated
- * - Draft data changes
- * 
+ *
+ * Evaluates eligibility automatically via queueEligibilityEvaluation, called
+ * after estimate generation completes (or fails) and after a pre-estimate
+ * modification override.
+ *
  * Safeguards:
  * - Only evaluates if 30+ seconds since last evaluation (rate limiting)
- * - Only evaluates if significant data change detected
  * - Non-blocking: failures logged but don't block main operation
  */
 
-import { Project } from '@prisma/client';
 import { evaluateProjectEligibility } from './service';
 import { prisma } from 'lib/prisma';
 
+const PROJECT_WITH_PHOTOS_INCLUDE = {
+  photos: { select: { declaredModificationCodes: true } },
+} as const;
+
 const EVALUATION_COOLDOWN_SECONDS = 30;
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, unknown>;
-}
-
-/**
- * Detect if draft data has significantly changed
- */
-function hasDraftDataChanged(oldDraft: unknown, newDraft: unknown): boolean {
-  if (!oldDraft && !newDraft) return false;
-  if (!oldDraft || !newDraft) return true;
-
-  const oldRecord = asRecord(oldDraft);
-  const newRecord = asRecord(newDraft);
-
-  // Check key fields that matter for eligibility
-  const relevantFields = [
-    'province',
-    'ownershipStatus',
-    'clientConsentConfirmed',
-    'modificationItems',
-    'estimatedHouseholdIncome',
-    'age',
-    'propertyYearBuilt',
-  ];
-
-  for (const field of relevantFields) {
-    if (JSON.stringify(oldRecord[field]) !== JSON.stringify(newRecord[field])) {
-      return true;
-    }
-  }
-
-  return false;
-}
 
 /**
  * Check if enough time has passed since last evaluation
@@ -73,73 +38,6 @@ async function shouldEvaluateNow(projectId: string): Promise<boolean> {
 }
 
 /**
- * Trigger eligibility evaluation after project creation
- * Non-blocking: returns immediately, evaluation happens in background
- */
-export async function triggerEvaluationAfterProjectCreation(project: Project): Promise<void> {
-  if (project.isManualMode) {
-    return;
-  }
-
-  // Schedule async evaluation in background
-  setImmediate(async () => {
-    try {
-      const shouldEval = await shouldEvaluateNow(project.id);
-      if (!shouldEval) {
-        console.log(`Eligibility evaluation rate-limited for project ${project.id}`);
-        return;
-      }
-
-      await evaluateProjectEligibility(project);
-      console.log(`Auto-evaluated eligibility for new project ${project.id}`);
-    } catch (error) {
-      console.warn(`Failed to auto-evaluate eligibility after project creation:`, error);
-    }
-  });
-}
-
-/**
- * Trigger eligibility re-evaluation after draft data update
- * Only if significant fields changed
- */
-export async function triggerEvaluationAfterDraftUpdate(
-  project: Project,
-  oldDraft: unknown,
-  newDraft: unknown
-): Promise<void> {
-  if (project.isManualMode) {
-    return;
-  }
-
-  // Check if evaluation is needed
-  if (!hasDraftDataChanged(oldDraft, newDraft)) {
-    return; // No relevant changes
-  }
-
-  setImmediate(async () => {
-    try {
-      const shouldEval = await shouldEvaluateNow(project.id);
-      if (!shouldEval) {
-        console.log(`Eligibility re-evaluation rate-limited for project ${project.id}`);
-        return;
-      }
-
-      // Refresh project with updated draftData
-      const updatedProject = await prisma.project.findUnique({
-        where: { id: project.id },
-      });
-
-      if (updatedProject) {
-        await evaluateProjectEligibility(updatedProject);
-        console.log(`Auto-re-evaluated eligibility for project ${project.id} (draft update)`);
-      }
-    } catch (error) {
-      console.warn(`Failed to auto-evaluate eligibility after draft update:`, error);
-    }
-  });
-}
-
-/**
  * Manually queue evaluation if needed (idempotent)
  * Use in scenarios where automatic triggers don't/can't apply
  */
@@ -148,6 +46,7 @@ export async function queueEligibilityEvaluation(projectId: string): Promise<voi
     try {
       const project = await prisma.project.findUnique({
         where: { id: projectId },
+        include: PROJECT_WITH_PHOTOS_INCLUDE,
       });
 
       if (!project) {

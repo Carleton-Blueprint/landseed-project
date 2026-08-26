@@ -47,10 +47,13 @@ jest.mock("@/backend/auth/rateLimit", () => ({
   enforceRateLimit: jest.fn(),
 }));
 
-function buildFormDataRequest(): NextRequest {
+function buildFormDataRequest(modificationItems?: string[]): NextRequest {
   const formData = new FormData();
   formData.set("file", new File(["x"], "photo.jpg", { type: "image/jpeg" }));
   formData.set("projectId", "project-1");
+  for (const item of modificationItems ?? []) {
+    formData.append("modificationItems", item);
+  }
   return new NextRequest("http://localhost/api/upload", { method: "POST", body: formData });
 }
 
@@ -90,5 +93,38 @@ describe("POST /api/upload", () => {
 
     expect(res.status).toBe(200);
     expect(prisma.photo.create).toHaveBeenCalled();
+  });
+
+  it("persists declared modification codes when provided", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (hasProjectAccess as jest.Mock).mockResolvedValue(true);
+    (uploadToS3 as jest.Mock).mockResolvedValue("https://s3.example.com/photo.jpg");
+    (prisma.photo.create as jest.Mock).mockResolvedValue({
+      id: "photo-1",
+      url: "https://s3.example.com/photo.jpg",
+      projectId: "project-1",
+      virus_scan_status: "pending",
+      declaredModificationCodes: ["GRAB_BARS"],
+    });
+    (virusScanQueue.add as jest.Mock).mockResolvedValue(undefined);
+
+    const res = await POST(buildFormDataRequest(["GRAB_BARS"]));
+
+    expect(res.status).toBe(200);
+    expect(prisma.photo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ declaredModificationCodes: ["GRAB_BARS"] }),
+      })
+    );
+  });
+
+  it("returns 400 for an unknown modification code, before checking project access", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+
+    const res = await POST(buildFormDataRequest(["NOT_A_REAL_CODE"]));
+
+    expect(res.status).toBe(400);
+    expect(hasProjectAccess).not.toHaveBeenCalled();
+    expect(prisma.photo.create).not.toHaveBeenCalled();
   });
 });

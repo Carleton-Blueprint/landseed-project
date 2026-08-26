@@ -2,6 +2,7 @@
  * @jest-environment node
  */
 import { logSecurityEventNonBlocking } from "@/backend/security/securityEvent";
+import { checkRateLimit, buildRateLimitKey, rateLimitedResponse, enforceRateLimit } from "../rateLimit";
 
 jest.mock("@/backend/security/securityEvent", () => ({
   logSecurityEventNonBlocking: jest.fn(),
@@ -16,13 +17,6 @@ jest.mock("ioredis", () =>
     ttl: mockTtl,
   }))
 );
-
-const {
-  checkRateLimit,
-  buildRateLimitKey,
-  rateLimitedResponse,
-  enforceRateLimit,
-} = require("../rateLimit");
 
 describe("buildRateLimitKey", () => {
   it("namespaces the key by scope and identifier", () => {

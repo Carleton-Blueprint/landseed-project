@@ -8,7 +8,7 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
 - **`/src/backend`** – Business logic, services (image, PDF, queue)
 - **`/src/app`** – Routes and API endpoints
 - **`/prisma`** – Schema and migrations
-- **`/lib`** – Shared instances (Prisma, S3 placeholder)
+- **`/lib`** – Shared instances (Prisma, R2 client)
 
 ## Setup
 
@@ -25,7 +25,7 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
    - `DATABASE_URL` – PostgreSQL connection string
    - `NEXTAUTH_SECRET` – e.g. `openssl rand -base64 32`
    - `NEXTAUTH_URL` – e.g. `http://localhost:3000`
-   - `OPENAI_API_KEY`, `AWS_S3_BUCKET`, `REDIS_URL` as needed
+   - `OPENAI_API_KEY`, `R2_ACCOUNT_ID`, `R2_BUCKET`, `REDIS_URL` as needed
 
 3. **Database**
 
@@ -57,9 +57,9 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
    A client posts multipart/form-data to **`POST /api/upload`** (`src/app/api/upload/route.ts`). The route validates file size and type. When you’re ready, you’ll stream the file to **S3** (using `lib/s3.ts`) and push a job to **`src/backend/queue`** (BullMQ + Redis) for virus scanning. Workers created with `createVirusScanWorker` would run in a separate process or serverless function.
 
 5. **Auth**  
-   **NextAuth** is mounted at `/api/auth/*` with a **Credentials** provider. When `DEV_AUTH_BYPASS=true` (local dev default), sign-in uses the legacy name/email flow with no password. When `DEV_AUTH_BYPASS=false`, sign-in requires email + password validated against `passwordHash` in PostgreSQL. Session is JWT-based; `session.user.id` is available via `useSession()`.
+   **NextAuth** is mounted at `/api/auth/*` with a **Credentials** provider. Sign-in requires email + password validated against `passwordHash` in PostgreSQL. Session is JWT-based; `session.user.id` is available via `useSession()`.
 
-   **Testing password auth locally:** set `DEV_AUTH_BYPASS=false` and `NEXT_PUBLIC_DEV_AUTH_BYPASS=false`, restart the dev server, seed a user with `npx tsx scripts/seed-test-user.ts`, then sign in at `/auth/signin`.
+   **Testing locally:** seed a user with `npx tsx scripts/seed-test-user.ts`, then sign in from the home page.
 
 6. **Backend services (placeholders)**  
    - **`src/backend/services/image.ts`** – Intended for **Sharp**: resize/compress uploads before S3.  
@@ -87,6 +87,10 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
 - `npm run test` / `npm run test:watch` – Jest + React Testing Library
 - `npm run test:e2e` – Playwright E2E
 
+## Docs
+
+- `docs/DISASTER_RECOVERY.md` – Backup/restore RTO & RPO targets and the restore procedure.
+
 ## Tech stack
 
 - **UI:** Tailwind CSS, shadcn/ui (Button, Input in `src/frontend/components/ui`)
@@ -99,7 +103,7 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
 
 ## APIs
 
-- `POST /api/upload` – Multipart form-data photo upload (validates file; S3 and virus-scan queue to be wired)
+- `POST /api/upload` – Multipart form-data photo upload (validates file, uploads to R2, queues virus scan)
 - `GET/POST /api/auth/[...nextauth]` – NextAuth
 
 ## Accessibility

@@ -105,6 +105,9 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
           programDecisions: {},
           reasonCodes: {},
           missingRequirements: {},
+          // Only one row per project may have isLatest = true (DB-enforced),
+          // so mark this superseded before assessment2 is created below.
+          isLatest: false,
         },
       });
 
@@ -177,6 +180,9 @@ describe("FR-2.6: Manual Review Worker Integration Tests", () => {
           programDecisions: {},
           reasonCodes: {},
           missingRequirements: {},
+          // Only one row per project may have isLatest = true (DB-enforced),
+          // so mark this superseded before creating the "new" one below.
+          isLatest: false,
         },
       });
 

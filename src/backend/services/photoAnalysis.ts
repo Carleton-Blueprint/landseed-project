@@ -14,13 +14,13 @@
  */
 import { getOpenAIClient } from "lib/openai";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
+import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { prisma } from "lib/prisma";
 import { MODIFICATION_CODES, ModificationCode } from "@/backend/eligibility/types";
-import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
 import { PHOTO_ANALYSIS_MODEL_NAME } from "@/backend/services/photoAnalysisModelConfig";
-import { getIntakeModificationLabels } from "@/backend/services/estimateGeneration";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { manualReviewQueue } from "@/backend/queue";
+import type { AiOutputSource, AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
 export type PhotoAnalysisConfidence = "HIGH" | "MEDIUM" | "LOW";
 export type PhotoAnalysisStatus = "READY" | "FAILED" | "SKIPPED";
@@ -228,7 +228,7 @@ export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalys
   }
 
   try {
-    const signedUrl = photoUrl.includes(".amazonaws.com")
+    const signedUrl = isPrivateS3PhotoUrl(photoUrl)
       ? await getSignedDownloadUrlFromS3Url(photoUrl, 300)
       : photoUrl;
 
@@ -301,29 +301,34 @@ const CONFIDENCE_RANK: Record<PhotoAnalysisConfidence, number> = { LOW: 0, MEDIU
 
 /**
  * Once every photo on the project has reached a terminal state (analyzed, or excluded
- * because it came back infected), reconciles the client's declared modification codes
- * against the UNION of AI-inferred codes across all successfully analyzed photos —
- * not any single photo in isolation. A single photo only shows one room, so comparing
- * it alone against the full declared list produces false-positive mismatches (e.g. a
- * bathroom photo "missing" a declared doorway-widening code). The project-level union
- * is the meaningful comparison: it only flags when NO photo, collectively, accounts for
- * a declared code.
+ * because it came back infected or its virus scan failed), reconciles each successfully
+ * analyzed photo's
+ * AI-inferred codes against that SAME photo's client-declared tags (see
+ * IntakeForm.tsx's per-photo tag picker). Per-photo tags
+ * are the ground truth (the client said what's in this specific photo); AI inference
+ * is the cross-check. Any photo where the two disagree flags the whole project for
+ * manual review, same as a project-wide low-confidence result would.
  *
  * No-ops (does not overwrite declared codes, ever) when: other photos are still
  * pending analysis, or no photo produced a usable (READY) result to reconcile with.
  */
-async function maybeReconcileProjectModificationCodes(
-  projectId: string,
-  projectDraftData: unknown
-): Promise<void> {
+async function maybeReconcileProjectModificationCodes(projectId: string): Promise<void> {
   const photos = await prisma.photo.findMany({
     where: { projectId },
-    select: { virus_scan_status: true, analysisStatus: true, aiModificationCodes: true, aiConfidence: true },
+    select: {
+      id: true,
+      virus_scan_status: true,
+      analysisStatus: true,
+      aiModificationCodes: true,
+      aiConfidence: true,
+      declaredModificationCodes: true,
+    },
   });
 
   const isComplete = photos.every(
     (p) =>
       p.virus_scan_status === "infected" ||
+      p.virus_scan_status === "failed" ||
       p.analysisStatus === "READY" ||
       p.analysisStatus === "FAILED" ||
       p.analysisStatus === "SKIPPED"
@@ -338,9 +343,10 @@ async function maybeReconcileProjectModificationCodes(
     return;
   }
 
-  const declaredCodes = normalizeModificationItems(getIntakeModificationLabels(projectDraftData));
-  const aiInferredCodes = Array.from(new Set(readyPhotos.flatMap((p) => p.aiModificationCodes)));
-  const isMismatch = !sameCodeSet(declaredCodes, aiInferredCodes);
+  const mismatchedPhotos = readyPhotos.filter(
+    (p) => !sameCodeSet(p.declaredModificationCodes, p.aiModificationCodes)
+  );
+  const isMismatch = mismatchedPhotos.length > 0;
   const allLowConfidence = readyPhotos.every((p) => p.aiConfidence === "LOW");
 
   if (!isMismatch && !allLowConfidence) {
@@ -358,7 +364,14 @@ async function maybeReconcileProjectModificationCodes(
       projectId,
       reason: "PHOTO_MODIFICATION_MISMATCH",
       aiConfidence: aggregateConfidence,
-      metadata: { declaredCodes, aiInferredCodes, analyzedPhotoCount: readyPhotos.length },
+      metadata: {
+        analyzedPhotoCount: readyPhotos.length,
+        mismatchedPhotos: mismatchedPhotos.map((p) => ({
+          photoId: p.id,
+          declaredCodes: p.declaredModificationCodes,
+          aiInferredCodes: p.aiModificationCodes,
+        })),
+      },
     },
     {
       jobId: `manual-review-${projectId}-photo-mismatch`,
@@ -419,6 +432,9 @@ export async function processPhotoModificationAnalysisJob(
     },
   });
 
+  const outputSource: AiOutputSource =
+    result.status !== "READY" ? "NONE" : result.model === "mock" ? "MOCK" : "LIVE";
+
   await logAuditEventNonBlocking({
     category: "AI_GENERATION",
     action: result.status === "READY" ? "PHOTO_MODIFICATION_ANALYSIS_READY" : "PHOTO_MODIFICATION_ANALYSIS_FAILED",
@@ -438,8 +454,12 @@ export async function processPhotoModificationAnalysisJob(
       status: result.status,
       error: result.error,
       durationMs: Date.now() - startedAt,
-    },
+      outputSource,
+      // Analysis never falls back to a mock value on live failure — a missing signal is
+      // treated as a valid outcome (see file header), so this is always false.
+      isFallback: false,
+    } satisfies AiProvenanceMetadata & Record<string, unknown>,
   });
 
-  await maybeReconcileProjectModificationCodes(photo.projectId, photo.project.draftData);
+  await maybeReconcileProjectModificationCodes(photo.projectId);
 }

@@ -1,4 +1,4 @@
-import { NotificationEventType } from "@prisma/client";
+import { NotificationEventType, ProjectStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
@@ -62,10 +62,10 @@ export async function markEstimateReadyForReview(
 
   const notificationIdempotencyKey = buildEstimateReadyIdempotencyKey(input.quoteId);
 
-  if (project.status !== "estimate_ready") {
+  if (project.status !== ProjectStatus.ESTIMATE_READY) {
     await prisma.project.update({
       where: { id: input.projectId },
-      data: { status: "estimate_ready" },
+      data: { status: ProjectStatus.ESTIMATE_READY },
     });
   }
 

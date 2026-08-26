@@ -4,6 +4,7 @@ import { manualReviewQueue } from '@/backend/queue';
 import {
   DiscoveredGrant,
   GrantDiscoveryMetadata,
+  detectCatalogContradictions,
 } from '@/backend/eligibility/discoverySearchProvider';
 import { FeatureFlag, isFeatureFlagEnabled } from '@/backend/features/flags';
 
@@ -26,11 +27,15 @@ export async function produceManualReviewFlagJob(
   const discoveredGrantsCount = discoveredGrants.length;
   const totalCandidatesCount = discoveryMetadata.candidateCount || 0;
 
+  const contradictions = detectCatalogContradictions(discoveredGrants, input.required.modificationCodes);
+  const contradictingGrantTitles = contradictions.map((grant) => grant.title);
+
   const classification = classifyManualReviewNeed(
     input,
     aiConfidence,
     discoveredGrantsCount,
-    totalCandidatesCount
+    totalCandidatesCount,
+    contradictingGrantTitles
   );
 
   if (!classification.shouldFlag) {
@@ -49,6 +54,7 @@ export async function produceManualReviewFlagJob(
       aiConfidence,
       complexityScore: classification.complexityScore,
       reason: classification.reason,
+      ...(contradictingGrantTitles.length > 0 ? { metadata: { contradictingGrantTitles } } : {}),
     },
     {
       jobId: `manual-review-${projectId}-${assessmentId}`,

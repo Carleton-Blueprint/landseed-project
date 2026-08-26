@@ -1,4 +1,4 @@
-import { NotificationEventType, QuoteStatus } from "@prisma/client";
+import { NotificationEventType, ProjectStatus, QuoteStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
@@ -89,7 +89,7 @@ async function expireInactiveQuotesBatch(
     await tx.project.updateMany({
       where: { id: { in: uniqueProjectIds } },
       data: {
-        status: "estimate_expired",
+        status: ProjectStatus.ESTIMATE_EXPIRED,
       },
     });
   });
@@ -113,7 +113,7 @@ async function expireInactiveQuotesBatch(
         },
         afterState: {
           quoteStatus: QuoteStatus.EXPIRED,
-          projectStatus: "estimate_expired",
+          projectStatus: ProjectStatus.ESTIMATE_EXPIRED,
           expiredAt: now,
           inactivityCutoffAt: cutoffAt,
         },

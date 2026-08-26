@@ -6,8 +6,8 @@ import "@testing-library/jest-dom";
 
 // Mock next/link because it's used in the component
 jest.mock("next/link", () => {
-  const MockLink = ({ children, href, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => {
-    return <a href={href} {...rest}>{children}</a>;
+  const MockLink = ({ children, href }: { children: React.ReactNode; href: string }) => {
+    return <a href={href}>{children}</a>;
   };
   MockLink.displayName = "MockLink";
   return MockLink;
@@ -44,7 +44,7 @@ describe("Navigation Component Role Guards", () => {
     render(<Navigation />);
 
     // Verify basic links are shown
-    expect(screen.getByText("Project Tracker")).toBeInTheDocument();
+    expect(screen.getByText("My Projects")).toBeInTheDocument();
 
     // Verify Advisor Panel is NOT shown
     expect(screen.queryByText("Advisor Panel")).not.toBeInTheDocument();
@@ -66,60 +66,19 @@ describe("Navigation Component Role Guards", () => {
     render(<Navigation />);
 
     // Verify basic links + Advisor Panel are shown
-    expect(screen.getByText("Project Tracker")).toBeInTheDocument();
+    expect(screen.getByText("My Projects")).toBeInTheDocument();
     expect(screen.getByText("Advisor Panel")).toBeInTheDocument();
   });
 
-  it("shows a Sign in icon link for unauthenticated users", () => {
+  it("hides Advisor Panel link for unauthenticated users", () => {
     (useSession as jest.Mock).mockReturnValue({
       data: null,
       status: "unauthenticated",
     });
 
-    render(<Navigation />);
+    const { container } = render(<Navigation />);
 
-    expect(screen.getByTitle("Sign in")).toBeInTheDocument();
-    expect(screen.getByTitle("Sign in")).toHaveAttribute("href", "/auth/signin");
-    expect(screen.queryByText("Project Tracker")).not.toBeInTheDocument();
-    expect(screen.queryByText("Share Access")).not.toBeInTheDocument();
-    expect(screen.queryByText("Advisor Panel")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("My Profile")).not.toBeInTheDocument();
-  });
-
-  it("shows the profile avatar for authenticated users", () => {
-    (useSession as jest.Mock).mockReturnValue({
-      data: {
-        user: {
-          id: "user-123",
-          name: "Alice User",
-          email: "alice@example.com",
-          role: "USER",
-        },
-      },
-      status: "authenticated",
-    });
-
-    render(<Navigation />);
-
-    expect(screen.getByTitle("My Profile")).toBeInTheDocument();
-    expect(screen.getByTitle("My Profile")).toHaveTextContent("AU");
-  });
-
-  it("falls back to email initials when the user has no name", () => {
-    (useSession as jest.Mock).mockReturnValue({
-      data: {
-        user: {
-          id: "user-456",
-          name: null,
-          email: "bob@example.com",
-          role: "USER",
-        },
-      },
-      status: "authenticated",
-    });
-
-    render(<Navigation />);
-
-    expect(screen.getByTitle("My Profile")).toHaveTextContent("BO");
+    // Verify component renders nothing (returns null)
+    expect(container.firstChild).toBeNull();
   });
 });

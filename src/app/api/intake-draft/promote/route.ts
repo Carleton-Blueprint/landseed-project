@@ -66,7 +66,9 @@ export async function POST(request: Request) {
     const status =
       result.code === "DRAFT_NOT_FOUND"
         ? 404
-        : result.code === "INCOMPLETE_INTAKE"
+        : result.code === "INCOMPLETE_INTAKE" ||
+            result.code === "NO_PHOTOS_UPLOADED" ||
+            result.code === "PHOTOS_MISSING_TAGS"
           ? 422
           : 400;
 

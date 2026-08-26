@@ -4,8 +4,6 @@ import { auth } from "@/auth";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
-import { isLiveImageGenerationEnabled } from "lib/openai";
-import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
 
 jest.mock("@/auth", () => ({
   auth: jest.fn(),
@@ -20,24 +18,15 @@ jest.mock("lib/prisma", () => ({
     project: {
       findUnique: jest.fn(),
     },
+    photo: {
+      update: jest.fn(),
+    },
   },
 }));
 
 jest.mock("lib/s3", () => ({
   getSignedDownloadUrlFromS3Url: jest.fn(),
 }));
-
-jest.mock("lib/openai", () => ({
-  isLiveImageGenerationEnabled: jest.fn(),
-}));
-
-jest.mock("@/backend/services/imageGeneration", () => {
-  const actual = jest.requireActual("@/backend/services/imageGeneration");
-  return {
-    ...actual,
-    generateMockAccessibilityVisual: jest.fn(),
-  };
-});
 
 // The handler under test never touches NextRequest-specific fields
 // (cookies, nextUrl, etc.), so a plain Request is safe to pass through.
@@ -76,7 +65,6 @@ describe("GET /api/project/[id]/visualization", () => {
   it("returns 403 when the user lacks project access", async () => {
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
-      draftData: {},
       photos: [],
     });
     (hasProjectAccess as jest.Mock).mockResolvedValue(false);
@@ -88,16 +76,15 @@ describe("GET /api/project/[id]/visualization", () => {
   });
 
   it("signs and returns the stored rendition when generation is READY", async () => {
-    (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(true);
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
-      draftData: { modificationItems: ["GRAB_BARS"] },
       photos: [
         {
           id: "photo-1",
           url: "https://example.com/original.png",
           generationStatus: "READY",
-          generatedImageUrl: "https://bucket.s3.ca-central-1.amazonaws.com/accessibility-renditions/project-1/photo-1.png",
+          generatedImageUrl: "https://test-account.r2.cloudflarestorage.com/test-bucket/accessibility-renditions/project-1/photo-1.png",
+          declaredModificationCodes: ["GRAB_BARS"],
         },
       ],
     });
@@ -109,14 +96,11 @@ describe("GET /api/project/[id]/visualization", () => {
 
     expect(res.status).toBe(200);
     expect(body.photos[0].generatedImageUrl).toBe("https://signed.example.com/rendition.png");
-    expect(generateMockAccessibilityVisual).not.toHaveBeenCalled();
   });
 
-  it("returns null generatedImageUrl (no mock fallback) when live generation is enabled but not ready", async () => {
-    (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(true);
+  it("returns null generatedImageUrl when generation is pending", async () => {
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
-      draftData: {},
       photos: [
         { id: "photo-1", url: "https://example.com/original.png", generationStatus: "PENDING", generatedImageUrl: null },
       ],
@@ -127,17 +111,18 @@ describe("GET /api/project/[id]/visualization", () => {
     const body = await res.json();
 
     expect(body.photos[0].generatedImageUrl).toBeNull();
-    expect(generateMockAccessibilityVisual).not.toHaveBeenCalled();
   });
 
-  it("falls back to the mock placeholder when live generation is disabled", async () => {
-    (isLiveImageGenerationEnabled as jest.Mock).mockReturnValue(false);
-    (generateMockAccessibilityVisual as jest.Mock).mockResolvedValue("https://placehold.co/900x600?text=Mock");
+  it("serves the worker's persisted mock fallback image when live generation failed after retries", async () => {
     (prisma.project.findUnique as jest.Mock).mockResolvedValue({
       id: "project-1",
-      draftData: {},
       photos: [
-        { id: "photo-1", url: "https://example.com/original.png", generationStatus: "PENDING", generatedImageUrl: null },
+        {
+          id: "photo-1",
+          url: "https://example.com/original.png",
+          generationStatus: "FAILED",
+          generatedImageUrl: "https://placehold.co/900x600?text=Mock+AI+Visual",
+        },
       ],
     });
 
@@ -145,6 +130,6 @@ describe("GET /api/project/[id]/visualization", () => {
     const res = await GET(request, { params });
     const body = await res.json();
 
-    expect(body.photos[0].generatedImageUrl).toBe("https://placehold.co/900x600?text=Mock");
+    expect(body.photos[0].generatedImageUrl).toBe("https://placehold.co/900x600?text=Mock+AI+Visual");
   });
 });

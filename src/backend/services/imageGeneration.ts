@@ -10,32 +10,28 @@ import { randomUUID } from "node:crypto";
 import { toFile } from "openai";
 import { getOpenAIClient } from "lib/openai";
 import { getSignedDownloadUrlFromS3Url, uploadStreamToS3 } from "lib/s3";
+import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import { normalizeModificationItems } from "@/backend/eligibility/modificationNormalization";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
+import type { ModificationCode } from "@/backend/eligibility/types";
+import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
 const DEFAULT_WIDTH = 900;
 const DEFAULT_HEIGHT = 600;
 const DEFAULT_BG_COLOR = "efefef";
 const DEFAULT_TEXT_COLOR = "333";
 
-const MODIFICATION_LABELS: Record<string, string> = {
-  GRAB_BARS: "Grab Bars",
-  RAISED_TOILET: "Raised Toilet",
-  WALK_IN_SHOWER: "Walk-In Shower",
-  WIDENED_DOORWAY: "Widened Doorway",
-  STAIR_LIFT: "Stair Lift",
-  HANDRAILS: "Handrails",
-};
+function getModificationLabel(code: string): string {
+  return MODIFICATION_COST_CATALOG[code as ModificationCode]?.label ?? code.replace(/_/g, " ");
+}
 
 function formatModificationLabel(codes: string[]): string {
   if (codes.length === 0) {
     return "Accessibility+Visual";
   }
 
-  const labels = codes
-    .map((code) => MODIFICATION_LABELS[code] ?? code.replace(/_/g, " "))
-    .slice(0, 3);
+  const labels = codes.map(getModificationLabel).slice(0, 3);
 
   return labels.join("+");
 }
@@ -100,7 +96,7 @@ interface GptImageUsage {
 
 export function buildAccessibilityVisualEditPrompt(modificationCodes: string[] = []): string {
   const modifications = modificationCodes.length
-    ? modificationCodes.map((code) => MODIFICATION_LABELS[code] ?? code.replace(/_/g, " ")).join(", ")
+    ? modificationCodes.map(getModificationLabel).join(", ")
     : "general accessibility improvements";
 
   return `Edit this photo of a home to show the following accessibility modification(s) installed, in a photorealistic style consistent with the room's existing materials and lighting: ${modifications}. Keep the rest of the room unchanged.`;
@@ -140,7 +136,7 @@ export async function generateAccessibilityVisual(
   photo: { id: string; projectId: string; url: string },
   modificationCodes: string[] = []
 ): Promise<AccessibilityVisualGenerationResult> {
-  const signedSourceUrl = photo.url.includes(".amazonaws.com")
+  const signedSourceUrl = isPrivateS3PhotoUrl(photo.url)
     ? await getSignedDownloadUrlFromS3Url(photo.url, 300)
     : photo.url;
 
@@ -186,23 +182,6 @@ export async function generateAccessibilityVisual(
 /* Job processing (invoked from the ai-jobs queue worker)               */
 /* ------------------------------------------------------------------ */
 
-/**
- * Extracts a project's modification items from draftData and normalizes them
- * from the intake form's human-readable labels (e.g. "Grab bars") into the
- * canonical MODIFICATION_CODES used elsewhere in the system (e.g. "GRAB_BARS"),
- * so callers can rely on MODIFICATION_LABELS lookups matching.
- */
-export function modificationItemsFromDraft(draftData: unknown): string[] {
-  if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) {
-    return [];
-  }
-
-  const raw = (draftData as Record<string, unknown>).modificationItems;
-  if (!Array.isArray(raw)) return [];
-  const labels = raw.filter((item): item is string => typeof item === "string");
-  return normalizeModificationItems(labels);
-}
-
 export const ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE = "ACCESSIBILITY_IMAGE_GENERATION" as const;
 
 export interface AccessibilityImageGenerationJobPayload {
@@ -237,7 +216,11 @@ export async function processAccessibilityImageGenerationJob(
     data: { generationStatus: "GENERATING" },
   });
 
-  const modificationCodes = modificationItemsFromDraft(photo.project.draftData);
+  // Client-declared per-photo tags (see IntakeForm.tsx's tag picker) drive
+  // generation. Every photo is guaranteed a
+  // non-empty declaredModificationCodes by intake submit time (see
+  // promoteIntakeDraft's PHOTOS_MISSING_TAGS check), so no fallback is needed.
+  const modificationCodes = photo.declaredModificationCodes;
   const startedAt = Date.now();
 
   try {
@@ -273,7 +256,9 @@ export async function processAccessibilityImageGenerationJob(
         costUsd: result.costUsd,
         durationMs: Date.now() - startedAt,
         s3Key: result.s3Key,
-      },
+        outputSource: "LIVE",
+        isFallback: false,
+      } satisfies AiProvenanceMetadata & Record<string, unknown>,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown image generation error";
@@ -298,9 +283,65 @@ export async function processAccessibilityImageGenerationJob(
       metadata: {
         errorMessage,
         durationMs: Date.now() - startedAt,
-      },
+        outputSource: "NONE",
+        isFallback: false,
+      } satisfies AiProvenanceMetadata & Record<string, unknown>,
     });
 
     throw error;
   }
+}
+
+/**
+ * Called once the ai-jobs worker has exhausted all retry attempts for a live
+ * generation job (see aiJobsWorker.ts's "failed" handler) — a single failed
+ * attempt is not "live unavailable," but exhausting retries is. Applies the
+ * mock placeholder so the photo has something to display, while leaving
+ * generationStatus/generationError as the worker already set them so staff
+ * can still see that the live attempt failed.
+ */
+export async function applyAccessibilityVisualMockFallback(
+  photoId: string,
+  errorMessage: string
+): Promise<void> {
+  const photo = await prisma.photo.findUnique({
+    where: { id: photoId },
+  });
+
+  if (!photo) {
+    return;
+  }
+
+  const fallbackImageUrl = await generateMockAccessibilityVisual(photo.url, {
+    modificationCodes: photo.declaredModificationCodes,
+  });
+
+  await prisma.photo.update({
+    where: { id: photo.id },
+    data: {
+      generatedImageUrl: fallbackImageUrl,
+      generatedImageS3Key: null,
+      generationModel: "mock-fallback",
+      generatedAt: new Date(),
+    },
+  });
+
+  await logAuditEventNonBlocking({
+    category: "AI_GENERATION",
+    action: "ACCESSIBILITY_IMAGE_GENERATION_FALLBACK",
+    outcome: "FAILURE",
+    sensitivityLevel: "INTERNAL",
+    projectId: photo.projectId,
+    resourceType: "photo",
+    resourceId: photo.id,
+    reason: errorMessage,
+    description: "Live accessibility visual generation failed after all retry attempts; served mock placeholder as fallback.",
+    metadata: {
+      model: "mock-fallback",
+      fallbackImageUrl,
+      errorMessage,
+      outputSource: "MOCK",
+      isFallback: true,
+    } satisfies AiProvenanceMetadata & Record<string, unknown>,
+  });
 }

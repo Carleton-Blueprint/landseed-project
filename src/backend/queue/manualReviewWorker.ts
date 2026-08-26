@@ -33,11 +33,14 @@ const worker = createManualReviewWorker(async (job) => {
   // Step 2: Stale evaluation guard
   // Only applies to eligibility-assessment-driven triggers (grant discovery). Triggers with no
   // assessmentId (e.g. photo analysis) have nothing to go stale against, so they skip this guard.
+  // Keyed on isLatest rather than createdAt ordering, to agree with every other reader of
+  // "what's the current assessment" (shouldEvaluateNow, getLatestEligibilityAssessment) - the
+  // repository's snapshot creation is the single place that flips isLatest, under an advisory
+  // lock, so this can't disagree with those about which assessment is current.
   if (assessmentId) {
     const latestAssessment = await prisma.eligibilityAssessment.findFirst({
-      where: { projectId },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, createdAt: true },
+      where: { projectId, isLatest: true },
+      select: { id: true },
     });
 
     if (latestAssessment && latestAssessment.id !== assessmentId) {
@@ -152,6 +155,20 @@ function buildFlagDescription(
         ? `AI-inferred modification codes (${aiInferred.join(', ') || 'none'}) differ from the ` +
             `client-declared codes (${declared.join(', ') || 'none'})`
         : 'AI-inferred modification codes differ from the client-declared codes, or AI confidence was LOW'
+    );
+  } else if (reason === 'DISCOVERY_CATALOG_CONTRADICTION') {
+    const contradictingGrantTitles = metadata?.contradictingGrantTitles;
+    parts.push(
+      Array.isArray(contradictingGrantTitles) && contradictingGrantTitles.length > 0
+        ? `Grant discovery marked eligible program(s) that contradict our own catalog data: ${contradictingGrantTitles.join(', ')}`
+        : 'Grant discovery marked an eligible program that contradicts our own catalog data'
+    );
+  } else if (reason === 'AI_JOB_RETRIES_EXHAUSTED') {
+    const jobType = metadata?.jobType;
+    const maxAttempts = metadata?.maxAttempts;
+    parts.push(
+      `AI job${typeof jobType === 'string' ? ` (${jobType})` : ''} failed after ` +
+        `${typeof maxAttempts === 'number' ? maxAttempts : 3} retry attempts and needs manual follow-up`
     );
   }
 

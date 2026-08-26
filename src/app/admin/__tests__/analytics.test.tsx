@@ -12,11 +12,17 @@ jest.mock("next/link", () => {
   return MockLink;
 });
 
+// AdminDashboardClient renders StaffNotesPanel, which calls useSession().
+jest.mock("next-auth/react", () => ({
+  useSession: jest.fn(() => ({ data: null, status: "unauthenticated" })),
+}));
+
 const mockProjects: SerializedProject[] = [
   {
     id: "proj-1",
     address: "123 Main St",
-    status: "submitted",
+    status: "SUBMITTED",
+    statusHistory: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     modificationType: "GRAB_BARS",
@@ -42,7 +48,8 @@ const mockProjects: SerializedProject[] = [
   {
     id: "proj-2",
     address: "456 Oak Rd",
-    status: "estimate_ready",
+    status: "ESTIMATE_READY",
+    statusHistory: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     modificationType: "RAMPS",
@@ -68,7 +75,8 @@ const mockProjects: SerializedProject[] = [
   {
     id: "proj-3",
     address: "789 Pine Ave",
-    status: "draft",
+    status: "DRAFT",
+    statusHistory: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     modificationType: "STAIR_LIFT",

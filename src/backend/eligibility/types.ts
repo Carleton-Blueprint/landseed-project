@@ -42,6 +42,10 @@ export const MODIFICATION_CODES = {
   WIDENED_DOORWAY: "WIDENED_DOORWAY",
   STAIR_LIFT: "STAIR_LIFT",
   HANDRAILS: "HANDRAILS",
+  RAMP: "RAMP",
+  WHEELCHAIR_RAMP: "WHEELCHAIR_RAMP",
+  WALK_IN_TUB: "WALK_IN_TUB",
+  NON_SLIP_FLOORING: "NON_SLIP_FLOORING",
 } as const;
 
 export type ModificationCode =
@@ -82,6 +86,7 @@ export interface EligibilityAssemblerSourceProject {
   status: string;
   address: string;
   draftData: unknown;
+  photos: { declaredModificationCodes: string[] }[];
 }
 
 export interface EligibilityInputProjectSection {
@@ -131,6 +136,7 @@ export enum ProjectManualReviewReason {
   HIGH_COMPLEXITY = "HIGH_COMPLEXITY",
   BOTH = "BOTH",
   PHOTO_MODIFICATION_MISMATCH = "PHOTO_MODIFICATION_MISMATCH",
+  DISCOVERY_CATALOG_CONTRADICTION = "DISCOVERY_CATALOG_CONTRADICTION",
 }
 
 /**

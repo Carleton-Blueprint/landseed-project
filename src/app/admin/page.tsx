@@ -4,10 +4,9 @@ import { redirectToSignIn } from "lib/auth-redirect";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient";
-import { AdminMfaPanel } from "./AdminMfaPanel";
-import { AdminAlertThresholdsPanel } from "./AdminAlertThresholdsPanel";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
-import type { AnyRefinedEstimate } from "@/backend/services/pricingTiers";
+import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 
 export const metadata: Metadata = {
   title: "Advisor Panel — Landseed Project",
@@ -25,7 +24,6 @@ export default async function AdminDashboardPage() {
   const isAdmin = await hasMinimumRole(session, "ADMIN");
   if (!isAdmin) redirect("/dashboard");
   const userName = session.user.name ?? "Team Member";
-  const userId = session.user.id;
 
   /* ---- Fetch all data (dev-safe: renders empty if no DB) ---- */
   let serialized: SerializedProject[] = [];
@@ -34,8 +32,17 @@ export default async function AdminDashboardPage() {
       orderBy: { createdAt: "desc" },
       include: {
         user: { select: { id: true, name: true, email: true } },
-        photos: { select: { id: true } },
+        photos: {
+          select: {
+            id: true,
+            url: true,
+            virus_scan_status: true,
+            createdAt: true,
+            declaredModificationCodes: true,
+          },
+        },
         manualReviewFlag: true,
+        intakeDraft: { select: { intakeData: true, guidedData: true } },
       },
     });
 
@@ -48,7 +55,7 @@ export default async function AdminDashboardPage() {
       lastStatusCallbackAt: Date | null; lastManualSyncAt: Date | null;
     };
 
-    const [allDocuments, allQuotes, allAssessments] = await Promise.all([
+    const [allDocuments, allQuotes, allAssessments, allStatusHistory] = await Promise.all([
       prisma.document.findMany({
         where: { projectId: { in: projectIds } },
         select: { projectId: true, id: true, documentType: true, reviewStatus: true },
@@ -60,13 +67,21 @@ export default async function AdminDashboardPage() {
           id: true, projectId: true, subtotal: true, total: true,
           status: true, generatedAt: true,
           estimateMin: true, estimateMax: true,
-          refinedEstimate: true,
           questions: { select: { id: true, status: true } },
         },
       }),
       prisma.eligibilityAssessment.findMany({
         where: { projectId: { in: projectIds }, isLatest: true },
         orderBy: { createdAt: "desc" },
+      }),
+      prisma.projectStatusHistory.findMany({
+        where: { projectId: { in: projectIds } },
+        orderBy: { changedAt: "desc" },
+        select: {
+          id: true, projectId: true, fromStatus: true, toStatus: true,
+          changedAt: true, reason: true,
+          changedByUser: { select: { name: true, email: true } },
+        },
       }),
     ]);
 
@@ -107,6 +122,12 @@ export default async function AdminDashboardPage() {
     for (const t of allTransfers) { if (!transfersByProject.has(t.projectId)) transfersByProject.set(t.projectId, t); }
     const fallbackExportsByProject = new Map<string, (typeof allFallbackExports)[0]>();
     for (const item of allFallbackExports) { if (!fallbackExportsByProject.has(item.projectId)) fallbackExportsByProject.set(item.projectId, item); }
+    const statusHistoryByProject = new Map<string, typeof allStatusHistory>();
+    for (const h of allStatusHistory) {
+      const arr = statusHistoryByProject.get(h.projectId) ?? [];
+      arr.push(h);
+      statusHistoryByProject.set(h.projectId, arr);
+    }
 
     serialized = rawProjects.map((p) => {
       const docs = docsByProject.get(p.id) ?? [];
@@ -114,6 +135,7 @@ export default async function AdminDashboardPage() {
       const latestAssessment = assessmentsByProject.get(p.id) ?? null;
       const latestTransfer = transfersByProject.get(p.id) ?? null;
       const latestFallbackExport = fallbackExportsByProject.get(p.id) ?? null;
+      const statusHistory = statusHistoryByProject.get(p.id) ?? [];
       const aExtended = latestAssessment as typeof latestAssessment & {
         discoveredGrants?: unknown; discoveryProvider?: string | null;
       } | null;
@@ -126,8 +148,21 @@ export default async function AdminDashboardPage() {
       else if (addressLower.includes("shower") || addressLower.includes("bath")) inferredModType = "SHOWER";
       else if (addressLower.includes("door") || addressLower.includes("hall")) inferredModType = "DOORS";
 
+      const rawDraft = (p.draftData && typeof p.draftData === "object" && !Array.isArray(p.draftData)) ? (p.draftData as Record<string, unknown>) : {};
+      const rawIntake = (p.intakeDraft?.intakeData && typeof p.intakeDraft.intakeData === "object" && !Array.isArray(p.intakeDraft.intakeData)) ? (p.intakeDraft.intakeData as Record<string, unknown>) : {};
+      const rawGuided = (p.intakeDraft?.guidedData && typeof p.intakeDraft.guidedData === "object" && !Array.isArray(p.intakeDraft.guidedData)) ? (p.intakeDraft.guidedData as Record<string, unknown>) : {};
+      const mergedData = { ...rawGuided, ...rawIntake, ...rawDraft };
+
       return {
         id: p.id, address: p.address, status: p.status,
+        statusHistory: statusHistory.map((h) => ({
+          id: h.id,
+          fromStatus: h.fromStatus,
+          toStatus: h.toStatus,
+          changedAt: h.changedAt.toISOString(),
+          reason: h.reason,
+          changedByName: h.changedByUser.name ?? h.changedByUser.email ?? "Unknown",
+        })),
         createdAt: p.createdAt.toISOString(), updatedAt: p.updatedAt.toISOString(),
         modificationType: inferredModType,
         hasManualReviewFlag: p.manualReviewFlag !== null && p.manualReviewFlag.isActive,
@@ -145,9 +180,6 @@ export default async function AdminDashboardPage() {
           openQuestions: latestQuote.questions.filter((q: { status: string }) => q.status === "OPEN").length,
           estimateMin: latestQuote.estimateMin ? latestQuote.estimateMin.toString() : null,
           estimateMax: latestQuote.estimateMax ? latestQuote.estimateMax.toString() : null,
-          // Prisma types this Json column as `JsonValue`; it's always either null or the
-          // RefinedEstimate/TieredRefinedEstimate shape produced by the pricing services.
-          refinedEstimate: latestQuote.refinedEstimate as AnyRefinedEstimate | null,
         } : null,
         eligibility: aExtended ? {
           id: aExtended.id,
@@ -177,6 +209,36 @@ export default async function AdminDashboardPage() {
           maxSizeBytes: latestFallbackExport.maxSizeBytes,
           lastError: latestFallbackExport.lastError,
         } : null,
+        submissionData: {
+          name: typeof mergedData.name === "string" && mergedData.name ? mergedData.name : (p.user.name ?? null),
+          email: typeof mergedData.email === "string" && mergedData.email ? mergedData.email : (p.user.email ?? null),
+          phone: typeof mergedData.phone === "string" && mergedData.phone ? mergedData.phone : null,
+          addressLine1: typeof mergedData.addressLine1 === "string" && mergedData.addressLine1 ? mergedData.addressLine1 : p.address,
+          addressLine2: typeof mergedData.addressLine2 === "string" && mergedData.addressLine2 ? mergedData.addressLine2 : null,
+          city: typeof mergedData.city === "string" && mergedData.city ? mergedData.city : null,
+          province: typeof mergedData.province === "string" && mergedData.province ? mergedData.province : null,
+          postalCode: typeof mergedData.postalCode === "string" && mergedData.postalCode ? mergedData.postalCode : null,
+          ownershipStatus: typeof mergedData.ownershipStatus === "string" && mergedData.ownershipStatus ? mergedData.ownershipStatus : null,
+          ownershipOtherDetails: typeof mergedData.ownershipOtherDetails === "string" && mergedData.ownershipOtherDetails ? mergedData.ownershipOtherDetails : null,
+          landlordName: typeof mergedData.landlordName === "string" && mergedData.landlordName ? mergedData.landlordName : null,
+          landlordPhone: typeof mergedData.landlordPhone === "string" && mergedData.landlordPhone ? mergedData.landlordPhone : null,
+          isCaregiver: Boolean(mergedData.isCaregiver),
+          seniorName: typeof mergedData.seniorName === "string" && mergedData.seniorName ? mergedData.seniorName : null,
+          relationshipToSenior: typeof mergedData.relationshipToSenior === "string" && mergedData.relationshipToSenior ? mergedData.relationshipToSenior : null,
+          caregiverConsentConfirmed: Boolean(mergedData.caregiverConsentConfirmed),
+          modificationItems: aggregateDeclaredModificationCodes(p.photos).map(
+            (code) => MODIFICATION_COST_CATALOG[code].label
+          ),
+          additionalDetails: typeof mergedData.additionalDetails === "string" && mergedData.additionalDetails ? mergedData.additionalDetails : null,
+          urgency: typeof mergedData.urgency === "string" && mergedData.urgency ? mergedData.urgency : null,
+          submittedAt: p.createdAt.toISOString(),
+        },
+        photos: p.photos.map((photo: { id: string; url?: string; virus_scan_status?: string; createdAt?: Date }) => ({
+          id: photo.id,
+          url: photo.url ?? "/placeholder-photo.jpg",
+          virus_scan_status: photo.virus_scan_status ?? "clean",
+          createdAt: photo.createdAt ? photo.createdAt.toISOString() : p.createdAt.toISOString(),
+        })),
       };
     });
   } catch {
@@ -188,14 +250,15 @@ export default async function AdminDashboardPage() {
       {
         id: "proj-101",
         address: "105 Silver Birch Lane (Grab Bars & Safety Rails)",
-        status: "submitted",
+        status: "SUBMITTED",
+        statusHistory: [],
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
         updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         modificationType: "GRAB_BARS",
         hasManualReviewFlag: false,
         manualReviewReason: null,
         client: { id: "client-1", name: "Margaret Higgins", email: "margaret.h@example.com" },
-        photoCount: 4,
+        photoCount: 2,
         documentCount: 2,
         documentsPendingReview: 1,
         quote: {
@@ -235,18 +298,54 @@ export default async function AdminDashboardPage() {
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
         },
         builderTrendTransfer: null,
+        submissionData: {
+          name: "Margaret Higgins",
+          email: "margaret.h@example.com",
+          phone: "(416) 555-0192",
+          addressLine1: "105 Silver Birch Lane",
+          addressLine2: "Apt 4B",
+          city: "Toronto",
+          province: "ON",
+          postalCode: "M4E 3L2",
+          ownershipStatus: "owner",
+          ownershipOtherDetails: null,
+          landlordName: null,
+          landlordPhone: null,
+          isCaregiver: true,
+          seniorName: "Arthur Higgins",
+          relationshipToSenior: "Daughter",
+          caregiverConsentConfirmed: true,
+          modificationItems: ["Grab Bars & Safety Rails", "Bathroom Floor Slip-Resistant Coating"],
+          additionalDetails: "Needs sturdy grab bars near the toilet and inside the walk-in bathtub.",
+          urgency: "soon",
+          submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+        },
+        photos: [
+          { id: "photo-101-1", url: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString() },
+          { id: "photo-101-2", url: "https://images.unsplash.com/photo-1507652313519-d4e9174996dd?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString() },
+        ],
       },
       {
         id: "proj-102",
         address: "442 Maplewood Avenue (Wheelchair Ramp Installation)",
-        status: "estimate_ready",
+        status: "ESTIMATE_ACCEPTED",
+        statusHistory: [
+          {
+            id: "history-102-1",
+            fromStatus: null,
+            toStatus: "SUBMITTED",
+            changedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 9).toISOString(),
+            reason: null,
+            changedByName: "Arthur Pendelton",
+          },
+        ],
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(),
         updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(),
         modificationType: "RAMPS",
         hasManualReviewFlag: false,
         manualReviewReason: null,
         client: { id: "client-2", name: "Arthur Pendelton", email: "arthur.p@example.com" },
-        photoCount: 6,
+        photoCount: 1,
         documentCount: 3,
         documentsPendingReview: 0,
         quote: {
@@ -287,18 +386,44 @@ export default async function AdminDashboardPage() {
           lastStatusCallbackAt: null,
           lastManualSyncAt: null,
         },
+        submissionData: {
+          name: "Arthur Pendelton",
+          email: "arthur.p@example.com",
+          phone: "(613) 555-0144",
+          addressLine1: "442 Maplewood Avenue",
+          addressLine2: null,
+          city: "Ottawa",
+          province: "ON",
+          postalCode: "K1S 3C5",
+          ownershipStatus: "owner",
+          ownershipOtherDetails: null,
+          landlordName: null,
+          landlordPhone: null,
+          isCaregiver: false,
+          seniorName: null,
+          relationshipToSenior: null,
+          caregiverConsentConfirmed: false,
+          modificationItems: ["Wheelchair Ramp Installation", "Exterior Lighting Upgrade"],
+          additionalDetails: "Front steps are too steep for a wheelchair. We need an ADA-compliant wooden ramp.",
+          urgency: "immediate",
+          submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(),
+        },
+        photos: [
+          { id: "photo-102-1", url: "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString() },
+        ],
       },
       {
         id: "proj-103",
         address: "702 Oak Ridge Terrace (Multi-Floor Stair Lift)",
-        status: "draft",
+        status: "DRAFT",
+        statusHistory: [],
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         modificationType: "STAIR_LIFT",
         hasManualReviewFlag: true,
         manualReviewReason: "HIGH_COMPLEXITY",
         client: { id: "client-3", name: "Elizabeth Vance", email: "elizabeth.v@example.com" },
-        photoCount: 2,
+        photoCount: 1,
         documentCount: 1,
         documentsPendingReview: 1,
         quote: null,
@@ -320,18 +445,53 @@ export default async function AdminDashboardPage() {
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         },
         builderTrendTransfer: null,
+        submissionData: {
+          name: "Elizabeth Vance",
+          email: "elizabeth.v@example.com",
+          phone: "(905) 555-0188",
+          addressLine1: "702 Oak Ridge Terrace",
+          addressLine2: null,
+          city: "Hamilton",
+          province: "ON",
+          postalCode: "L8P 1B4",
+          ownershipStatus: "tenant",
+          ownershipOtherDetails: null,
+          landlordName: "Oak Ridge Management Corp",
+          landlordPhone: "(905) 555-9000",
+          isCaregiver: false,
+          seniorName: null,
+          relationshipToSenior: null,
+          caregiverConsentConfirmed: false,
+          modificationItems: ["Multi-Floor Stair Lift Installation"],
+          additionalDetails: "Staircase has a 90-degree curve half-way up.",
+          urgency: "planning",
+          submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
+        },
+        photos: [
+          { id: "photo-103-1", url: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString() },
+        ],
       },
       {
         id: "proj-104",
         address: "18 Pine Meadows Road (Walk-in Shower Conversion)",
-        status: "estimate_expired",
+        status: "ESTIMATE_EXPIRED",
+        statusHistory: [
+          {
+            id: "history-104-1",
+            fromStatus: null,
+            toStatus: "SUBMITTED",
+            changedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 35).toISOString(),
+            reason: null,
+            changedByName: "Robert Chen",
+          },
+        ],
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 40).toISOString(),
         updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
         modificationType: "SHOWER",
         hasManualReviewFlag: true,
         manualReviewReason: "LOW_CONFIDENCE",
         client: { id: "client-4", name: "Robert Chen", email: "robert.c@example.com" },
-        photoCount: 8,
+        photoCount: 0,
         documentCount: 4,
         documentsPendingReview: 0,
         quote: {
@@ -362,18 +522,59 @@ export default async function AdminDashboardPage() {
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
         },
         builderTrendTransfer: null,
+        submissionData: {
+          name: "Robert Chen",
+          email: "robert.c@example.com",
+          phone: "(519) 555-0123",
+          addressLine1: "18 Pine Meadows Road",
+          addressLine2: null,
+          city: "London",
+          province: "ON",
+          postalCode: "N6A 1H5",
+          ownershipStatus: "owner",
+          ownershipOtherDetails: null,
+          landlordName: null,
+          landlordPhone: null,
+          isCaregiver: true,
+          seniorName: "Mei Chen",
+          relationshipToSenior: "Son",
+          caregiverConsentConfirmed: true,
+          modificationItems: ["Walk-in Shower Conversion", "Handheld Showerhead Installation"],
+          additionalDetails: "Removing old bathtub to install a barrier-free shower with bench.",
+          urgency: "soon",
+          submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 40).toISOString(),
+        },
+        photos: [],
       },
       {
         id: "proj-105",
         address: "59 Winding Creek Way (Door Widening & Hallways)",
-        status: "accepted",
+        status: "WORK_IN_PROGRESS",
+        statusHistory: [
+          {
+            id: "history-105-1",
+            fromStatus: null,
+            toStatus: "SUBMITTED",
+            changedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 13).toISOString(),
+            reason: null,
+            changedByName: "Sarah Jenkins",
+          },
+          {
+            id: "history-105-2",
+            fromStatus: "ESTIMATE_ACCEPTED",
+            toStatus: "APPROVED",
+            changedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
+            reason: null,
+            changedByName: "Team Member",
+          },
+        ],
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString(),
         updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
         modificationType: "DOORS",
         hasManualReviewFlag: false,
         manualReviewReason: null,
         client: { id: "client-5", name: "Sarah Jenkins", email: "sarah.j@example.com" },
-        photoCount: 3,
+        photoCount: 1,
         documentCount: 2,
         documentsPendingReview: 0,
         quote: {
@@ -414,15 +615,63 @@ export default async function AdminDashboardPage() {
           lastStatusCallbackAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
           lastManualSyncAt: null,
         },
+        submissionData: {
+          name: "Sarah Jenkins",
+          email: "sarah.j@example.com",
+          phone: "(416) 555-0177",
+          addressLine1: "59 Winding Creek Way",
+          addressLine2: null,
+          city: "Mississauga",
+          province: "ON",
+          postalCode: "L5B 2H9",
+          ownershipStatus: "owner",
+          ownershipOtherDetails: null,
+          landlordName: null,
+          landlordPhone: null,
+          isCaregiver: false,
+          seniorName: null,
+          relationshipToSenior: null,
+          caregiverConsentConfirmed: false,
+          modificationItems: ["Door Widening & Hallways", "Threshold Ramp"],
+          additionalDetails: "Need interior doorway widened to 36 inches for walker access.",
+          urgency: "immediate",
+          submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString(),
+        },
+        photos: [
+          { id: "photo-105-1", url: "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString() },
+        ],
       }
     ];
   }
 
   return (
     <>
-      <AdminMfaPanel currentUserId={session.user.id} />
-      <AdminAlertThresholdsPanel />
-      <AdminDashboardClient projects={serialized} userName={userName} userId={userId} />
+      <div className="mx-auto max-w-7xl px-6 pt-6 md:px-8">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <a
+            href="/admin/mfa"
+            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
+          >
+            <p className="text-sm font-semibold text-gray-800">Admin MFA Enrollment</p>
+            <p className="mt-1 text-xs text-gray-500">View enrollment status, reset another admin&apos;s MFA.</p>
+          </a>
+          <a
+            href="/admin/alert-thresholds"
+            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
+          >
+            <p className="text-sm font-semibold text-gray-800">Monitoring Alert Thresholds</p>
+            <p className="mt-1 text-xs text-gray-500">Configure failure-count/window alert thresholds.</p>
+          </a>
+          <a
+            href="/admin/users"
+            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
+          >
+            <p className="text-sm font-semibold text-gray-800">Admin Users</p>
+            <p className="mt-1 text-xs text-gray-500">Promote or demote a user&apos;s role.</p>
+          </a>
+        </div>
+      </div>
+      <AdminDashboardClient projects={serialized} userName={userName} />
     </>
   );
 }

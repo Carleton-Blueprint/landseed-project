@@ -4,7 +4,8 @@ import { redirectToSignIn } from "lib/auth-redirect";
 import { redirect, notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
-import { ManualModeClient, type ManualModeInitialData } from "./ManualModeClient";
+import { signPhotosForDisplay } from "lib/photoUrls";
+import { ManualModeClient, type ManualModeInitialData, type ManualModeGrantEntry } from "./ManualModeClient";
 
 export const metadata: Metadata = {
   title: "Manual Mode — Landseed Project Admin",
@@ -44,12 +45,23 @@ export default async function ManualModePage({
           createdAt: true,
         },
       },
+      photos: {
+        orderBy: { createdAt: "desc" },
+        select: { id: true, url: true, virus_scan_status: true, createdAt: true },
+      },
+      eligibilityAssessments: {
+        where: { isLatest: true },
+        take: 1,
+        select: { id: true, overallDecision: true, discoveredGrants: true, discoveryProvider: true },
+      },
     },
   });
 
   if (!project) {
     notFound();
   }
+
+  const signedPhotos = await signPhotosForDisplay(project.photos);
 
   const initialData: ManualModeInitialData = {
     projectId: project.id,
@@ -81,6 +93,19 @@ export default async function ManualModePage({
       virusScanStatus: d.virusScanStatus,
       createdAt: d.createdAt.toISOString(),
     })),
+    photos: signedPhotos.map((p) => ({
+      id: p.id,
+      url: p.url,
+      virusScanStatus: p.virus_scan_status,
+      createdAt: p.createdAt.toISOString(),
+    })),
+    grants: project.eligibilityAssessments[0]
+      ? {
+          overallDecision: project.eligibilityAssessments[0].overallDecision,
+          isManualEntry: project.eligibilityAssessments[0].discoveryProvider === "MANUAL",
+          entries: (project.eligibilityAssessments[0].discoveredGrants ?? []) as unknown as ManualModeGrantEntry[],
+        }
+      : null,
   };
 
   return <ManualModeClient initialData={initialData} />;

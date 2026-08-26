@@ -1,6 +1,5 @@
 import { Session } from "next-auth";
 import { prisma } from "lib/prisma";
-import { isDevAuthBypassEnabled } from "@/backend/auth/devBypass";
 import { HttpError } from "@/backend/auth/requireRole";
 
 export const EMAIL_VERIFICATION_REQUIRED_CODE = "EMAIL_VERIFICATION_REQUIRED";
@@ -16,10 +15,6 @@ export class EmailVerificationRequiredError extends Error {
     super(message);
     this.name = "EmailVerificationRequiredError";
   }
-}
-
-export function isEmailVerificationEnforced(): boolean {
-  return !isDevAuthBypassEnabled();
 }
 
 export async function hasVerifiedEmail(userId: string): Promise<boolean> {
@@ -38,10 +33,6 @@ export async function hasVerifiedEmail(userId: string): Promise<boolean> {
 export async function requireVerifiedEmail(session: Session | null | undefined): Promise<void> {
   if (!session?.user?.id) {
     throw new HttpError("unauthenticated", 401);
-  }
-
-  if (!isEmailVerificationEnforced()) {
-    return;
   }
 
   const verified = await hasVerifiedEmail(session.user.id);

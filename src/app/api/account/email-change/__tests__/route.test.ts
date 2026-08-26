@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { AuthEmailTokenPurpose } from "@prisma/client";
-import { POST } from "../route";
+import { GET, POST, DELETE } from "../route";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
 import { enqueueEmailChangeVerification } from "@/backend/auth/authEmailNotification";
@@ -15,6 +15,10 @@ jest.mock("lib/prisma", () => ({
   prisma: {
     user: {
       findUnique: jest.fn(),
+    },
+    authEmailToken: {
+      findFirst: jest.fn(),
+      deleteMany: jest.fn(),
     },
   },
 }));
@@ -121,6 +125,106 @@ describe("POST /api/account/email-change", () => {
     expect(logAuditEventNonBlocking).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "EMAIL_CHANGE_REQUESTED",
+        outcome: "SUCCESS",
+        actorUserId: "user-1",
+      })
+    );
+  });
+});
+
+describe("GET /api/account/email-change", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    (auth as jest.Mock).mockResolvedValue(null);
+
+    const response = await GET();
+
+    expect(response.status).toBe(401);
+  });
+
+  it("returns null pendingEmail when there is no active token", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (prisma.authEmailToken.findFirst as jest.Mock).mockResolvedValue(null);
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ pendingEmail: null });
+  });
+
+  it("returns the pending email from the most recent active token", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (prisma.authEmailToken.findFirst as jest.Mock).mockResolvedValue({
+      newEmail: "new@example.com",
+    });
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ pendingEmail: "new@example.com" });
+    expect(prisma.authEmailToken.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: "user-1",
+          purpose: {
+            in: [
+              AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM,
+              AuthEmailTokenPurpose.EMAIL_CHANGE_NEW_CONFIRM,
+            ],
+          },
+          usedAt: null,
+        }),
+      })
+    );
+  });
+});
+
+function deleteRequest() {
+  return new NextRequest("http://localhost:3000/api/account/email-change", {
+    method: "DELETE",
+  });
+}
+
+describe("DELETE /api/account/email-change", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    (auth as jest.Mock).mockResolvedValue(null);
+
+    const response = await DELETE(deleteRequest());
+
+    expect(response.status).toBe(401);
+    expect(prisma.authEmailToken.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("deletes pending tokens and logs an audit event on success", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (prisma.authEmailToken.deleteMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+    const response = await DELETE(deleteRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true });
+    expect(prisma.authEmailToken.deleteMany).toHaveBeenCalledWith({
+      where: {
+        userId: "user-1",
+        purpose: {
+          in: [
+            AuthEmailTokenPurpose.EMAIL_CHANGE_OLD_CONFIRM,
+            AuthEmailTokenPurpose.EMAIL_CHANGE_NEW_CONFIRM,
+          ],
+        },
+        usedAt: null,
+      },
+    });
+    expect(logAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "EMAIL_CHANGE_CANCELLED",
         outcome: "SUCCESS",
         actorUserId: "user-1",
       })

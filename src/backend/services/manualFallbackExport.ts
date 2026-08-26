@@ -8,7 +8,15 @@ import { ManualFallbackExportStatus, Prisma } from "@prisma/client";
 import { manualFallbackExportQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { prisma } from "lib/prisma";
-import { deleteObjectFromS3, getSignedDownloadUrlFromS3Url, getSignedDownloadUrl, uploadStreamToS3 } from "lib/s3";
+import {
+  deleteObjectFromS3,
+  getObjectBuffer,
+  getSignedDownloadUrlFromS3Url,
+  getSignedDownloadUrl,
+  uploadStreamToS3,
+} from "lib/s3";
+import { getOrGenerateReadyGrantMatchSummary } from "@/backend/services/grantMatchSummaryDocument";
+import { getOrGenerateReadyEstimate } from "@/backend/services/estimateDocument";
 
 export const MANUAL_FALLBACK_EXPORT_QUEUE_NAME = "manual-fallback-export" as const;
 export const MANUAL_FALLBACK_EXPORT_ROOT_PREFIX = "manual-fallback-exports" as const;
@@ -57,7 +65,6 @@ type ManualFallbackProjectSnapshot = {
   id: string;
   address: string;
   status: string;
-  grantApplicationStatus: string;
   grantDocumentKey: string | null;
   draftData: unknown;
   user: {
@@ -86,7 +93,7 @@ type ManualFallbackProjectSnapshot = {
     createdAt: Date;
     updatedAt: Date;
   }>;
-  grantApplicationStatusHistory: Array<{
+  statusHistory: Array<{
     id: string;
     fromStatus: string | null;
     toStatus: string;
@@ -107,7 +114,6 @@ export const MANUAL_FALLBACK_PROJECT_SELECT = {
   id: true,
   address: true,
   status: true,
-  grantApplicationStatus: true,
   grantDocumentKey: true,
   draftData: true,
   user: {
@@ -144,7 +150,7 @@ export const MANUAL_FALLBACK_PROJECT_SELECT = {
       updatedAt: true,
     },
   },
-  grantApplicationStatusHistory: {
+  statusHistory: {
     orderBy: [{ changedAt: "asc" }],
     select: {
       id: true,
@@ -349,7 +355,8 @@ function buildPhotoSnapshot(photo: ManualFallbackProjectSnapshot["photos"][numbe
 async function buildArchiveForProject(
   project: ManualFallbackProjectSnapshot,
   exportRequestId: string,
-  settings: ManualFallbackExportSettings
+  settings: ManualFallbackExportSettings,
+  actorUserId: string
 ): Promise<{ fileName: string; s3Key: string }> {
   const tracker: ExportByteTracker = { totalBytes: 0, maxBytes: settings.maxSizeBytes };
   const archive = new ZipArchive({ zlib: { level: 9 } });
@@ -369,7 +376,7 @@ async function buildArchiveForProject(
       counts: {
         quotes: project.quotes.length,
         photos: project.photos.length,
-        grantHistoryEntries: project.grantApplicationStatusHistory.length,
+        statusHistoryEntries: project.statusHistory.length,
       },
       generatedAt: new Date().toISOString(),
     },
@@ -384,7 +391,6 @@ async function buildArchiveForProject(
       id: project.id,
       address: project.address,
       status: project.status,
-      grantApplicationStatus: project.grantApplicationStatus,
       grantDocumentKey: project.grantDocumentKey,
       draftData: project.draftData,
       owner: {
@@ -414,9 +420,9 @@ async function buildArchiveForProject(
     archive,
     "grants.json",
     {
-      grantApplicationStatus: project.grantApplicationStatus,
+      status: project.status,
       grantDocumentKey: project.grantDocumentKey,
-      grantApplicationStatusHistory: project.grantApplicationStatusHistory.map((entry) => ({
+      statusHistory: project.statusHistory.map((entry) => ({
         id: entry.id,
         fromStatus: entry.fromStatus,
         toStatus: entry.toStatus,
@@ -433,6 +439,29 @@ async function buildArchiveForProject(
     const grantDocumentUrl = await getSignedDownloadUrl(project.grantDocumentKey, 3600);
     const grantDocumentBuffer = await fetchBufferFromUrl(grantDocumentUrl, "grant document", tracker);
     archive.append(grantDocumentBuffer, { name: "grant-application.pdf" });
+  }
+
+  // Best-effort, like the grant application PDF above: getOrGenerateReady* already
+  // swallows generation failures internally and returns null rather than throwing, so
+  // a missing/failed document here is simply omitted rather than failing the export.
+  const grantMatchSummary = await getOrGenerateReadyGrantMatchSummary(project.id, actorUserId);
+  if (grantMatchSummary) {
+    const buffer = await getObjectBuffer(grantMatchSummary.s3Key);
+    trackExportBytes(tracker, buffer.length, "grant match summary");
+    archive.append(buffer, { name: "grant-match-summary.pdf" });
+  }
+
+  // Scoped to the most recently updated quote: this export isn't tied to a specific
+  // quoteId (see ManualFallbackExportRequest), and quotes are already ordered
+  // updatedAt/createdAt desc above.
+  const latestQuote = project.quotes[0];
+  if (latestQuote) {
+    const estimate = await getOrGenerateReadyEstimate(latestQuote.id, actorUserId);
+    if (estimate) {
+      const buffer = await getObjectBuffer(estimate.s3Key);
+      trackExportBytes(tracker, buffer.length, "estimate");
+      archive.append(buffer, { name: "estimate.pdf" });
+    }
   }
 
   for (const quote of project.quotes) {
@@ -512,10 +541,15 @@ export async function processManualFallbackExport(
   const startedAt = new Date();
 
   try {
-    const { fileName, s3Key } = await buildArchiveForProject(project, exportRecord.id, {
-      retentionDays: exportRecord.retentionDays,
-      maxSizeBytes: exportRecord.maxSizeBytes ?? undefined,
-    });
+    const { fileName, s3Key } = await buildArchiveForProject(
+      project,
+      exportRecord.id,
+      {
+        retentionDays: exportRecord.retentionDays,
+        maxSizeBytes: exportRecord.maxSizeBytes ?? undefined,
+      },
+      request.requestedByUserId
+    );
 
     const readyAt = new Date();
     const expiresAt = new Date(readyAt.getTime() + exportRecord.retentionDays * DAY_IN_MS);

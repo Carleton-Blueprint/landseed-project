@@ -1,7 +1,15 @@
 /**
  * @jest-environment node
  */
-export {};
+import {
+  getAllAlertThresholds,
+  getAlertThreshold,
+  updateAlertThreshold,
+  invalidateAlertThresholdCache,
+  AlertThresholdError,
+  ALERT_THRESHOLD_KEYS,
+  type AlertThresholdKey,
+} from "../alertThresholds";
 
 const mockFindMany = jest.fn();
 const mockFindUnique = jest.fn();
@@ -24,15 +32,6 @@ jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: (...args: unknown[]) => mockLogAuditEventNonBlocking(...args),
 }));
 
-const {
-  getAllAlertThresholds,
-  getAlertThreshold,
-  updateAlertThreshold,
-  invalidateAlertThresholdCache,
-  AlertThresholdError,
-  ALERT_THRESHOLD_KEYS,
-} = require("../alertThresholds");
-
 describe("getAllAlertThresholds", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -47,13 +46,14 @@ describe("getAllAlertThresholds", () => {
         { key: ALERT_THRESHOLD_KEYS.BUILDERTREND_TRANSFER_FAILURE, thresholdCount: 3, windowMinutes: 15, enabled: true },
         { key: ALERT_THRESHOLD_KEYS.EMAIL_DELIVERY_FAILURE, thresholdCount: 5, windowMinutes: 15, enabled: true },
         { key: ALERT_THRESHOLD_KEYS.FILE_SCAN_FAILURE, thresholdCount: 5, windowMinutes: 15, enabled: true },
+        { key: ALERT_THRESHOLD_KEYS.PRICING_TIER_FALLBACK, thresholdCount: 5, windowMinutes: 15, enabled: true },
       ]); // full read after seeding
     mockUpsert.mockResolvedValue({});
 
     const rows = await getAllAlertThresholds();
 
-    expect(mockUpsert).toHaveBeenCalledTimes(3); // the 3 defaults missing beyond AI_JOB_FAILURE
-    expect(rows).toHaveLength(4);
+    expect(mockUpsert).toHaveBeenCalledTimes(4); // the 4 defaults missing beyond AI_JOB_FAILURE
+    expect(rows).toHaveLength(5);
   });
 
   it("skips seeding once all keys already exist", async () => {
@@ -87,7 +87,7 @@ describe("getAlertThreshold", () => {
     const allKeys = Object.values(ALERT_THRESHOLD_KEYS).map((key) => ({ key }));
     mockFindMany.mockResolvedValueOnce(allKeys).mockResolvedValueOnce(allKeys);
 
-    const result = await getAlertThreshold("not-a-real-key");
+    const result = await getAlertThreshold("not-a-real-key" as AlertThresholdKey);
 
     expect(result).toBeNull();
   });

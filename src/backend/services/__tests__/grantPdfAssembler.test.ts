@@ -13,9 +13,11 @@ type ProjectPdfRecord = {
   address: string | null;
   draftData: unknown;
   userId: string;
+  photos: Array<{ declaredModificationCodes: string[] }>;
   user: { name: string | null; email: string | null; phone: string | null };
   quotes: Array<{ estimateMin: { toNumber(): number }; estimateMax: { toNumber(): number } }>;
   eligibilityAssessments: Array<{ overallDecision: string; discoveredGrants: unknown }>;
+  manualModeSubmission?: { modificationType: string | null } | null;
 };
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -62,9 +64,9 @@ describe("assembleGrantPdfInput", () => {
         province: "ON",
         postalCode: "M5V 2T6",
         ownershipStatus: "owner",
-        modificationItems: ["Ramp installation", "Grab bars"],
       },
       userId: "user-1",
+      photos: [{ declaredModificationCodes: ["GRAB_BARS", "WIDENED_DOORWAY"] }],
       user: { name: "Sam Applicant", email: "sam@example.com", phone: "555-1234" },
       quotes: [{ estimateMin: decimal(1000), estimateMax: decimal(2000) }],
       eligibilityAssessments: [
@@ -83,7 +85,7 @@ describe("assembleGrantPdfInput", () => {
       applicantPhone: "555-1234",
       projectAddress: "123 Main St, Toronto, ON, M5V 2T6",
       ownershipStatus: "Owner",
-      modificationItems: ["Ramp installation", "Grab bars"],
+      modificationItems: ["Grab Bars", "Widened Doorway"],
       estimatedCost: "$1,000 – $2,000",
       grantProgramName: "Home Accessibility Grant",
       incompleteFields: [],
@@ -96,6 +98,7 @@ describe("assembleGrantPdfInput", () => {
       address: "456 Fallback Rd",
       draftData: {},
       userId: "user-2",
+      photos: [],
       user: { name: "Sam Applicant", email: "sam@example.com", phone: null },
       quotes: [],
       eligibilityAssessments: [],
@@ -112,6 +115,7 @@ describe("assembleGrantPdfInput", () => {
       address: null,
       draftData: {},
       userId: "user-3",
+      photos: [],
       user: { name: null, email: null, phone: null },
       quotes: [],
       eligibilityAssessments: [],
@@ -144,6 +148,7 @@ describe("assembleGrantPdfInput", () => {
       address: null,
       draftData: { name: "Draft Name", email: "draft@example.com", phone: "555-0000" },
       userId: "user-4",
+      photos: [],
       user: { name: null, email: null, phone: null },
       quotes: [],
       eligibilityAssessments: [],
@@ -161,8 +166,9 @@ describe("assembleGrantPdfInput", () => {
     prisma.project.findUnique.mockResolvedValue({
       id: "proj-5",
       address: "789 Side St",
-      draftData: { ownershipStatus: "tenant", modificationItems: ["Widen doorway"] },
+      draftData: { ownershipStatus: "tenant" },
       userId: "user-5",
+      photos: [{ declaredModificationCodes: ["WIDENED_DOORWAY"] }],
       user: { name: "Tenant User", email: "tenant@example.com", phone: "555-2222" },
       quotes: [],
       eligibilityAssessments: [{ overallDecision: "INELIGIBLE", discoveredGrants: [] }],
@@ -188,6 +194,25 @@ describe("assembleGrantPdfInput", () => {
     const result = await assembleGrantPdfInput("proj-6");
 
     expect(result.grantProgramName).toBe("Landseed Grant Application");
+  });
+
+  it("falls back to the manual-mode submission's modification type when no photos are tagged", async () => {
+    prisma.project.findUnique.mockResolvedValue({
+      id: "proj-6",
+      address: "1 Manual Mode Way",
+      draftData: {},
+      userId: "user-6",
+      photos: [],
+      user: { name: "Manual User", email: "manual@example.com", phone: "555-3333" },
+      quotes: [],
+      eligibilityAssessments: [],
+      manualModeSubmission: { modificationType: "Custom stair lift install" },
+    });
+
+    const result = await assembleGrantPdfInput("proj-6");
+
+    expect(result.modificationItems).toEqual(["Custom stair lift install"]);
+    expect(result.incompleteFields).not.toContain("modification type");
   });
 
   it("throws when the project does not exist", async () => {

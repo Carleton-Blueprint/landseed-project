@@ -1,13 +1,11 @@
 /**
  * @jest-environment node
  *
- * Verifies FR-3.2/Task 6 wiring: evaluateProjectEligibility triggers grant
- * eligibility summary PDF generation for both final decisions — ELIGIBLE and
- * INELIGIBLE (zero matching grants) — so the client can always download a
- * summary once the assessment completes, but not for NEEDS_MORE_INFO/
- * MANUAL_REVIEW, which aren't final decisions yet. Uses the node test
- * environment because the code under test relies on the Node `setImmediate`
- * global, which jsdom (this repo's default test environment) does not provide.
+ * Verifies FR-3.2 wiring: evaluateProjectEligibility triggers grant PDF
+ * generation when the overall decision is ELIGIBLE, and does not when it
+ * is not ELIGIBLE. Uses the node test environment because the code under
+ * test relies on the Node `setImmediate` global, which jsdom (this repo's
+ * default test environment) does not provide.
  */
 
 jest.mock('lib/prisma', () => ({
@@ -50,6 +48,17 @@ jest.mock('@/backend/services/grantDocument', () => ({
   }),
 }));
 
+// evaluateProjectEligibility() also enqueues Grant Match Summary generation
+// on the real "grant-match-summary" Redis queue for every assessment. Left
+// unmocked, this hits the real dev Redis instance and enqueues a job for
+// 'proj-1', which any running grant-match-summary worker would later fail
+// to process ("Project not found") since it isn't a real project. See
+// grantMatchSummaryTrigger.test.ts for the dedicated coverage of this queue
+// call's behavior.
+jest.mock('@/backend/queue', () => ({
+  grantMatchSummaryQueue: { add: jest.fn().mockResolvedValue(undefined) },
+}));
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { assembleEligibilityInput } = require('../assembler');
 const { createEligibilityAssessmentSnapshot } = require('../repository');
@@ -62,9 +71,10 @@ const baseProject = {
   userId: 'user-1',
   address: '123 Main St',
   draftData: {},
+  photos: [],
 } as never;
 
-function baseEvaluation(overallDecision: 'ELIGIBLE' | 'INELIGIBLE' | 'NEEDS_MORE_INFO' | 'MANUAL_REVIEW') {
+function baseEvaluation(overallDecision: 'ELIGIBLE' | 'INELIGIBLE') {
   return {
     overallDecision,
     programDecisions: {},
@@ -122,7 +132,37 @@ describe('evaluateProjectEligibility grant PDF trigger', () => {
     );
   });
 
-  it('generates the grant PDF (zero-matches summary) when overallDecision is INELIGIBLE', async () => {
+  it('builds the auto-quote from the project\'s real declared modification codes, not a flat placeholder', async () => {
+    (discoverAndEvaluateGrants as jest.Mock).mockResolvedValue(baseEvaluation('ELIGIBLE'));
+    const { generateQuote } = require('@/backend/services/quote');
+
+    const projectWithPhotos = {
+      id: 'proj-1',
+      userId: 'user-1',
+      address: '123 Main St',
+      draftData: {},
+      photos: [{ declaredModificationCodes: ['GRAB_BARS'] }],
+    } as never;
+
+    await evaluateProjectEligibility(projectWithPhotos);
+    await flushBackgroundJobs();
+
+    expect(generateQuote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'proj-1',
+        modificationCodes: ['GRAB_BARS'],
+        items: [
+          expect.objectContaining({
+            description: 'Grab Bars',
+            modificationCode: 'GRAB_BARS',
+            unitPrice: 180,
+          }),
+        ],
+      })
+    );
+  });
+
+  it('does not generate the grant PDF when overallDecision is INELIGIBLE', async () => {
     (discoverAndEvaluateGrants as jest.Mock).mockResolvedValue(baseEvaluation('INELIGIBLE'));
 
     const result = await evaluateProjectEligibility(baseProject);
@@ -130,27 +170,6 @@ describe('evaluateProjectEligibility grant PDF trigger', () => {
 
     await flushBackgroundJobs();
 
-    expect(generateAndStoreGrantDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj-1' })
-    );
-  });
-
-  it('does not generate the grant PDF when the decision is not final yet (NEEDS_MORE_INFO/MANUAL_REVIEW)', async () => {
-    for (const decision of ['NEEDS_MORE_INFO', 'MANUAL_REVIEW'] as const) {
-      jest.clearAllMocks();
-      (assembleEligibilityInput as jest.Mock).mockReturnValue({});
-      (createEligibilityAssessmentSnapshot as jest.Mock).mockResolvedValue({
-        id: 'assessment-1',
-        createdAt: new Date(),
-      });
-      (discoverAndEvaluateGrants as jest.Mock).mockResolvedValue(baseEvaluation(decision));
-
-      const result = await evaluateProjectEligibility(baseProject);
-      expect('code' in (result as object)).toBe(false);
-
-      await flushBackgroundJobs();
-
-      expect(generateAndStoreGrantDocument).not.toHaveBeenCalled();
-    }
+    expect(generateAndStoreGrantDocument).not.toHaveBeenCalled();
   });
 });

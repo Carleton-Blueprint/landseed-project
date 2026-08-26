@@ -18,10 +18,12 @@
  */
 
 import "dotenv/config";
+import { ProjectStatus } from "@prisma/client";
 import { createVirusScanWorker, aiJobsQueue } from "./index";
 import { prisma } from "lib/prisma";
 import { PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE } from "@/backend/services/photoAnalysis";
-import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { getS3Client, S3_BUCKET } from "lib/s3";
 import NodeClam from "clamscan";
 import { writeFile, unlink } from "fs/promises";
 import { join } from "path";
@@ -35,18 +37,6 @@ import {
   ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
   type AccessibilityImageGenerationJobPayload,
 } from "@/backend/services/imageGeneration";
-import { isLiveImageGenerationEnabled } from "lib/openai";
-
-// Initialize S3 client for downloading files to scan
-const AWS_REGION = process.env.AWS_REGION ?? "ca-central-1";
-const s3Client = new S3Client({
-  region: AWS_REGION,
-  endpoint: `https://s3.${AWS_REGION}.amazonaws.com`,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? "",
-  },
-});
 
 // Initialize ClamAV scanner
 let clamScanner: NodeClam | null = null;
@@ -93,7 +83,7 @@ async function scanFileForVirus(s3Key: string, bucket: string): Promise<"clean" 
       Key: s3Key,
     });
     
-    const response = await s3Client.send(command);
+    const response = await getS3Client().send(command);
     const fileStream = response.Body;
     
     if (!fileStream || !(fileStream instanceof Readable)) {
@@ -143,7 +133,7 @@ async function scanFileForVirus(s3Key: string, bucket: string): Promise<"clean" 
  */
 const worker = createVirusScanWorker(async (job) => {
   const { key, photoId, bucket } = job.data;
-  const bucketName = bucket ?? process.env.AWS_S3_BUCKET ?? "";
+  const bucketName = bucket ?? S3_BUCKET;
 
   console.log(`\n🔍 Processing virus scan job for ${photoId}`);
   console.log(`   S3 Key: ${key}`);
@@ -196,7 +186,7 @@ const worker = createVirusScanWorker(async (job) => {
         Bucket: bucketName,
         Key: key,
       });
-      await s3Client.send(deleteCommand);
+      await getS3Client().send(deleteCommand);
       console.log(`   ✅ Infected file deleted: ${key}`);
 
       // 3. Log audit event for security tracking
@@ -264,7 +254,7 @@ const worker = createVirusScanWorker(async (job) => {
         // clean, unanalyzed photos at promotion time instead; this covers the race where a
         // scan finishes after the project is already promoted. Photos only — documents (grant
         // PDFs, etc.) aren't candidates for modification-type inference.
-        const isPromoted = photo?.project.status !== "draft";
+        const isPromoted = photo?.project.status !== ProjectStatus.DRAFT;
         const isManualMode = photo?.project.isManualMode ?? false;
         if (isManualMode) {
           console.log(`   🛠️  Project ${photo?.project.id} is in manual mode — skipping AI photo analysis for ${photoId}`);
@@ -283,16 +273,30 @@ const worker = createVirusScanWorker(async (job) => {
           console.log(`   ⏳ Project not yet promoted — deferring photo analysis for ${photoId} to intake finalization`);
         }
 
-        if (isLiveImageGenerationEnabled() && !isManualMode) {
-          try {
-            const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
-            await aiJobsQueue.add(`accessibility-image-generation:${photoId}`, {
-              jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE,
-              payload: jobPayload,
-            });
-            console.log(`   🖼️  Queued accessibility image generation for photo ${photoId}`);
-          } catch (queueError) {
-            console.warn(`   ⚠️  Failed to queue image generation for ${photoId}:`, queueError);
+        // Same draft/promoted gate as photo analysis above: generation reads
+        // photo.declaredModificationCodes, which the client tags during intake —
+        // generating before promotion means generating before tagging is done (and,
+        // since a client can retag a photo repeatedly before submitting, wastefully
+        // re-running on every edit if we instead retried on each tag change).
+        // finalizeIntake() sweeps clean, ungenerated photos at promotion time instead —
+        // reuses the same jobId as this trigger, so if a scan happens to clear right
+        // around promotion and both paths fire, BullMQ's jobId dedup makes the second
+        // a no-op (mirrors the photo-analysis jobId pattern above).
+        if (!isManualMode) {
+          if (isPromoted) {
+            try {
+              const jobPayload: AccessibilityImageGenerationJobPayload = { photoId };
+              await aiJobsQueue.add(
+                `accessibility-image-generation:${photoId}`,
+                { jobType: ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE, payload: jobPayload },
+                { jobId: `accessibility-image-generation-${photoId}`, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } }
+              );
+              console.log(`   🖼️  Queued accessibility image generation for photo ${photoId}`);
+            } catch (queueError) {
+              console.warn(`   ⚠️  Failed to queue image generation for ${photoId}:`, queueError);
+            }
+          } else {
+            console.log(`   ⏳ Project not yet promoted — deferring image generation for ${photoId} to intake finalization`);
           }
         }
       }
@@ -357,8 +361,8 @@ console.log("\n" + "=".repeat(60));
 console.log("🔍 VIRUS SCAN WORKER STARTED (ClamAV)");
 console.log("=".repeat(60));
 console.log(`📡 Redis: ${process.env.REDIS_URL ?? "redis://localhost:6379"}`);
-console.log(`📦 S3 Region: ${process.env.AWS_REGION ?? "ca-central-1"}`);
-console.log(`🪣 S3 Bucket: ${process.env.AWS_S3_BUCKET ?? "(not set)"}`);
+console.log(`📦 R2 Account: ${process.env.R2_ACCOUNT_ID ?? "(not set)"}`);
+console.log(`🪣 R2 Bucket: ${process.env.R2_BUCKET ?? "(not set)"}`);
 console.log(`🛡️  ClamAV: ${process.env.CLAMAV_HOST ?? "localhost"}:${process.env.CLAMAV_PORT ?? "3310"}`);
 console.log(`⏳ Waiting for jobs from queue: "virus-scan"`);
 console.log("=".repeat(60) + "\n");

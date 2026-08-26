@@ -45,13 +45,11 @@ jest.mock("@/backend/services/modificationOverride", () => ({
   ModificationOverrideError: class ModificationOverrideError extends Error {
     statusCode: number;
     code: string;
-    redirectTo?: string;
 
-    constructor(message: string, statusCode: number, code: string, redirectTo?: string) {
+    constructor(message: string, statusCode: number, code: string) {
       super(message);
       this.statusCode = statusCode;
       this.code = code;
-      this.redirectTo = redirectTo;
     }
   },
   overridePreEstimateModifications: jest.fn(),
@@ -84,7 +82,7 @@ const { logDeniedAdminAccessAttempt } = require("@/backend/audit/adminAccess") a
 };
 type ModificationOverrideResult = {
   projectId: string;
-  modificationItems: string[];
+  photos: { photoId: string; declaredModificationCodes: string[] }[];
   modificationCodes: string[];
 };
 
@@ -96,9 +94,8 @@ const {
   ModificationOverrideError: new (
     message: string,
     statusCode: number,
-    code: string,
-    redirectTo?: string
-  ) => Error & { statusCode: number; code: string; redirectTo?: string };
+    code: string
+  ) => Error & { statusCode: number; code: string };
 };
 
 const mockedAuth = auth as jest.MockedFunction<() => Promise<unknown>>;
@@ -134,7 +131,10 @@ describe("/api/admin/projects/[projectId]/modification-override", () => {
     mockedAuth.mockResolvedValue({ user: { id: "user-1", email: "client@example.com" } });
     mockedRequireAdminWithMfaEnrolled.mockRejectedValue(new HttpError("forbidden", 403));
 
-    const response = await PUT(buildJsonRequest({ modificationItems: ["Grab bars"] }), buildParams());
+    const response = await PUT(
+      buildJsonRequest({ photoModifications: [{ photoId: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }] }),
+      buildParams()
+    );
 
     expect(response.status).toBe(403);
     expect(mockedLogDeniedAdminAccessAttempt).toHaveBeenCalledWith(
@@ -155,7 +155,10 @@ describe("/api/admin/projects/[projectId]/modification-override", () => {
     mockedAuth.mockResolvedValue(null);
     mockedRequireAdminWithMfaEnrolled.mockRejectedValue(new HttpError("unauthenticated", 401));
 
-    const response = await PUT(buildJsonRequest({ modificationItems: ["Grab bars"] }), buildParams());
+    const response = await PUT(
+      buildJsonRequest({ photoModifications: [{ photoId: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }] }),
+      buildParams()
+    );
 
     expect(response.status).toBe(401);
     expect(mockedOverride).not.toHaveBeenCalled();
@@ -165,12 +168,15 @@ describe("/api/admin/projects/[projectId]/modification-override", () => {
     mockedAuth.mockResolvedValue(adminSession);
     mockedOverride.mockResolvedValue({
       projectId,
-      modificationItems: ["Walk-in shower"],
+      photos: [{ photoId: "photo-1", declaredModificationCodes: ["WALK_IN_SHOWER"] }],
       modificationCodes: ["WALK_IN_SHOWER"],
     });
 
     const response = await PUT(
-      buildJsonRequest({ modificationItems: ["Walk-in shower"], reason: "Corrected during intake call" }),
+      buildJsonRequest({
+        photoModifications: [{ photoId: "photo-1", declaredModificationCodes: ["WALK_IN_SHOWER"] }],
+        reason: "Corrected during intake call",
+      }),
       buildParams()
     );
     const body = await response.json();
@@ -178,39 +184,40 @@ describe("/api/admin/projects/[projectId]/modification-override", () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       projectId,
-      modificationItems: ["Walk-in shower"],
+      photos: [{ photoId: "photo-1", declaredModificationCodes: ["WALK_IN_SHOWER"] }],
       modificationCodes: ["WALK_IN_SHOWER"],
     });
     expect(mockedOverride).toHaveBeenCalledWith({
       projectId,
       actorUserId: "admin-1",
-      modificationItems: ["Walk-in shower"],
+      photoModifications: [{ photoId: "photo-1", declaredModificationCodes: ["WALK_IN_SHOWER"] }],
       reason: "Corrected during intake call",
       ipAddress: "198.51.100.2",
       userAgent: "jest",
     });
   });
 
-  it("returns the FR-4.3 redirect error when an estimate already exists", async () => {
+  it("returns 409 when an estimate already exists", async () => {
     mockedAuth.mockResolvedValue(adminSession);
     mockedOverride.mockRejectedValue(
       new ModificationOverrideError(
-        "An estimate has already been generated for this project. Use the post-estimate modification override instead.",
+        "An estimate has already been generated for this project. A post-estimate modification override is not yet available.",
         409,
-        "ESTIMATE_ALREADY_GENERATED",
-        "post_estimate_override"
+        "ESTIMATE_ALREADY_GENERATED"
       )
     );
 
-    const response = await PUT(buildJsonRequest({ modificationItems: ["Ramp"] }), buildParams());
+    const response = await PUT(
+      buildJsonRequest({ photoModifications: [{ photoId: "photo-1", declaredModificationCodes: ["STAIR_LIFT"] }] }),
+      buildParams()
+    );
     const body = await response.json();
 
     expect(response.status).toBe(409);
     expect(body).toEqual({
       error:
-        "An estimate has already been generated for this project. Use the post-estimate modification override instead.",
+        "An estimate has already been generated for this project. A post-estimate modification override is not yet available.",
       code: "ESTIMATE_ALREADY_GENERATED",
-      redirectTo: "post_estimate_override",
     });
   });
 
@@ -218,30 +225,33 @@ describe("/api/admin/projects/[projectId]/modification-override", () => {
     mockedAuth.mockResolvedValue(adminSession);
     mockedOverride.mockRejectedValue(new ModificationOverrideError("Project not found", 404, "PROJECT_NOT_FOUND"));
 
-    const response = await PUT(buildJsonRequest({ modificationItems: ["Ramp"] }), buildParams());
+    const response = await PUT(
+      buildJsonRequest({ photoModifications: [{ photoId: "photo-1", declaredModificationCodes: ["STAIR_LIFT"] }] }),
+      buildParams()
+    );
     const body = await response.json();
 
     expect(response.status).toBe(404);
     expect(body).toEqual({ error: "Project not found", code: "PROJECT_NOT_FOUND" });
   });
 
-  it("returns 400 for invalid modification items", async () => {
+  it("returns 400 for invalid photo modifications", async () => {
     mockedAuth.mockResolvedValue(adminSession);
     mockedOverride.mockRejectedValue(
       new ModificationOverrideError(
-        "modificationItems must be a non-empty array of strings",
+        "photoModifications must be a non-empty array",
         400,
-        "INVALID_MODIFICATION_ITEMS"
+        "INVALID_PHOTO_MODIFICATIONS"
       )
     );
 
-    const response = await PUT(buildJsonRequest({ modificationItems: [] }), buildParams());
+    const response = await PUT(buildJsonRequest({ photoModifications: [] }), buildParams());
     const body = await response.json();
 
     expect(response.status).toBe(400);
     expect(body).toEqual({
-      error: "modificationItems must be a non-empty array of strings",
-      code: "INVALID_MODIFICATION_ITEMS",
+      error: "photoModifications must be a non-empty array",
+      code: "INVALID_PHOTO_MODIFICATIONS",
     });
   });
 });

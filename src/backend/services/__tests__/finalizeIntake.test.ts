@@ -28,6 +28,10 @@ jest.mock("@/backend/services/photoAnalysis", () => ({
   PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE: "PHOTO_MODIFICATION_ANALYSIS",
 }));
 
+jest.mock("@/backend/services/imageGeneration", () => ({
+  ACCESSIBILITY_IMAGE_GENERATION_JOB_TYPE: "ACCESSIBILITY_IMAGE_GENERATION",
+}));
+
 const serpLineItem = {
   description: "Mock item",
   quantity: 1,
@@ -63,6 +67,7 @@ jest.mock("lib/prisma", () => ({
   },
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { finalizeIntake } = require("../finalizeIntake") as typeof import("../finalizeIntake");
 
 describe("finalizeIntake", () => {
@@ -94,7 +99,7 @@ describe("finalizeIntake", () => {
   it("returns an existing quote range for an already finalized project", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-2",
-      status: "submitted",
+      status: "SUBMITTED",
       draftData: null,
       quotes: [
         {
@@ -133,7 +138,7 @@ describe("finalizeIntake", () => {
   it("transitions draft project to submitted and schedules delayed estimate generation", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-3",
-      status: "draft",
+      status: "DRAFT",
       draftData: {
         modificationItems: ["Grab bars"],
       },
@@ -187,7 +192,7 @@ describe("finalizeIntake", () => {
   it("queues photo analysis for clean, unanalyzed photos on finalize (deferred pre-promotion uploads)", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-6",
-      status: "draft",
+      status: "DRAFT",
       draftData: {
         modificationItems: ["Grab bars"],
       },
@@ -195,7 +200,9 @@ describe("finalizeIntake", () => {
     });
 
     mockedProjectUpdateMany.mockResolvedValue({ count: 1 });
-    mockedPrisma.photo.findMany.mockResolvedValue([{ id: "photo-1" }, { id: "photo-2" }]);
+    mockedPrisma.photo.findMany.mockImplementation(({ where }: { where: Record<string, unknown> }) =>
+      Promise.resolve("generationStatus" in where ? [] : [{ id: "photo-1" }, { id: "photo-2" }])
+    );
 
     await finalizeIntake({ projectId: "proj-6", actorUserId: "user-6" });
 
@@ -212,10 +219,44 @@ describe("finalizeIntake", () => {
     );
   });
 
+  it("queues image generation for clean, ungenerated photos on finalize (deferred pre-promotion uploads)", async () => {
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-8",
+      status: "DRAFT",
+      draftData: { modificationItems: ["Grab bars"] },
+      quotes: [],
+    });
+    mockedProjectUpdateMany.mockResolvedValue({ count: 1 });
+    mockedPrisma.photo.findMany.mockImplementation(({ where }: { where: Record<string, unknown> }) =>
+      Promise.resolve("generationStatus" in where ? [{ id: "photo-3" }, { id: "photo-4" }] : [])
+    );
+
+    await finalizeIntake({ projectId: "proj-8", actorUserId: "user-8" });
+
+    expect(mockedPrisma.photo.findMany).toHaveBeenCalledWith({
+      where: {
+        projectId: "proj-8",
+        virus_scan_status: "clean",
+        generationStatus: { notIn: ["READY", "GENERATING"] },
+      },
+      select: { id: true },
+    });
+    expect(mockedAiJobsQueueAdd).toHaveBeenCalledWith(
+      "accessibility-image-generation:photo-3",
+      { jobType: "ACCESSIBILITY_IMAGE_GENERATION", payload: { photoId: "photo-3" } },
+      expect.objectContaining({ jobId: "accessibility-image-generation-photo-3" })
+    );
+    expect(mockedAiJobsQueueAdd).toHaveBeenCalledWith(
+      "accessibility-image-generation:photo-4",
+      { jobType: "ACCESSIBILITY_IMAGE_GENERATION", payload: { photoId: "photo-4" } },
+      expect.objectContaining({ jobId: "accessibility-image-generation-photo-4" })
+    );
+  });
+
   it("returns already_finalized when another request wins the draft-to-submitted race", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-5",
-      status: "draft",
+      status: "DRAFT",
       draftData: {
         modificationItems: ["Grab bars"],
       },

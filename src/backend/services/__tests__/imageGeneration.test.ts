@@ -4,10 +4,10 @@ import { getOpenAIClient } from "lib/openai";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import {
   buildAccessibilityVisualEditPrompt,
-  modificationItemsFromDraft,
   generateAccessibilityVisual,
   processAccessibilityImageGenerationJob,
   buildAccessibilityRenditionS3Key,
+  applyAccessibilityVisualMockFallback,
 } from "../imageGeneration";
 
 jest.mock("openai", () => ({
@@ -65,37 +65,6 @@ describe("buildAccessibilityVisualEditPrompt", () => {
   });
 });
 
-describe("modificationItemsFromDraft", () => {
-  it("returns an empty array for null/non-object draftData", () => {
-    expect(modificationItemsFromDraft(null)).toEqual([]);
-    expect(modificationItemsFromDraft("not-an-object")).toEqual([]);
-    expect(modificationItemsFromDraft(["array", "data"])).toEqual([]);
-  });
-
-  it("returns an empty array when modificationItems is missing or not an array", () => {
-    expect(modificationItemsFromDraft({})).toEqual([]);
-    expect(modificationItemsFromDraft({ modificationItems: "GRAB_BARS" })).toEqual([]);
-  });
-
-  it("filters to only string entries", () => {
-    expect(
-      modificationItemsFromDraft({ modificationItems: ["Grab bars", 42, null, "Stair lift"] })
-    ).toEqual(["GRAB_BARS", "STAIR_LIFT"]);
-  });
-
-  it("normalizes the intake form's human-readable labels into canonical codes", () => {
-    expect(
-      modificationItemsFromDraft({ modificationItems: ["Grab bars", "Walk-in shower"] })
-    ).toEqual(["GRAB_BARS", "WALK_IN_SHOWER"]);
-  });
-
-  it("drops labels that don't match a known modification", () => {
-    expect(modificationItemsFromDraft({ modificationItems: ["Grab bars", "Not a real item"] })).toEqual([
-      "GRAB_BARS",
-    ]);
-  });
-});
-
 describe("buildAccessibilityRenditionS3Key", () => {
   it("namespaces the key by project and photo id", () => {
     const key = buildAccessibilityRenditionS3Key("project-1", "photo-1");
@@ -119,7 +88,7 @@ describe("generateAccessibilityVisual", () => {
       arrayBuffer: async () => Buffer.from("source-image-bytes").buffer,
     }) as unknown as typeof fetch;
 
-    mockedUploadStreamToS3.mockResolvedValue("https://bucket.s3.ca-central-1.amazonaws.com/accessibility-renditions/project-1/photo-1.png");
+    mockedUploadStreamToS3.mockResolvedValue("https://test-account.r2.cloudflarestorage.com/test-bucket/accessibility-renditions/project-1/photo-1.png");
   });
 
   afterEach(() => {
@@ -162,11 +131,11 @@ describe("generateAccessibilityVisual", () => {
     await generateAccessibilityVisual({
       id: "photo-1",
       projectId: "project-1",
-      url: "https://bucket.s3.ca-central-1.amazonaws.com/original.png",
+      url: "https://test-account.r2.cloudflarestorage.com/test-bucket/original.png",
     });
 
     expect(mockedGetSignedDownloadUrlFromS3Url).toHaveBeenCalledWith(
-      "https://bucket.s3.ca-central-1.amazonaws.com/original.png",
+      "https://test-account.r2.cloudflarestorage.com/test-bucket/original.png",
       300
     );
     expect(global.fetch).toHaveBeenCalledWith("https://signed.example.com/original.png");
@@ -190,12 +159,18 @@ describe("generateAccessibilityVisual", () => {
 });
 
 describe("processAccessibilityImageGenerationJob", () => {
+  // draftData intentionally declares a DIFFERENT modification than the photo's own
+  // declaredModificationCodes, so tests can assert generation reads the per-photo
+  // tag (the client's ground truth) and not the project-level list.
   const basePhoto = {
     id: "photo-1",
     projectId: "project-1",
     url: "https://example.com/original.png",
-    project: { draftData: { modificationItems: ["GRAB_BARS"] } },
+    declaredModificationCodes: ["GRAB_BARS"],
+    project: { draftData: { modificationItems: ["Handrails"] }, isManualMode: false },
   };
+
+  let mockEdit: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -203,8 +178,9 @@ describe("processAccessibilityImageGenerationJob", () => {
     mockedPrisma.photo.findUnique.mockResolvedValue(basePhoto);
     mockedPrisma.photo.update.mockResolvedValue({});
 
+    mockEdit = jest.fn().mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
     mockedGetOpenAIClient.mockReturnValue({
-      images: { edit: jest.fn().mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] }) },
+      images: { edit: mockEdit },
     });
 
     global.fetch = jest.fn().mockResolvedValue({
@@ -212,7 +188,7 @@ describe("processAccessibilityImageGenerationJob", () => {
       arrayBuffer: async () => Buffer.from("source-image-bytes").buffer,
     }) as unknown as typeof fetch;
 
-    mockedUploadStreamToS3.mockResolvedValue("https://bucket.s3.ca-central-1.amazonaws.com/accessibility-renditions/project-1/photo-1.png");
+    mockedUploadStreamToS3.mockResolvedValue("https://test-account.r2.cloudflarestorage.com/test-bucket/accessibility-renditions/project-1/photo-1.png");
   });
 
   it("throws when the photo does not exist", async () => {
@@ -237,7 +213,23 @@ describe("processAccessibilityImageGenerationJob", () => {
     );
 
     expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
-      expect.objectContaining({ category: "AI_GENERATION", outcome: "SUCCESS", resourceId: "photo-1" })
+      expect.objectContaining({
+        category: "AI_GENERATION",
+        outcome: "SUCCESS",
+        resourceId: "photo-1",
+        metadata: expect.objectContaining({ outputSource: "LIVE", isFallback: false }),
+      })
+    );
+  });
+
+  it("generates from the photo's own declaredModificationCodes, not the project-level draftData list", async () => {
+    await processAccessibilityImageGenerationJob({ photoId: "photo-1" });
+
+    expect(mockEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.stringContaining("Grab Bars") })
+    );
+    expect(mockEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.not.stringContaining("Handrail") })
     );
   });
 
@@ -260,7 +252,60 @@ describe("processAccessibilityImageGenerationJob", () => {
     });
 
     expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
-      expect.objectContaining({ category: "AI_GENERATION", outcome: "FAILURE", resourceId: "photo-1" })
+      expect.objectContaining({
+        category: "AI_GENERATION",
+        outcome: "FAILURE",
+        resourceId: "photo-1",
+        metadata: expect.objectContaining({ outputSource: "NONE", isFallback: false }),
+      })
     );
+  });
+});
+
+describe("applyAccessibilityVisualMockFallback", () => {
+  const basePhoto = {
+    id: "photo-1",
+    projectId: "project-1",
+    url: "https://example.com/original.png",
+    declaredModificationCodes: ["GRAB_BARS"],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedPrisma.photo.findUnique.mockResolvedValue(basePhoto);
+    mockedPrisma.photo.update.mockResolvedValue({});
+  });
+
+  it("persists a mock placeholder and logs a FAILURE fallback audit event", async () => {
+    await applyAccessibilityVisualMockFallback("photo-1", "OpenAI rate limited");
+
+    expect(mockedPrisma.photo.update).toHaveBeenCalledWith({
+      where: { id: "photo-1" },
+      data: expect.objectContaining({
+        generatedImageS3Key: null,
+        generationModel: "mock-fallback",
+        generatedImageUrl: expect.stringContaining("placehold.co"),
+      }),
+    });
+
+    expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "AI_GENERATION",
+        action: "ACCESSIBILITY_IMAGE_GENERATION_FALLBACK",
+        outcome: "FAILURE",
+        resourceId: "photo-1",
+        reason: "OpenAI rate limited",
+        metadata: expect.objectContaining({ outputSource: "MOCK", isFallback: true }),
+      })
+    );
+  });
+
+  it("does nothing when the photo no longer exists", async () => {
+    mockedPrisma.photo.findUnique.mockResolvedValue(null);
+
+    await applyAccessibilityVisualMockFallback("missing", "some error");
+
+    expect(mockedPrisma.photo.update).not.toHaveBeenCalled();
+    expect(mockedLogAuditEventNonBlocking).not.toHaveBeenCalled();
   });
 });

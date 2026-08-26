@@ -2,6 +2,16 @@ import { prisma } from "lib/prisma";
 import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
+import { buildQuoteItems } from "@/backend/eligibility/modificationNormalization";
+import {
+  getEstimateGenerationDelayMinutes,
+  getEstimateGenerationDelayMs,
+  buildEstimateGenerationJobId,
+  processScheduledEstimateGeneration,
+  ESTIMATE_GENERATION_DELAY_MINUTES_ENV,
+  DEFAULT_ESTIMATE_GENERATION_DELAY_MINUTES,
+  MAX_ESTIMATE_GENERATION_DELAY_MINUTES,
+} from "../estimateGeneration";
 
 jest.mock("@/backend/services/quote", () => ({
   generateQuote: jest.fn(),
@@ -22,17 +32,6 @@ jest.mock("lib/prisma", () => ({
     },
   },
 }));
-
-const {
-  getEstimateGenerationDelayMinutes,
-  getEstimateGenerationDelayMs,
-  buildEstimateGenerationJobId,
-  buildQuoteItems,
-  processScheduledEstimateGeneration,
-  ESTIMATE_GENERATION_DELAY_MINUTES_ENV,
-  DEFAULT_ESTIMATE_GENERATION_DELAY_MINUTES,
-  MAX_ESTIMATE_GENERATION_DELAY_MINUTES,
-} = require("../estimateGeneration") as typeof import("../estimateGeneration");
 
 describe("estimateGeneration delay config", () => {
   const originalEnv = process.env[ESTIMATE_GENERATION_DELAY_MINUTES_ENV];
@@ -77,16 +76,16 @@ describe("estimateGeneration delay config", () => {
 });
 
 describe("buildQuoteItems", () => {
-  it("falls back to a default line item when draftData has no modificationItems", () => {
-    expect(buildQuoteItems(null)).toEqual([
+  it("falls back to a default line item when there are no modification codes", () => {
+    expect(buildQuoteItems([])).toEqual([
       { description: "Home modifications (initial intake estimate)", quantity: 1, unitPrice: 150 },
     ]);
   });
 
-  it("maps modificationItems into quote items with catalog-derived pricing and modification codes", () => {
-    expect(buildQuoteItems({ modificationItems: ["Grab bars", "Ramp"] })).toEqual([
-      { description: "Grab bars", quantity: 1, unitPrice: 180, modificationCode: "GRAB_BARS" },
-      { description: "Ramp", quantity: 1, unitPrice: 150 },
+  it("maps modification codes into quote items with catalog-derived pricing", () => {
+    expect(buildQuoteItems(["GRAB_BARS", "WALK_IN_SHOWER"])).toEqual([
+      { description: "Grab Bars", quantity: 1, unitPrice: 180, modificationCode: "GRAB_BARS" },
+      { description: "Walk-In Shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
     ]);
   });
 });
@@ -111,8 +110,8 @@ describe("processScheduledEstimateGeneration", () => {
   it("skips generation when a quote already exists (idempotency)", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
-      status: "submitted",
-      draftData: { modificationItems: ["Grab bars"] },
+      status: "SUBMITTED",
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [{ id: "quote-existing" }],
     });
 
@@ -139,8 +138,8 @@ describe("processScheduledEstimateGeneration", () => {
   it("skips generation when the project is no longer submitted", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-2",
-      status: "draft",
-      draftData: { modificationItems: ["Grab bars"] },
+      status: "DRAFT",
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });
 
@@ -150,11 +149,11 @@ describe("processScheduledEstimateGeneration", () => {
     expect(mockedGenerateQuote).not.toHaveBeenCalled();
   });
 
-  it("generates a quote from the current modificationItems and marks estimate ready", async () => {
+  it("generates a quote from the current declared modification codes and marks estimate ready", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-3",
-      status: "submitted",
-      draftData: { modificationItems: ["Walk-in shower"] },
+      status: "SUBMITTED",
+      photos: [{ declaredModificationCodes: ["WALK_IN_SHOWER"] }],
       quotes: [],
     });
 
@@ -196,7 +195,7 @@ describe("processScheduledEstimateGeneration", () => {
     expect(mockedGenerateQuote).toHaveBeenCalledWith({
       projectId: "proj-3",
       items: [
-        { description: "Walk-in shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
+        { description: "Walk-In Shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
       ],
       modificationCodes: ["WALK_IN_SHOWER"],
     });
@@ -214,8 +213,8 @@ describe("processScheduledEstimateGeneration", () => {
   it("still queues eligibility evaluation and rethrows when quote generation fails", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-4",
-      status: "submitted",
-      draftData: { modificationItems: ["Grab bars"] },
+      status: "SUBMITTED",
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
       quotes: [],
     });
 

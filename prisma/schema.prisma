@@ -18,10 +18,11 @@ model User {
   mfaEnabled                    Boolean                         @default(false)
   mfaEnrolledAt                 DateTime?
   mfaSecretCiphertext           String?
+  role                          SystemRole                      @default(USER)
   createdAt                     DateTime                        @default(now())
   updatedAt                     DateTime                        @updatedAt
   auditEvents                   AuditEvent[]
-  grantApplicationStatusHistory GrantApplicationStatusHistory[]
+  projectStatusHistory          ProjectStatusHistory[]
   manualFallbackExports         ManualFallbackExport[]
   notifications                 NotificationDelivery[]
   projects                      Project[]
@@ -45,13 +46,12 @@ model User {
 model Project {
   id                               String                            @id @default(cuid())
   address                          String
-  status                           String                            @default("draft")
+  status                           ProjectStatus                     @default(DRAFT)
   userId                           String
   createdAt                        DateTime                          @default(now())
   updatedAt                        DateTime                          @updatedAt
   draftData                        Json?
   grantDocumentKey                 String?
-  grantApplicationStatus           GrantApplicationStatus            @default(DRAFT)
   isManualMode                     Boolean                           @default(false)
   user                             User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectAccess                    ProjectAccess[]
@@ -63,7 +63,9 @@ model Project {
   manualModeSubmission             ManualModeSubmission?
   manualFallbackExports            ManualFallbackExport[]
   eligibilityAssessments           EligibilityAssessment[]
-  grantApplicationStatusHistory    GrantApplicationStatusHistory[]
+  grantMatchSummaryDocuments       GrantMatchSummaryDocument[]
+  estimateDocuments                EstimateDocument[]
+  statusHistory                    ProjectStatusHistory[]
   notifications                    NotificationDelivery[]
   auditEvents                      AuditEvent[]
   manualReviewFlag                 ProjectManualReviewFlag?
@@ -166,17 +168,17 @@ model AccountDeletionNotice {
   @@index([sentAt])
 }
 
-model GrantApplicationStatusHistory {
-  id              String                  @id @default(cuid())
+model ProjectStatusHistory {
+  id              String         @id @default(cuid())
   projectId       String
-  fromStatus      GrantApplicationStatus?
-  toStatus        GrantApplicationStatus
-  changedAt       DateTime                @default(now())
+  fromStatus      ProjectStatus?
+  toStatus        ProjectStatus
+  changedAt       DateTime       @default(now())
   changedByUserId String
   reason          String?
   metadata        Json?
-  changedByUser   User                    @relation(fields: [changedByUserId], references: [id])
-  project         Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changedByUser   User           @relation(fields: [changedByUserId], references: [id])
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId, changedAt(sort: Desc)])
   @@index([changedByUserId, changedAt(sort: Desc)])
@@ -250,6 +252,12 @@ model Photo {
   analysisModel       String?
   analysisError       String?   @db.Text
   analyzedAt          DateTime?
+
+  // Client-declared modification type(s) this specific photo is for (see
+  // IntakeForm.tsx's per-photo tag picker). This is the primary signal for
+  // image generation and reconciliation — aiModificationCodes is the
+  // cross-check, not the source of truth.
+  declaredModificationCodes String[] @default([])
 }
 
 model Quote {
@@ -273,6 +281,7 @@ model Quote {
   auditEvents             AuditEvent[]
   builderTrendTransfers   BuilderTrendTransfer?
   declineSurvey           DeclineSurveyResponse?
+  estimateDocuments       EstimateDocument[]
   eligibilityAssessment   EligibilityAssessment? @relation(fields: [eligibilityAssessmentId], references: [id])
   project                 Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdByUser           User?                  @relation(fields: [createdByUserId], references: [id])
@@ -450,13 +459,28 @@ model AlertThresholdConfig {
 // send was missed while it was down and, if so, catch up with a single
 // summary covering the gap instead of silently skipping it.
 model AdminDigestRun {
-  id          String   @id @default(cuid())
-  sentAt      DateTime @default(now())
-  windowStart DateTime
-  windowEnd   DateTime
-  eventCount  Int
+  id                 String                       @id @default(cuid())
+  sentAt             DateTime                     @default(now())
+  windowStart        DateTime
+  windowEnd          DateTime
+  eventCount         Int
+  newSubmissionCount Int                          @default(0)
+  staffActionCount   Int                          @default(0)
+  deliveryFailures   AdminDigestDeliveryFailure[]
 
   @@index([sentAt])
+}
+
+model AdminDigestDeliveryFailure {
+  id             String         @id @default(cuid())
+  digestRunId    String
+  recipientEmail String
+  errorMessage   String         @db.Text
+  failedAt       DateTime       @default(now())
+  digestRun      AdminDigestRun @relation(fields: [digestRunId], references: [id], onDelete: Cascade)
+
+  @@index([digestRunId])
+  @@index([failedAt])
 }
 
 model EligibilityAssessment {
@@ -479,10 +503,57 @@ model EligibilityAssessment {
   discoverySourceSnapshotId String?
   project                   Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   quotes                    Quote[]
+  // Also enforced in the DB (not expressible in this DSL): a partial unique
+  // index on (projectId) WHERE isLatest = true - see migration
+  // 20260820150000_add_eligibility_assessment_latest_unique_index.
 
   @@index([projectId])
   @@index([projectId, isLatest])
   @@index([createdAt])
+}
+
+model GrantMatchSummaryDocument {
+  id                      String                          @id @default(cuid())
+  projectId               String
+  eligibilityAssessmentId String
+  status                  GrantMatchSummaryDocumentStatus @default(PENDING)
+  outputSource            String?
+  contentHash             String?
+  s3Key                   String?
+  fileName                String?
+  version                 Int
+  isLatest                Boolean                         @default(true)
+  failureReason           String?                         @db.Text
+  requestedAt             DateTime                        @default(now())
+  readyAt                 DateTime?
+  createdAt               DateTime                        @default(now())
+  updatedAt               DateTime                        @updatedAt
+  project                 Project                         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, isLatest])
+  @@index([projectId])
+}
+
+model EstimateDocument {
+  id            String                 @id @default(cuid())
+  projectId     String
+  quoteId       String
+  status        EstimateDocumentStatus @default(PENDING)
+  contentHash   String?
+  s3Key         String?
+  fileName      String?
+  version       Int
+  isLatest      Boolean                @default(true)
+  failureReason String?                @db.Text
+  requestedAt   DateTime               @default(now())
+  readyAt       DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  project       Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quote         Quote                  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([quoteId, isLatest])
 }
 
 model NotificationDelivery {
@@ -661,12 +732,20 @@ model GrantSignature {
 
 // ——— Enums ———
 
-enum GrantApplicationStatus {
+enum ProjectStatus {
   DRAFT
   SUBMITTED
-  UNDER_REVIEW
+  ESTIMATE_READY
+  ESTIMATE_EXPIRED
+  ESTIMATE_ACCEPTED
+  ESTIMATE_DECLINED
   APPROVED
   REJECTED
+  WORK_SCHEDULED
+  WORK_IN_PROGRESS
+  WORK_ON_HOLD
+  WORK_COMPLETED
+  WORK_CANCELLED
 }
 
 enum DocumentType {
@@ -692,6 +771,11 @@ enum ProjectAccessRole {
   OWNER
   EDITOR
   VIEWER
+}
+
+enum SystemRole {
+  USER
+  ADMIN
 }
 
 enum BuilderTrendTransferStatus {
@@ -842,11 +926,25 @@ enum ManualFallbackExportStatus {
   FAILED
 }
 
+enum GrantMatchSummaryDocumentStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+enum EstimateDocumentStatus {
+  PENDING
+  READY
+  FAILED
+}
+
 enum ProjectManualReviewReasonCode {
   LOW_CONFIDENCE
   HIGH_COMPLEXITY
   BOTH
   PHOTO_MODIFICATION_MISMATCH
+  DISCOVERY_CATALOG_CONTRADICTION
+  AI_JOB_RETRIES_EXHAUSTED
 }
 
 enum CommunicationType {

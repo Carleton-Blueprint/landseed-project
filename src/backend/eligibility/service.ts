@@ -18,8 +18,22 @@ import {
   GrantDiscoveryMetadata,
 } from './discoverySearchProvider';
 import { prisma } from 'lib/prisma';
+import { grantMatchSummaryQueue } from '@/backend/queue';
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { produceManualReviewFlagJob } from './manualReviewProducer';
+import { aggregateDeclaredModificationCodes, buildQuoteItems } from './modificationNormalization';
+import type { AiOutputSource, AiProvenanceMetadata } from '@/backend/audit/aiProvenance';
+
+export type ProjectWithPhotosForEligibility = Project & {
+  photos: { declaredModificationCodes: string[] }[];
+};
+
+export function outputSourceForDiscoveryProvider(provider: GrantDiscoveryMetadata['provider']): AiOutputSource {
+  if (provider === 'OPENAI') return 'LIVE';
+  if (provider === 'MOCK') return 'MOCK';
+  if (provider === 'MANUAL') return 'MANUAL';
+  return 'HEURISTIC';
+}
 
 export interface EvaluateEligibilityServiceResult {
   assessmentId: string;
@@ -45,7 +59,7 @@ export interface EvaluateEligibilityServiceError {
  * Main service function: evaluate and persist eligibility assessment
  */
 export async function evaluateProjectEligibility(
-  project: Project,
+  project: ProjectWithPhotosForEligibility,
   performedBy?: User
 ): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceError> {
   try {
@@ -99,7 +113,9 @@ export async function evaluateProjectEligibility(
           scoringVersion: evaluation.discoveryMetadata.scoringVersion,
           modelVersion: evaluation.discoveryMetadata.modelVersion,
           sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
-        },
+          outputSource: 'HEURISTIC',
+          isFallback: true,
+        } satisfies AiProvenanceMetadata & Record<string, unknown>,
       });
     }
 
@@ -125,7 +141,10 @@ export async function evaluateProjectEligibility(
           sourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
           candidateCount: evaluation.discoveryMetadata.candidateCount,
           returnedCount: evaluation.discoveryMetadata.returnedCount,
-        },
+          outputSource: outputSourceForDiscoveryProvider(evaluation.discoveryMetadata.provider),
+          isFallback:
+            evaluation.discoveryMetadata.provider === 'HEURISTIC' && !!evaluation.discoveryMetadata.aiFailureReason,
+        } satisfies AiProvenanceMetadata & Record<string, unknown>,
       });
     }
 
@@ -153,21 +172,20 @@ export async function evaluateProjectEligibility(
     // already exists by the time eligibility evaluation runs, so `existingQuote`
     // below is set and this returns early.
     //
-    // It only actually creates a quote (this flat $5000 placeholder) when eligibility
-    // evaluation runs *before* that real quote exists, which happens via:
+    // It only actually creates a quote here when eligibility evaluation runs
+    // *before* that real quote exists, which happens via:
     //   1. estimateGeneration.ts's catch block - if generateQuote() itself throws,
     //      queueEligibilityEvaluation() still fires with no quote on record.
-    //   2. modificationOverride.ts -> triggerEvaluationAfterDraftUpdate() - fires
+    //   2. modificationOverride.ts -> queueEligibilityEvaluation() - fires
     //      during the FR-4.10 admin pre-estimate override window, which is by design
     //      *before* the delayed estimate-generation worker has run.
-    // In case 2 this also permanently blocks the real quote: processScheduledEstimateGeneration
-    // skips generation entirely once any quote exists for the project (see its
-    // `existingQuote` check), so the project gets stuck on this $5000 placeholder.
-    //
-    // Left as-is for now rather than removed: /api/admin/eligibility/assess lets an
-    // admin manually trigger evaluateProjectEligibility() for a project that never
-    // went through intake finalize (no delayed job ever queued) - this auto-quote is
-    // currently the only thing that gives such a project a quote at all.
+    //   3. /api/admin/eligibility/assess - recovery path for a project that
+    //      never had a delayed estimate-generation job queued at all.
+    // Since processScheduledEstimateGeneration skips generation entirely once any
+    // quote exists for the project, whichever quote lands first here has to be a
+    // real one - this uses the same catalog-priced buildQuoteItems path (built
+    // from the project's actual declared modification codes) as the normal flow,
+    // not a placeholder.
     setImmediate(async () => {
       try {
         const existingQuote = await prisma.quote.findFirst({
@@ -181,19 +199,15 @@ export async function evaluateProjectEligibility(
           return;
         }
 
+        const modificationCodes = aggregateDeclaredModificationCodes(project.photos);
+        const quoteItems = buildQuoteItems(modificationCodes);
+
         // Dynamically import to avoid circular dependencies
         const { generateQuote } = await import('@/backend/services/quote');
         await generateQuote({
           projectId: project.id,
-          items: [
-            // TODO: Replace placeholder pricing with BuilderTrend-derived scope item pricing.
-            
-            {
-              description: 'Home modifications (auto-quoted from eligibility assessment)',
-              quantity: 1,
-              unitPrice: 5000,
-            },
-          ],
+          items: quoteItems,
+          modificationCodes,
         });
         console.log(`Auto-generated quote after eligibility assessment for project ${project.id}`);
         // Auto-generate the grant eligibility summary PDF once the assessment reaches a final
@@ -215,6 +229,22 @@ export async function evaluateProjectEligibility(
         // Non-blocking: eligibility assessment success is not affected by quote generation failure
       }
     });
+
+    // Step 7: Queue Grant Match Summary PDF generation in background (non-blocking).
+    //
+    // Unlike the pre-filled grant application PDF (Step 6, ELIGIBLE-only), this
+    // summary is generated for every assessment outcome — it must render a clean
+    // "no matching grants found" message rather than skip generation entirely.
+    // It doesn't depend on the quote above, so it's queued independently rather
+    // than nested inside that block.
+    grantMatchSummaryQueue
+      .add(`grant-match-summary:${project.id}:${assessment.id}`, {
+        projectId: project.id,
+        actorUserId: performedBy?.id ?? project.userId,
+      })
+      .catch((err) => {
+        console.warn('Failed to queue grant match summary generation for project', project.id, err);
+      });
 
     return {
       assessmentId: assessment.id,
@@ -279,7 +309,7 @@ export async function getLatestEligibilityAssessment(projectId: string) {
       discoveryMetadata:
         (assessmentWithDiscovery.discoveryMetadata as GrantDiscoveryMetadata | null) ?? null,
       discoveryProvider:
-        ((assessmentWithDiscovery.discoveryProvider as 'OPENAI' | 'HEURISTIC' | null) ?? 'HEURISTIC'),
+        ((assessmentWithDiscovery.discoveryProvider as 'OPENAI' | 'HEURISTIC' | 'MOCK' | 'MANUAL' | null) ?? 'HEURISTIC'),
       discoveryEngineVersion:
         (assessmentWithDiscovery.discoveryEngineVersion as string | null) ?? 'unknown',
       discoveryPromptVersion:

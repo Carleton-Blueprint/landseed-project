@@ -3,20 +3,19 @@ import Link from "next/link";
 import { Button } from "@/frontend/components/ui/button";
 import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
+import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { auth } from "@/auth";
 import { redirectToSignIn } from "lib/auth-redirect";
 import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
 import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
-import { generateMockAccessibilityVisual } from "@/backend/services/imageGeneration";
-import { isLiveImageGenerationEnabled } from "lib/openai";
 import { ConsultationScheduler } from "@/frontend/components/ConsultationScheduler";
 import { getLatestGrantDocumentGenerationInfo } from "@/backend/services/grantDocument";
 import { GrantDocumentCard } from "./GrantDocumentCard";
 import { listInformationRequestsForProject } from "@/backend/services/informationRequests";
-import { HST_DISCLAIMER_TEXT } from "@/shared/hstDisclaimer";
-import { isFinalEligibilityDecision } from "@/backend/eligibility/types";
+import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -51,7 +50,6 @@ function getEstimateSummary(project: {
       value: "Available after project finalization",
       explanation:
         "Your initial estimate range will appear here after your project request is finalized. Pricing is dynamically generated from real-time external retail data.",
-      showHstDisclaimer: false,
     };
   }
 
@@ -60,7 +58,6 @@ function getEstimateSummary(project: {
       value: `$${estimateRange.min.toLocaleString()} – $${estimateRange.max.toLocaleString()}`,
       explanation:
         "This pricing is dynamically generated from real-time external retail data and may change as retailer pricing and product availability update.",
-      showHstDisclaimer: true,
     };
   }
 
@@ -68,7 +65,6 @@ function getEstimateSummary(project: {
     value: "Generating estimate…",
     explanation:
       "We are generating your estimate using real-time external retail data.",
-    showHstDisclaimer: false,
   };
 }
 
@@ -83,36 +79,26 @@ function getInformationRequestTypeLabel(requestType: string): string {
   }
 }
 
-function modificationItemsFromDraft(draftData: unknown): string[] {
-  if (!draftData || typeof draftData !== "object" || Array.isArray(draftData)) {
-    return [];
-  }
-  const raw = (draftData as Record<string, unknown>).modificationItems;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((x): x is string => typeof x === "string");
-}
-
 /* ------------------------------------------------------------------ */
 /* Modification codes → human-readable labels                         */
 /* ------------------------------------------------------------------ */
 
-const MODIFICATION_LABELS: Record<string, { label: string; icon: string }> = {
-  GRAB_BARS: { label: "Grab Bars", icon: "GB" },
-  RAISED_TOILET: { label: "Raised Toilet", icon: "RT" },
-  WALK_IN_SHOWER: { label: "Walk-In Shower", icon: "WS" },
-  WIDENED_DOORWAY: { label: "Widened Doorway", icon: "WD" },
-  STAIR_LIFT: { label: "Stair Lift", icon: "SL" },
-  HANDRAILS: { label: "Handrails", icon: "HR" },
+// Purely cosmetic 2-letter badges — MODIFICATION_COST_CATALOG is the
+// canonical source for the label itself.
+const MOD_ICON_ABBREVIATIONS: Record<string, string> = {
+  GRAB_BARS: "GB",
+  RAISED_TOILET: "RT",
+  WALK_IN_SHOWER: "WS",
+  WIDENED_DOORWAY: "WD",
+  STAIR_LIFT: "SL",
+  HANDRAILS: "HR",
 };
 
 function getModLabel(item: string) {
-  const entry = MODIFICATION_LABELS[item];
-  if (entry) return entry;
+  const catalogEntry = MODIFICATION_COST_CATALOG[item as keyof typeof MODIFICATION_COST_CATALOG];
   return {
-    label: item
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase()),
-    icon: "CM",
+    label: catalogEntry?.label ?? item.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    icon: MOD_ICON_ABBREVIATIONS[item] ?? "CM",
   };
 }
 
@@ -132,8 +118,8 @@ export default async function ProjectDetailPage({
     redirectToSignIn(`/dashboard/${resolvedParams.id}`);
   }
 
-  let project = null;
-  let usingDevFallbackProject = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let project: any = null;
   try {
     project = await prisma.project.findUnique({
       where: { id: resolvedParams.id },
@@ -168,7 +154,6 @@ export default async function ProjectDetailPage({
     });
   } catch {
     if (process.env.NODE_ENV === "development") {
-      usingDevFallbackProject = true;
       project = {
         id: resolvedParams.id,
         address: "123 Dev Lane, Mockville",
@@ -176,13 +161,12 @@ export default async function ProjectDetailPage({
         userId: "dev-user-id",
         createdAt: new Date(),
         updatedAt: new Date(),
-        draftData: {
-          modificationItems: ["GRAB_BARS", "WALK_IN_SHOWER", "STAIR_LIFT"],
-        },
+        draftData: {},
         photos: [
           {
             id: "photo-1",
             url: "https://placehold.co/800x600?text=Original+Bathroom",
+            declaredModificationCodes: ["GRAB_BARS", "WALK_IN_SHOWER", "STAIR_LIFT"],
           }
         ],
         projectAccess: [
@@ -196,77 +180,51 @@ export default async function ProjectDetailPage({
   if (!project) return notFound();
   if (project.projectAccess.length === 0) return notFound();
 
-  const modificationItems = modificationItemsFromDraft(project.draftData);
+  const modificationItems = aggregateDeclaredModificationCodes(project.photos);
 
   const estimateSummary = getEstimateSummary({ status: project.status, quotes: project.quotes });
 
-  // independent lookups — run them concurrently
-  const [grantDocumentInfoResult, latestAssessmentResult, informationRequestsResult] =
-    await Promise.allSettled([
-      getLatestGrantDocumentGenerationInfo(project.id),
-      usingDevFallbackProject
-        ? Promise.resolve(null)
-        : prisma.eligibilityAssessment.findFirst({
-            where: { projectId: project.id, isLatest: true },
-            select: { overallDecision: true },
-          }),
-      listInformationRequestsForProject(project.id),
-    ]);
-
   let grantDocumentInfo: { generatedAt: Date; incompleteFields: string[] } | null = null;
-  if (grantDocumentInfoResult.status === "fulfilled") {
-    grantDocumentInfo = grantDocumentInfoResult.value;
-  } else {
-    console.warn("Failed to load grant document generation info:", grantDocumentInfoResult.reason);
-  }
-
-  // See GrantDocumentCard's assessmentComplete prop for why this gate exists.
-  let eligibilityAssessmentComplete = usingDevFallbackProject;
-  if (!usingDevFallbackProject) {
-    if (latestAssessmentResult.status === "fulfilled") {
-      eligibilityAssessmentComplete = isFinalEligibilityDecision(latestAssessmentResult.value?.overallDecision);
-    } else {
-      console.warn("Failed to load eligibility assessment status:", latestAssessmentResult.reason);
-    }
+  try {
+    grantDocumentInfo = await getLatestGrantDocumentGenerationInfo(project.id);
+  } catch (error) {
+    console.warn("Failed to load grant document generation info:", error);
   }
 
   let openInformationRequests: Awaited<ReturnType<typeof listInformationRequestsForProject>> = [];
-  if (informationRequestsResult.status === "fulfilled") {
-    openInformationRequests = informationRequestsResult.value.filter(
+  try {
+    const allRequests = await listInformationRequestsForProject(project.id);
+    openInformationRequests = allRequests.filter(
       (r) => r.status === "PENDING" || r.status === "FOLLOW_UP_FLAGGED"
     );
-  } else {
-    console.warn("Failed to load information requests:", informationRequestsResult.reason);
+  } catch (error) {
+    console.warn("Failed to load information requests:", error);
   }
 
   let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
   try {
     photosWithSignedUrls = await Promise.all(
-      project.photos.map(async (photo) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      project.photos.map(async (photo: any) => {
         const imageUrl = "imageUrl" in photo
           ? ((photo as { imageUrl?: string | null }).imageUrl ?? photo.url)
           : photo.url;
 
-        const existingGeneratedImageUrl = "generatedImageUrl" in photo
-          ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
-          : null;
+        // Only forward generatedImageUrl when generation actually succeeded.
+        // A FAILED photo can still have a placehold.co mock URL sitting in
+        // generatedImageUrl (written by applyAccessibilityVisualMockFallback
+        // for the audit trail) — that's not a real rendition and shouldn't be
+        // shown as one, so gate on generationStatus rather than URL presence.
+        const generatedImageUrl =
+          photo.generationStatus === "READY" && "generatedImageUrl" in photo
+            ? ((photo as { generatedImageUrl?: string | null }).generatedImageUrl ?? null)
+            : null;
 
-        // A real rendition already exists — show it regardless of the live-generation
-        // flag. Otherwise, only fall back to the mock placeholder when live generation
-        // is disabled; when it's enabled, leave this null so the gallery shows its
-        // built-in pending state while the queued job (or a retry) is in flight.
-        const generatedImageUrl = existingGeneratedImageUrl ??
-          (isLiveImageGenerationEnabled()
-            ? null
-            : await generateMockAccessibilityVisual(photo.url, {
-                modificationCodes: modificationItems,
-              }));
-
-        const signedImageUrl = imageUrl?.includes(".amazonaws.com")
+        const signedImageUrl = imageUrl && isPrivateS3PhotoUrl(imageUrl)
           ? await getSignedDownloadUrlFromS3Url(imageUrl, 900)
           : imageUrl;
 
-        const signedGeneratedImageUrl = generatedImageUrl?.includes(".amazonaws.com")
+        const signedGeneratedImageUrl = generatedImageUrl && isPrivateS3PhotoUrl(generatedImageUrl)
           ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
           : generatedImageUrl;
 
@@ -278,10 +236,14 @@ export default async function ProjectDetailPage({
       })
     );
   } catch {
-    photosWithSignedUrls = project.photos.map((photo) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    photosWithSignedUrls = project.photos.map((photo: any) => ({
       id: photo.id,
       imageUrl: photo.url,
-      generatedImageUrl: photo.url,
+      generatedImageUrl:
+        photo.generationStatus === "READY" && "generatedImageUrl" in photo && photo.generatedImageUrl
+          ? photo.generatedImageUrl
+          : null,
     }));
   }
 
@@ -340,14 +302,28 @@ export default async function ProjectDetailPage({
                   Documents
                 </Button>
               </Link>
-              <Link href={`/projects/${project.id}/estimate`}>
-                <Button variant="outline" className="gap-1.5 text-sm">
+              {project.status === "draft" ? (
+                <Button
+                  variant="outline"
+                  className="gap-1.5 text-sm"
+                  disabled
+                  title="Available after project finalization"
+                >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
                   </svg>
                   Estimate
                 </Button>
-              </Link>
+              ) : (
+                <Link href={`/projects/${project.id}/estimate`}>
+                  <Button variant="outline" className="gap-1.5 text-sm">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+                    </svg>
+                    Estimate
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -394,9 +370,6 @@ export default async function ProjectDetailPage({
           </h2>
           <p className="text-xl font-bold text-gray-800">{estimateSummary.value}</p>
           <p className="mt-2 text-sm text-gray-500">{estimateSummary.explanation}</p>
-          {estimateSummary.showHstDisclaimer && (
-            <p className="mt-1 text-xs text-gray-400 italic">{HST_DISCLAIMER_TEXT}</p>
-          )}
         </div>
 
         {/* ═══════ Work Order (BuilderTrend) ═══════ */}
@@ -483,21 +456,20 @@ export default async function ProjectDetailPage({
         {/* ═══════ AI-Sourced Grant Discovery Summary ═══════ */}
         <GrantDiscoverySummary projectId={project.id} />
 
-        {/* ═══════ Grant Eligibility Summary PDF Download ═══════ */}
-        <GrantDocumentCard
-          projectId={project.id}
-          assessmentComplete={eligibilityAssessmentComplete}
-          hasDocument={Boolean(project.grantDocumentKey)}
-          lastGeneratedAt={grantDocumentInfo?.generatedAt.toISOString() ?? null}
-          incompleteFields={grantDocumentInfo?.incompleteFields ?? []}
-        />
-
         {/* ═══════ Mandatory Consultation Scheduler ═══════ */}
         {project.status !== "draft" && (
           <ConsultationScheduler projectId={project.id} />
         )}
 
         <SupportingDocumentsSection grantApplicationId={project.id} />
+
+        {/* ═══════ Grant PDF Download Card ═══════ */}
+        <GrantDocumentCard
+          projectId={project.id}
+          hasDocument={Boolean(project.grantDocumentKey)}
+          lastGeneratedAt={grantDocumentInfo?.generatedAt.toISOString() ?? null}
+          incompleteFields={grantDocumentInfo?.incompleteFields ?? []}
+        />
       </div>
     </main>
   );

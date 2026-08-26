@@ -34,7 +34,7 @@ export default async function DocumentsPage({
             <li className="text-gray-300">/</li>
             <li>
               <Link
-                href={`/projects/${id}`}
+                href={`/dashboard/${id}`}
                 className="hover:text-gray-700 transition-colors"
               >
                 Project

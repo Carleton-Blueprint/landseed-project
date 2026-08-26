@@ -1,12 +1,20 @@
 /**
- * API route: GET /api/admin/projects/[projectId]/documents — lists all documents for a project (admin).
- * API route: POST /api/admin/projects/[projectId]/documents — uploads a document (admin).
+ * API Route: /api/admin/projects/[projectId]/documents
+ * GET: List documents for a project (admin)
+ * POST: Upload a document for a project (admin)
+ * Auth: NextAuth (admin, MFA-enrolled only)
  */
+
+import type { Session } from "next-auth";
 import { NextResponse, NextRequest } from "next/server";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
-import { requireMinimumRole } from "@/backend/auth/requireRole";
-import { uploadToS3 } from "lib/s3";
+import { authGateResponse } from "@/backend/auth/authGateResponse";
+import { HttpError } from "@/backend/auth/requireRole";
+import { MfaSetupRequiredError, requireAdminWithMfaEnrolled } from "@/backend/auth/requireAdminMfa";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
+import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
+import { uploadToS3, S3_BUCKET } from "lib/s3";
 import { virusScanQueue } from "@/backend/queue";
 import { DocumentType } from "@prisma/client";
 
@@ -20,6 +28,41 @@ const ALLOWED_TYPES = [
 ];
 const ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp", ".docx"];
 
+async function requireAdminForProjectDocuments(
+  request: Request,
+  session: Session | null,
+  projectId: string
+): Promise<Response | null> {
+  try {
+    await requireAdminWithMfaEnrolled(session);
+    return null;
+  } catch (error) {
+    if (error instanceof HttpError || error instanceof MfaSetupRequiredError) {
+      const auditContext = getRequestAuditContext(request);
+      await logDeniedAdminAccessAttempt({
+        surface: "route",
+        actorUserId: session?.user?.id ?? null,
+        routePath: new URL(request.url).pathname,
+        method: request.method,
+        resourceType: "Document",
+        resourceId: projectId,
+        projectId,
+        reason: error.message,
+        description: "Denied access to project documents route",
+        ...auditContext,
+        metadata: {
+          source: "route-handler",
+          requiredRole: "ADMIN",
+        },
+      });
+
+      return authGateResponse(error) ?? Response.json({ error: error.message }, { status: error.status });
+    }
+
+    return Response.json({ error: "forbidden" }, { status: 403 });
+  }
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ projectId: string }> }
@@ -27,7 +70,8 @@ export async function GET(
   try {
     const { projectId } = await params;
     const session = await auth();
-    await requireMinimumRole(session, "ADMIN"); // Admin can view
+    const denied = await requireAdminForProjectDocuments(request, session, projectId);
+    if (denied) return denied;
 
     const documents = await prisma.document.findMany({
       where: { projectId },
@@ -61,17 +105,13 @@ export async function POST(
   try {
     const { projectId } = await params;
     const session = await auth();
-    await requireMinimumRole(session, "ADMIN"); // Admin can upload
+    const denied = await requireAdminForProjectDocuments(request, session, projectId);
+    if (denied) return denied;
 
     const formData = await request.formData();
     const file = formData.get("file");
     const documentType = formData.get("documentType") as DocumentType;
-    const isClientVisibleStr = formData.get("isClientVisible");
-    
-    let isClientVisible = true;
-    if (isClientVisibleStr === "false") {
-      isClientVisible = false;
-    }
+    const isClientVisible = formData.get("isClientVisible") !== "false";
 
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "Missing or invalid file" }, { status: 400 });
@@ -93,12 +133,11 @@ export async function POST(
       );
     }
 
-    // Convert file to buffer and upload to S3
     const buffer = Buffer.from(await file.arrayBuffer());
     const timestamp = Date.now();
     const randomId = Math.random().toString(36).substring(2, 10);
     const s3Key = `projects/${projectId}/documents/${timestamp}-${randomId}${fileExtension}`;
-    
+
     const s3Url = await uploadToS3(buffer, s3Key, file.type);
 
     const document = await prisma.document.create({
@@ -117,14 +156,13 @@ export async function POST(
     });
 
     try {
-      await virusScanQueue.add(`scan-doc-${document.id}`, { 
-        key: s3Key, 
-        photoId: document.id, 
-        bucket: process.env.AWS_S3_BUCKET 
+      await virusScanQueue.add(`scan-doc-${document.id}`, {
+        key: s3Key,
+        photoId: document.id,
+        bucket: S3_BUCKET,
       });
     } catch (qErr) {
       console.error("Failed to enqueue virus scan:", qErr);
-      // Non-fatal
     }
 
     return NextResponse.json({ document, message: "Document uploaded successfully!" }, { status: 201 });

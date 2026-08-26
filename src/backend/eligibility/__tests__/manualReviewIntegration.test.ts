@@ -47,6 +47,21 @@ jest.mock("@/backend/services/quote", () => ({
   })),
 }));
 
+// evaluateProjectEligibility() also enqueues Grant Match Summary generation
+// on the real "grant-match-summary" Redis queue for every assessment. Left
+// unmocked, that job outlives this test's cleanup and is later picked up by
+// a real running worker process, which fails with "Project not found"
+// against a project this test has already deleted — same class of issue as
+// generateQuote above. Keeps manualReviewQueue/createManualReviewWorker real
+// since this file's own tests exercise those directly.
+jest.mock("@/backend/queue", () => {
+  const actual = jest.requireActual("@/backend/queue");
+  return {
+    ...actual,
+    grantMatchSummaryQueue: { add: jest.fn().mockResolvedValue(undefined) },
+  };
+});
+
 // The real discovery provider's dev mock mode (GRANT_DISCOVERY_MOCK_AI) always
 // returns the same fixed HIGH/MEDIUM/LOW grant trio regardless of project input,
 // so AI confidence never varies by scenario. Mock discovery here so this test can
@@ -176,12 +191,21 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
             province: "ON",
             ownershipStatus: "owner",
             clientConsentConfirmed: false,
-            modificationItems: ["grab bars"],
           },
         },
       });
+      await prisma.photo.create({
+        data: {
+          projectId: project.id,
+          url: "https://example.com/test-photo.jpg",
+          declaredModificationCodes: ["GRAB_BARS"],
+        },
+      });
 
-      const result = await evaluateProjectEligibility(project);
+      const result = await evaluateProjectEligibility({
+        ...project,
+        photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      });
 
       expect(result).toBeDefined();
       if (!("assessmentId" in result)) {
@@ -218,13 +242,22 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
             province: "ON",
             ownershipStatus: "owner",
             clientConsentConfirmed: true,
-            modificationItems: ["grab bars"],
           },
+        },
+      });
+      await prisma.photo.create({
+        data: {
+          projectId: project.id,
+          url: "https://example.com/test-photo.jpg",
+          declaredModificationCodes: ["GRAB_BARS"],
         },
       });
 
       // Execute eligibility evaluation
-      const result = await evaluateProjectEligibility(project);
+      const result = await evaluateProjectEligibility({
+        ...project,
+        photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      });
 
       expect(result).toBeDefined();
 
@@ -304,6 +337,9 @@ describe("FR-2.6: Manual Review Integration Tests", () => {
           programDecisions: {},
           reasonCodes: {},
           missingRequirements: {},
+          // Only one row per project may have isLatest = true (DB-enforced),
+          // so mark this superseded before creating the "new" one below.
+          isLatest: false,
         },
       });
 

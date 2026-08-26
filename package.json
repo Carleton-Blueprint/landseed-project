@@ -5,19 +5,20 @@
   "scripts": {
     "dev": "next dev",
     "dev:turbopack": "next dev --turbopack",
-    "build": "next build",
+    "postinstall": "prisma generate",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:backfill-audit-chain": "tsx scripts/backfill-audit-chain.ts",
-    "db:backfill-grant-lifecycle-history": "tsx scripts/backfill-grant-lifecycle-history.ts",
     "assets:generate-grant-template": "tsx scripts/generate-grant-template.ts",
     "assess:eligibility": "tsx scripts/assess-eligibility.ts",
     "db:studio": "prisma studio",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "test:e2e": "playwright test",
     "worker:virus-scan": "tsx src/backend/queue/virusScanWorker.ts",
     "worker:email": "tsx src/backend/queue/emailWorker.ts",
@@ -31,7 +32,8 @@
     "worker:account-deletion-finalizer": "tsx src/backend/queue/accountDeletionFinalizerWorker.ts",
     "worker:estimate-generation": "tsx src/backend/queue/estimateGenerationWorker.ts",
     "worker:ai-jobs": "tsx src/backend/queue/aiJobsWorker.ts",
-    "worker:admin-digest": "tsx src/backend/queue/adminDigestWorker.ts"
+    "worker:admin-digest": "tsx src/backend/queue/adminDigestWorker.ts",
+    "worker:grant-match-summary": "tsx src/backend/queue/grantMatchSummaryWorker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1000.0",

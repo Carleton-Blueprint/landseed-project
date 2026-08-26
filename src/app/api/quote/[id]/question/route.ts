@@ -7,6 +7,7 @@ import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
+import { getAdminEmails } from "@/backend/auth/requireRole";
 
 const VALID_CATEGORIES = [
   "PRICING",
@@ -139,11 +140,7 @@ export async function POST(
     });
 
     // Trigger internal notification for Advisory Team
-    const advisoryTeamEmailsEnv = process.env.ADVISORY_TEAM_EMAILS || "";
-    const advisoryTeamEmails = advisoryTeamEmailsEnv
-      .split(",")
-      .map((email) => email.trim())
-      .filter((email) => email.length > 0);
+    const advisoryTeamEmails = await getAdminEmails();
 
     if (advisoryTeamEmails.length > 0) {
       try {

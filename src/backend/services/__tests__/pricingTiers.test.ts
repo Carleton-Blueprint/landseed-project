@@ -31,13 +31,19 @@ describe("pricingTiers config", () => {
   it("defaults to the standard tier", () => {
     expect(DEFAULT_PRICING_TIER).toBe("standard");
   });
+
+  it("applies no markup to any tier, since LandSeed does not take a margin on senior-facing quotes", () => {
+    expect(PRICING_TIER_CONFIG.economy.markupPercentage).toBe(0);
+    expect(PRICING_TIER_CONFIG.standard.markupPercentage).toBe(0);
+    expect(PRICING_TIER_CONFIG.premium.markupPercentage).toBe(0);
+  });
 });
 
 describe("projectSupportsTieredPricing / getApplicableTiers", () => {
-  it("returns false/empty when no selected modification supports tiers", () => {
+  it("returns true/all tiers for every modification code, since all default to tiered", () => {
     const codes = [MODIFICATION_CODES.GRAB_BARS, MODIFICATION_CODES.HANDRAILS];
-    expect(projectSupportsTieredPricing(codes)).toBe(false);
-    expect(getApplicableTiers(codes)).toEqual([]);
+    expect(projectSupportsTieredPricing(codes)).toBe(true);
+    expect(getApplicableTiers(codes)).toEqual(["economy", "standard", "premium"]);
   });
 
   it("returns true/all tiers when at least one selected modification supports tiers", () => {
@@ -49,6 +55,12 @@ describe("projectSupportsTieredPricing / getApplicableTiers", () => {
   it("returns false/empty for an empty modification list", () => {
     expect(projectSupportsTieredPricing([])).toBe(false);
     expect(getApplicableTiers([])).toEqual([]);
+  });
+
+  it("returns true/all tiers for newly added modification codes", () => {
+    const codes = [MODIFICATION_CODES.RAMP, MODIFICATION_CODES.WALK_IN_TUB];
+    expect(projectSupportsTieredPricing(codes)).toBe(true);
+    expect(getApplicableTiers(codes)).toEqual(["economy", "standard", "premium"]);
   });
 });
 

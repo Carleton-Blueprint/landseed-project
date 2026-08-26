@@ -1,5 +1,7 @@
 import { prisma } from 'lib/prisma';
 import { deriveAddressFromIntakeData } from './intakeDraft';
+import { MODIFICATION_COST_CATALOG } from './modificationCostCatalog';
+import { aggregateDeclaredModificationCodes } from '@/backend/eligibility/modificationNormalization';
 import type { PromoteIntakeData } from "@/backend/schemas/intakeDraft";
 
 export interface AssembledGrantPdfInput {
@@ -25,7 +27,6 @@ interface DraftIntakeFields {
   province?: string;
   postalCode?: string;
   ownershipStatus?: string;
-  modificationItems?: unknown[];
 }
 
 interface DiscoveredGrant {
@@ -40,6 +41,7 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
       address: true,
       draftData: true,
       userId: true,
+      photos: { select: { declaredModificationCodes: true } },
       user: { select: { name: true, email: true, phone: true } },
       quotes: { orderBy: { createdAt: 'desc' }, take: 1, select: { estimateMin: true, estimateMax: true } },
       eligibilityAssessments: { orderBy: { createdAt: 'desc' }, take: 1, select: { overallDecision: true, discoveredGrants: true } },
@@ -112,14 +114,16 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
     incompleteFields.push('property ownership status');
   }
 
-  // Modification items: prefer intake-declared items, falling back to a manual-mode
-  // submission's modification type when the project was completed without intake data.
-  const modificationItemsFromDraft = Array.isArray(draft.modificationItems)
-    ? draft.modificationItems.map((i: unknown) => String(i))
-    : [];
+  // Modification items: prefer photo-declared modification codes, falling back to a
+  // manual-mode submission's modification type when the project was completed
+  // without intake photos (e.g. manual-mode projects built directly by staff).
+  const modificationCodes = aggregateDeclaredModificationCodes(project.photos);
+  const modificationItemsFromPhotos = modificationCodes.map(
+    (code) => MODIFICATION_COST_CATALOG[code].label
+  );
   const modificationItemsRaw =
-    modificationItemsFromDraft.length > 0
-      ? modificationItemsFromDraft
+    modificationItemsFromPhotos.length > 0
+      ? modificationItemsFromPhotos
       : project.manualModeSubmission?.modificationType
       ? [project.manualModeSubmission.modificationType]
       : [];

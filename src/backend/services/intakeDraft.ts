@@ -1,7 +1,7 @@
 import {
-  GrantApplicationStatus,
   Prisma,
   ProjectAccessRole,
+  ProjectStatus,
 } from "@prisma/client";
 import { prisma } from "lib/prisma";
 import type { GuidedData, IntakeData, PromoteIntakeData } from "@/backend/schemas/intakeDraft";
@@ -17,6 +17,7 @@ export interface MergeIntakeDraftInput {
 export interface IntakeDraftPhoto {
   id: string;
   url: string;
+  declaredModificationCodes: string[];
 }
 
 const EDITABLE_ROLES: ProjectAccessRole[] = [
@@ -75,7 +76,7 @@ export async function mergeIntakeDraft(userId: string, input: MergeIntakeDraftIn
 async function findLegacyDraftProject(userId: string) {
   return prisma.project.findFirst({
     where: {
-      status: "draft",
+      status: ProjectStatus.DRAFT,
       draftData: { not: Prisma.DbNull },
       projectAccess: {
         some: {
@@ -120,7 +121,7 @@ export async function loadIntakeDraftWithPhotos(userId: string) {
   if (draft.projectId) {
     const rawPhotos = await prisma.photo.findMany({
       where: { projectId: draft.projectId },
-      select: { id: true, url: true },
+      select: { id: true, url: true, declaredModificationCodes: true },
       orderBy: { createdAt: "asc" },
     });
     photos = await signPhotosForDisplay(rawPhotos);
@@ -133,8 +134,7 @@ async function createShellProject(userId: string) {
   return prisma.project.create({
     data: {
       userId,
-      status: "draft",
-      grantApplicationStatus: GrantApplicationStatus.DRAFT,
+      status: ProjectStatus.DRAFT,
       address: SHELL_PROJECT_ADDRESS,
       projectAccess: {
         create: {
@@ -143,10 +143,10 @@ async function createShellProject(userId: string) {
           grantedByUserId: userId,
         },
       },
-      grantApplicationStatusHistory: {
+      statusHistory: {
         create: {
           fromStatus: null,
-          toStatus: GrantApplicationStatus.DRAFT,
+          toStatus: ProjectStatus.DRAFT,
           changedByUserId: userId,
           metadata: {
             source: "intake_draft_shell",
@@ -167,7 +167,7 @@ export async function ensureShellProject(userId: string) {
       select: { id: true, status: true },
     });
 
-    if (project?.status === "draft") {
+    if (project?.status === ProjectStatus.DRAFT) {
       return { draft, project };
     }
   }
@@ -191,7 +191,11 @@ export type PromoteIntakeDraftResult =
   | FinalizeIntakeResult
   | {
       ok: false;
-      code: "DRAFT_NOT_FOUND" | "INCOMPLETE_INTAKE";
+      code:
+        | "DRAFT_NOT_FOUND"
+        | "INCOMPLETE_INTAKE"
+        | "NO_PHOTOS_UPLOADED"
+        | "PHOTOS_MISSING_TAGS";
       message: string;
       details?: unknown;
     };
@@ -216,6 +220,39 @@ export async function promoteIntakeDraft(
       code: "INCOMPLETE_INTAKE",
       message: "Intake data is incomplete or invalid.",
       details: parsed.error.flatten(),
+    };
+  }
+
+  if (!draft.projectId) {
+    return {
+      ok: false,
+      code: "NO_PHOTOS_UPLOADED",
+      message: "Please upload at least 1 photo before submitting.",
+    };
+  }
+
+  const totalPhotoCount = await prisma.photo.count({
+    where: { projectId: draft.projectId },
+  });
+  if (totalPhotoCount === 0) {
+    return {
+      ok: false,
+      code: "NO_PHOTOS_UPLOADED",
+      message: "Please upload at least 1 photo before submitting.",
+    };
+  }
+
+  const untaggedPhotoCount = await prisma.photo.count({
+    where: { projectId: draft.projectId, declaredModificationCodes: { isEmpty: true } },
+  });
+  if (untaggedPhotoCount > 0) {
+    return {
+      ok: false,
+      code: "PHOTOS_MISSING_TAGS",
+      message:
+        untaggedPhotoCount === 1
+          ? "1 photo is missing a modification tag. Please tag every photo before submitting."
+          : `${untaggedPhotoCount} photos are missing a modification tag. Please tag every photo before submitting.`,
     };
   }
 
@@ -267,7 +304,7 @@ export async function deleteIntakeDraft(userId: string) {
         select: { status: true },
       });
 
-      if (project?.status === "draft") {
+      if (project?.status === ProjectStatus.DRAFT) {
         await tx.project.delete({ where: { id: draft.projectId } });
       }
     }

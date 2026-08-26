@@ -1,11 +1,54 @@
 /**
- * API route: PATCH /api/admin/projects/[projectId]/documents/[documentId]/visibility
- * Toggles the `isClientVisible` field of a document.
+ * API Route: /api/admin/projects/[projectId]/documents/[documentId]/visibility
+ * PATCH: Toggle a document's client-visibility flag (admin)
+ * Auth: NextAuth (admin, MFA-enrolled only)
  */
+
+import type { Session } from "next-auth";
 import { NextResponse, NextRequest } from "next/server";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
-import { requireMinimumRole } from "@/backend/auth/requireRole";
+import { authGateResponse } from "@/backend/auth/authGateResponse";
+import { HttpError } from "@/backend/auth/requireRole";
+import { MfaSetupRequiredError, requireAdminWithMfaEnrolled } from "@/backend/auth/requireAdminMfa";
+import { getRequestAuditContext } from "@/backend/audit/requestContext";
+import { logDeniedAdminAccessAttempt } from "@/backend/audit/adminAccess";
+
+async function requireAdminForDocumentVisibility(
+  request: Request,
+  session: Session | null,
+  projectId: string,
+  documentId: string
+): Promise<Response | null> {
+  try {
+    await requireAdminWithMfaEnrolled(session);
+    return null;
+  } catch (error) {
+    if (error instanceof HttpError || error instanceof MfaSetupRequiredError) {
+      const auditContext = getRequestAuditContext(request);
+      await logDeniedAdminAccessAttempt({
+        surface: "route",
+        actorUserId: session?.user?.id ?? null,
+        routePath: new URL(request.url).pathname,
+        method: request.method,
+        resourceType: "Document",
+        resourceId: documentId,
+        projectId,
+        reason: error.message,
+        description: "Denied access to document visibility route",
+        ...auditContext,
+        metadata: {
+          source: "route-handler",
+          requiredRole: "ADMIN",
+        },
+      });
+
+      return authGateResponse(error) ?? Response.json({ error: error.message }, { status: error.status });
+    }
+
+    return Response.json({ error: "forbidden" }, { status: 403 });
+  }
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -14,7 +57,8 @@ export async function PATCH(
   try {
     const { projectId, documentId } = await params;
     const session = await auth();
-    await requireMinimumRole(session, "ADMIN"); // Admin
+    const denied = await requireAdminForDocumentVisibility(request, session, projectId, documentId);
+    if (denied) return denied;
 
     const body = await request.json();
     if (typeof body.isClientVisible !== "boolean") {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, ProjectStatus } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
@@ -99,7 +99,7 @@ export async function POST(
             },
             photos: {
               where: { virus_scan_status: "clean" },
-              select: { id: true, url: true }
+              select: { declaredModificationCodes: true }
             }
           }
         }
@@ -168,28 +168,23 @@ export async function POST(
       status === "ACCEPTED" && quoteIsTiered ? (selectedTier as PricingTierKey) : null;
 
     // Process the update
-    const updatedProjectStatus = status === "ACCEPTED" ? "estimate_accepted" : "estimate_declined";
+    const updatedProjectStatus = status === "ACCEPTED" ? ProjectStatus.ESTIMATE_ACCEPTED : ProjectStatus.ESTIMATE_DECLINED;
 
-    // Built outside the transaction: signs photo URLs via S3, which is
-    // network I/O that shouldn't run while holding a DB transaction open.
     const builderTrendPayload =
       status === "ACCEPTED"
-        ? await buildBuilderTrendWorkOrderPayload({
+        ? buildBuilderTrendWorkOrderPayload({
             project: {
               id: quote.project.id,
               address: quote.project.address,
-              draftData: quote.project.draftData,
               user: quote.project.user,
               photos: quote.project.photos,
             },
             quote: {
-              id: quote.id,
               subtotal: quote.subtotal,
               total: quote.total,
               estimateMin: quote.estimateMin,
               estimateMax: quote.estimateMax,
             },
-            approvedAt: new Date(),
             refinedEstimate,
             quoteIsTiered,
             acceptedTier,
@@ -391,7 +386,36 @@ export async function POST(
       });
     }
 
-    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew) {
+    // Approval gate (Ticket 1): the transfer row above is always created on
+    // acceptance, but only enqueued for sending once the project has
+    // been APPROVED. If approval comes later, projectStatusLifecycle.ts's
+    // transitionProjectStatus enqueues it at that point instead — the
+    // two triggers race independently, so this only covers "already approved
+    // by the time the quote is accepted." Reads status fresh,
+    // strictly after the transaction above has committed the transfer row —
+    // not the `quote.project` snapshot fetched at the top of the request. That
+    // snapshot predates the transfer row's commit by the whole request
+    // duration, so a concurrent approval landing in that window could
+    // otherwise race both triggers into missing each other: the approval
+    // side's own lookup finds no transfer row yet (ours hasn't committed), and
+    // this side would see a stale "not approved" status, leaving the transfer
+    // stuck PENDING forever with nothing to pick it back up. A fresh read
+    // taken after our own commit closes that window completely: whichever
+    // side's write lands first, the other side's later read is guaranteed to
+    // observe it.
+    const currentProject =
+      status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew
+        ? await prisma.project.findUnique({
+            where: { id: quote.projectId },
+            select: { status: true },
+          })
+        : null;
+
+    if (
+      status === "ACCEPTED" &&
+      updatedQuote.builderTrendTransfer?.isNew &&
+      currentProject?.status === "APPROVED"
+    ) {
       try {
         await enqueueBuilderTrendTransfer(updatedQuote.builderTrendTransfer.id);
       } catch (enqueueError) {

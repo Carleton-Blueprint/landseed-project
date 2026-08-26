@@ -9,9 +9,9 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/frontend/components/ui/button";
+import { FloorPlanUploadInterface } from "./FloorPlanUploadInterface";
 import {
   PhotoUploadInterface,
   type PhotoUploadInterfaceHandle,
@@ -20,11 +20,12 @@ import { useIntakeDraft } from "@/frontend/contexts/IntakeDraftContext";
 import type { IntakeData } from "@/backend/schemas/intakeDraft";
 import {
   hasAuthenticatedSession,
-  isLegacyAuthBypassClient,
   registerIntakeAccount,
 } from "@/frontend/lib/intakeAccount";
 import { getApiErrorMessage } from "@/frontend/lib/apiErrors";
 import { validatePasswordStrength } from "@/shared/passwordPolicy";
+import { MODIFICATION_CODES } from "@/backend/eligibility/types";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 
 const provinces = [
   "AB",
@@ -42,14 +43,13 @@ const provinces = [
   "YT",
 ] as const;
 
-const modificationOptions = [
-  "Grab bars",
-  "Raised toilet",
-  "Walk-in shower",
-  "Widened doorway",
-  "Stair lift",
-  "Handrails",
-] as const;
+// Per-photo tag picker options, derived from the canonical fixed list of
+// modification codes (the single source of truth for what a client can
+// tag a photo with — see MODIFICATION_CODES / MODIFICATION_COST_CATALOG).
+const photoModificationOptions = Object.values(MODIFICATION_CODES).map((code) => ({
+  code,
+  label: MODIFICATION_COST_CATALOG[code].label,
+}));
 
 const intakeFieldsSchema = z.object({
     name: z.string().min(1, "Name is required").max(120, "Name is too long"),
@@ -62,7 +62,6 @@ const intakeFieldsSchema = z.object({
     password: z.string(),
     confirmPassword: z.string(),
 
-    // Service address
     addressLine1: z.string().min(1, "Street address is required").max(200),
     addressLine2: z.string().max(50).optional().or(z.literal("")),
     city: z.string().min(1, "City is required").max(100),
@@ -76,7 +75,6 @@ const intakeFieldsSchema = z.object({
         "Postal code can only contain letters, numbers, and spaces"
       ),
 
-    // Ownership
     ownershipStatus: z.enum(["owner", "tenant", "other"], {
       message: "Please select owner, tenant, or other",
     }),
@@ -89,19 +87,12 @@ const intakeFieldsSchema = z.object({
       .optional()
       .or(z.literal("")),
 
-    // Caregiver section
     isCaregiver: z.boolean().default(false),
     seniorName: z.string().max(120).optional().or(z.literal("")),
     relationshipToSenior: z.string().max(120).optional().or(z.literal("")),
     caregiverConsentConfirmed: z.boolean().default(false),
 
-    // Consent section
     clientConsentConfirmed: z.boolean().default(false),
-
-    // Modification items
-    modificationItems: z
-      .array(z.string())
-      .min(1, "Select at least one modification item"),
 });
 
 function buildIntakeSchema(requireAccountFields: boolean) {
@@ -217,7 +208,6 @@ const defaultValues: IntakeFormValues = {
   relationshipToSenior: "",
   caregiverConsentConfirmed: false,
   clientConsentConfirmed: false,
-  modificationItems: [],
 };
 
 function toIntakeData(values: IntakeFormValues): IntakeData {
@@ -239,20 +229,18 @@ function toIntakeData(values: IntakeFormValues): IntakeData {
     relationshipToSenior: values.relationshipToSenior ?? "",
     caregiverConsentConfirmed: values.caregiverConsentConfirmed,
     clientConsentConfirmed: values.clientConsentConfirmed,
-    modificationItems: values.modificationItems,
   };
 }
 
 export function IntakeForm() {
-  const router = useRouter();
   const { data: session } = useSession();
   const isAuthenticated = hasAuthenticatedSession(session);
-  const legacyAuthBypass = isLegacyAuthBypassClient();
   const intakeSchema = React.useMemo(
-    () => buildIntakeSchema(!isAuthenticated && !legacyAuthBypass),
-    [isAuthenticated, legacyAuthBypass]
+    () => buildIntakeSchema(!isAuthenticated),
+    [isAuthenticated]
   );
   const {
+    projectId,
     intakeData,
     photos,
     isHydrated,
@@ -263,6 +251,7 @@ export function IntakeForm() {
     ensureProjectId,
     addPhoto,
     removePhoto,
+    updatePhotoTags,
   } = useIntakeDraft();
   const {
     register,
@@ -283,9 +272,10 @@ export function IntakeForm() {
   const [photoKey, setPhotoKey] = React.useState(0);
   const [photoError, setPhotoError] = React.useState<string | null>(null);
   const [accountError, setAccountError] = React.useState<string | null>(null);
-  const [isSettingUpAccount, setIsSettingUpAccount] = React.useState(false);
+  const [, setIsSettingUpAccount] = React.useState(false);
   const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
   const [removingPhotoId, setRemovingPhotoId] = React.useState<string | null>(null);
+  const [selectedPhotoId, setSelectedPhotoId] = React.useState<string | null>(null);
   const previousUploadCountRef = React.useRef(0);
   const filePhotoIdMapRef = React.useRef<Map<File, string>>(new Map());
   const photoUploadRef = React.useRef<PhotoUploadInterfaceHandle>(null);
@@ -293,11 +283,6 @@ export function IntakeForm() {
   const ensureIntakeAccountBeforeAction = React.useCallback(async () => {
     if (isAuthenticated) {
       return true;
-    }
-
-    if (legacyAuthBypass) {
-      setAccountError("Please sign in from the client portal before saving your intake.");
-      return false;
     }
 
     const values = getValues();
@@ -315,7 +300,7 @@ export function IntakeForm() {
 
     setAccountError(null);
     return true;
-  }, [getValues, isAuthenticated, legacyAuthBypass]);
+  }, [getValues, isAuthenticated]);
 
   React.useEffect(() => {
     if (!isHydrated || !intakeData) return;
@@ -356,6 +341,8 @@ export function IntakeForm() {
       const projectId = await ensureProjectId();
       if (!projectId) return;
 
+    let lastUploadedPhotoId: string | null = null;
+
     for (const file of newFiles) {
       const formData = new FormData();
       formData.append("file", file);
@@ -369,8 +356,13 @@ export function IntakeForm() {
       if (uploadResponse.ok) {
         const uploadData = await uploadResponse.json();
         if (uploadData.photo?.id && uploadData.photo?.url) {
-          addPhoto({ id: uploadData.photo.id, url: uploadData.photo.url });
+          addPhoto({
+            id: uploadData.photo.id,
+            url: uploadData.photo.url,
+            declaredModificationCodes: uploadData.photo.declaredModificationCodes ?? [],
+          });
           filePhotoIdMapRef.current.set(file, uploadData.photo.id);
+          lastUploadedPhotoId = uploadData.photo.id;
         }
         setPhotoError(null);
       } else {
@@ -383,22 +375,12 @@ export function IntakeForm() {
         );
       }
     }
+
+    if (lastUploadedPhotoId) {
+      setSelectedPhotoId(lastUploadedPhotoId);
+    }
     } finally {
       setIsSettingUpAccount(false);
-    }
-  };
-
-  const handleDeleteFile = async (file: File) => {
-    const photoId = filePhotoIdMapRef.current.get(file);
-    if (!photoId) return;
-
-    filePhotoIdMapRef.current.delete(file);
-    setPhotoError(null);
-
-    try {
-      await removePhoto(photoId);
-    } catch {
-      setPhotoError("Failed to remove photo. Please try again.");
     }
   };
 
@@ -408,6 +390,10 @@ export function IntakeForm() {
 
     try {
       await removePhoto(photoId);
+
+      if (selectedPhotoId === photoId) {
+        setSelectedPhotoId(null);
+      }
 
       let matchedFile: File | null = null;
       for (const [file, id] of filePhotoIdMapRef.current.entries()) {
@@ -428,6 +414,26 @@ export function IntakeForm() {
     }
   };
 
+  const handleSelectPhoto = (photoId: string) => {
+    setSelectedPhotoId((prev) => (prev === photoId ? null : photoId));
+  };
+
+  const handleTogglePhotoTag = async (photoId: string, code: string, checked: boolean) => {
+    const photo = photos.find((p) => p.id === photoId);
+    if (!photo) return;
+
+    const nextCodes = checked
+      ? Array.from(new Set([...photo.declaredModificationCodes, code]))
+      : photo.declaredModificationCodes.filter((c) => c !== code);
+
+    setPhotoError(null);
+    try {
+      await updatePhotoTags(photoId, nextCodes);
+    } catch {
+      setPhotoError("Failed to update photo tags. Please try again.");
+    }
+  };
+
   const handleCancel = () => {
     reset(defaultValues);
     setPhotoKey((prev) => prev + 1);
@@ -435,9 +441,20 @@ export function IntakeForm() {
     setPhotoError(null);
   };
 
-  async function onSubmit(values: IntakeFormValues) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async function onSubmit(_values: IntakeFormValues) {
     if (photos.length < 1) {
       setPhotoError("Please upload at least 1 photo before submitting.");
+      return;
+    }
+
+    const untaggedCount = photos.filter((p) => p.declaredModificationCodes.length === 0).length;
+    if (untaggedCount > 0) {
+      setPhotoError(
+        untaggedCount === 1
+          ? "Please tag 1 photo with at least one modification type before submitting."
+          : `Please tag ${untaggedCount} photos with at least one modification type each before submitting.`
+      );
       return;
     }
 
@@ -469,10 +486,12 @@ export function IntakeForm() {
         return;
       }
 
-      const result = await promoteResponse.json();
-      if (result.projectId) {
-        router.push(`/submitted?projectId=${encodeURIComponent(result.projectId)}`);
-      }
+      const result = await promoteResponse.json().catch(() => ({}));
+      const targetUrl = result?.projectId
+        ? `/dashboard?tab=submitted&submitted=true&projectId=${encodeURIComponent(result.projectId)}`
+        : "/dashboard?tab=submitted&submitted=true";
+      window.location.href = targetUrl;
+      return;
     } catch (error) {
       console.error("Submit error:", error);
       setPhotoError("Failed to submit. Please try again.");
@@ -481,16 +500,18 @@ export function IntakeForm() {
     }
   }
 
+  const selectedPhoto = photos.find((photo) => photo.id === selectedPhotoId) ?? null;
+
   return (
     <form
       onSubmit={handleSubmit(onSubmit)}
       aria-label="Digital intake form"
-      className="space-y-6 max-w-2xl"
+      className="space-y-6 max-w-2xl mx-auto"
     >
-      <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Intake Form</h2>
+      <h1 className="text-xl font-semibold">Intake Form</h1>
 
-      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Contact</h2>
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Contact</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Please provide your contact information.
         </p>
@@ -503,7 +524,7 @@ export function IntakeForm() {
             id="intake-name"
             type="text"
             {...register("name")}
-            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
             aria-invalid={!!errors.name}
             aria-describedby={errors.name ? "intake-name-error" : undefined}
           />
@@ -522,7 +543,7 @@ export function IntakeForm() {
             id="intake-email"
             type="email"
             {...register("email")}
-            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? "intake-email-error" : undefined}
           />
@@ -541,7 +562,7 @@ export function IntakeForm() {
             id="intake-phone"
             type="tel"
             {...register("phone")}
-            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
             aria-invalid={!!errors.phone}
             aria-describedby={errors.phone ? "intake-phone-error" : undefined}
           />
@@ -552,7 +573,7 @@ export function IntakeForm() {
           )}
         </div>
 
-        {!isAuthenticated && !legacyAuthBypass && (
+        {!isAuthenticated && (
           <>
             <div className="flex flex-col gap-2">
               <label htmlFor="intake-password" className="mb-1 block text-sm font-medium">
@@ -563,7 +584,7 @@ export function IntakeForm() {
                 type="password"
                 autoComplete="new-password"
                 {...register("password")}
-                className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+                className="rounded border border-input bg-background px-3 py-2 text-sm"
                 aria-invalid={!!errors.password}
                 aria-describedby={errors.password ? "intake-password-error" : undefined}
               />
@@ -583,7 +604,7 @@ export function IntakeForm() {
                 type="password"
                 autoComplete="new-password"
                 {...register("confirmPassword")}
-                className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+                className="rounded border border-input bg-background px-3 py-2 text-sm"
                 aria-invalid={!!errors.confirmPassword}
                 aria-describedby={
                   errors.confirmPassword ? "intake-confirm-password-error" : undefined
@@ -613,7 +634,7 @@ export function IntakeForm() {
             id="intake-caregiver"
             type="checkbox"
             {...register("isCaregiver")}
-            className="h-4 w-4 rounded border-gray-300 accent-emerald-600"
+            className="rounded border-input"
           />
           <label htmlFor="intake-caregiver" className="text-sm">
             I am a caregiver submitting this request on behalf of a senior
@@ -622,8 +643,8 @@ export function IntakeForm() {
       </section>
 
       {isCaregiver && (
-        <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">Caregiver</h2>
+        <section className="space-y-3">
+          <h2 className="text-base font-semibold mb-3">Caregiver</h2>
           <p className="text-sm text-muted-foreground mb-3">
             You are submitting on behalf of a senior. Please provide their details and confirm
             consent.
@@ -637,7 +658,7 @@ export function IntakeForm() {
               id="intake-senior-name"
               type="text"
               {...register("seniorName")}
-              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
               aria-invalid={!!errors.seniorName}
               aria-describedby={errors.seniorName ? "intake-senior-name-error" : undefined}
             />
@@ -663,7 +684,7 @@ export function IntakeForm() {
               id="intake-relationship-to-senior"
               type="text"
               {...register("relationshipToSenior")}
-              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
               aria-invalid={!!errors.relationshipToSenior}
               aria-describedby={
                 errors.relationshipToSenior ? "intake-relationship-error" : undefined
@@ -681,7 +702,7 @@ export function IntakeForm() {
               id="intake-caregiver-consent"
               type="checkbox"
               {...register("caregiverConsentConfirmed")}
-              className="h-4 w-4 rounded border-gray-300 accent-emerald-600"
+              className="rounded border-input"
             />
             <label htmlFor="intake-caregiver-consent" className="text-sm">
               I confirm I have authority to submit this form and the senior has consented.
@@ -696,8 +717,8 @@ export function IntakeForm() {
         </section>
       )}
 
-      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Service address</h2>
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Service address</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Street address, city, province, and postal code.
         </p>
@@ -710,7 +731,7 @@ export function IntakeForm() {
             id="intake-address1"
             type="text"
             {...register("addressLine1")}
-            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
             aria-invalid={!!errors.addressLine1}
             aria-describedby={errors.addressLine1 ? "intake-address1-error" : undefined}
           />
@@ -729,7 +750,7 @@ export function IntakeForm() {
             id="intake-address2"
             type="text"
             {...register("addressLine2")}
-            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
             aria-invalid={!!errors.addressLine2}
             aria-describedby={errors.addressLine2 ? "intake-address2-error" : undefined}
           />
@@ -749,7 +770,7 @@ export function IntakeForm() {
               id="intake-city"
               type="text"
               {...register("city")}
-              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
               aria-invalid={!!errors.city}
               aria-describedby={errors.city ? "intake-city-error" : undefined}
             />
@@ -767,7 +788,7 @@ export function IntakeForm() {
             <select
               id="intake-province"
               {...register("province")}
-              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
               aria-invalid={!!errors.province}
               aria-describedby={errors.province ? "intake-province-error" : undefined}
             >
@@ -792,7 +813,7 @@ export function IntakeForm() {
               id="intake-postal"
               type="text"
               {...register("postalCode")}
-              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
               aria-invalid={!!errors.postalCode}
               aria-describedby={errors.postalCode ? "intake-postal-error" : undefined}
             />
@@ -805,8 +826,8 @@ export function IntakeForm() {
         </div>
       </section>
 
-      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Ownership</h2>
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Ownership</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Are you the owner, tenant, or something else?
         </p>
@@ -818,7 +839,7 @@ export function IntakeForm() {
           <select
             id="intake-ownership"
             {...register("ownershipStatus")}
-            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+            className="rounded border border-input bg-background px-3 py-2 text-sm"
             aria-invalid={!!errors.ownershipStatus}
             aria-describedby={errors.ownershipStatus ? "intake-ownership-error" : undefined}
           >
@@ -843,7 +864,7 @@ export function IntakeForm() {
                 id="intake-landlord-name"
                 type="text"
                 {...register("landlordName")}
-                className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+                className="rounded border border-input bg-background px-3 py-2 text-sm"
                 aria-invalid={!!errors.landlordName}
                 aria-describedby={errors.landlordName ? "intake-landlord-name-error" : undefined}
               />
@@ -866,7 +887,7 @@ export function IntakeForm() {
                 id="intake-landlord-phone"
                 type="tel"
                 {...register("landlordPhone")}
-                className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+                className="rounded border border-input bg-background px-3 py-2 text-sm"
                 aria-invalid={!!errors.landlordPhone}
                 aria-describedby={
                   errors.landlordPhone ? "intake-landlord-phone-error" : undefined
@@ -894,7 +915,7 @@ export function IntakeForm() {
               id="intake-ownership-other"
               type="text"
               {...register("ownershipOtherDetails")}
-              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+              className="rounded border border-input bg-background px-3 py-2 text-sm"
               aria-invalid={!!errors.ownershipOtherDetails}
               aria-describedby={
                 errors.ownershipOtherDetails ? "intake-ownership-other-error" : undefined
@@ -913,38 +934,8 @@ export function IntakeForm() {
         )}
       </section>
 
-      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Modification items</h2>
-        <p className="text-sm text-muted-foreground mb-3">
-          Select all modifications needed for this request.
-        </p>
-
-        <div className="grid gap-2 sm:grid-cols-2">
-          {modificationOptions.map((item) => (
-            <label
-              key={item}
-              className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm transition-colors hover:border-emerald-300 hover:bg-emerald-50/30"
-            >
-              <input
-                type="checkbox"
-                value={item}
-                {...register("modificationItems")}
-                className="h-4 w-4 rounded border-gray-300 accent-emerald-600"
-              />
-              <span>{item}</span>
-            </label>
-          ))}
-        </div>
-
-        {errors.modificationItems && (
-          <p className="mt-1 text-sm text-destructive" role="alert">
-            {errors.modificationItems.message}
-          </p>
-        )}
-      </section>
-
-      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Photos</h2>
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Photos</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Upload between 1 and 10 photos of the space requiring modification. Accepted file types:
           JPG, JPEG, PNG, and HEIC. Maximum file size: 10MB per photo.
@@ -953,18 +944,49 @@ export function IntakeForm() {
         {photos.length > 0 && (
           <ul className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {photos.map((photo) => (
-              <li key={photo.id} className="overflow-hidden rounded border">
+              <li
+                key={photo.id}
+                className={`overflow-hidden rounded border ${
+                  selectedPhotoId === photo.id
+                    ? "border-primary ring-2 ring-primary ring-offset-1"
+                    : "border-input"
+                }`}
+              >
                 <div className="relative">
-                  <img
-                    src={photo.url}
-                    alt="Saved project photo"
-                    className="h-24 w-full object-cover"
-                  />
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selectedPhotoId === photo.id}
+                    aria-label="Select photo to tag modifications"
+                    onClick={() => handleSelectPhoto(photo.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleSelectPhoto(photo.id);
+                      }
+                    }}
+                    className="cursor-pointer"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo.url}
+                      alt="Saved project photo"
+                      className="h-24 w-full object-cover"
+                    />
+                  </div>
+                  {photo.declaredModificationCodes.length === 0 && (
+                    <span className="absolute left-1 top-1 rounded bg-destructive/90 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      Not tagged
+                    </span>
+                  )}
                   <button
                     type="button"
-                    onClick={() => void handleRemovePhoto(photo.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleRemovePhoto(photo.id);
+                    }}
                     disabled={removingPhotoId === photo.id}
-                    className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-2 text-xs font-medium text-white transition-colors hover:bg-black/85 disabled:opacity-60"
+                    className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-black/85 disabled:opacity-60"
                     aria-label="Remove photo"
                   >
                     {removingPhotoId === photo.id ? "Removing…" : "Remove"}
@@ -975,22 +997,49 @@ export function IntakeForm() {
           </ul>
         )}
 
-        {photos.length < 10 ? (
-          <PhotoUploadInterface
-            key={photoKey}
-            ref={photoUploadRef}
-            onUpload={(files) => {
-              void handlePhotoUpload(files);
-            }}
-            onDeleteFile={(file) => {
-              void handleDeleteFile(file);
-            }}
-            maxFiles={10 - photos.length}
-            maxSizeMB={10}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">Maximum of 10 photos reached.</p>
+        {selectedPhoto && (
+          <div className="mb-3 space-y-3 rounded border border-input p-3">
+            <h3 className="text-sm font-semibold">
+              Select all modifications needed for this photo
+            </h3>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              {photoModificationOptions.map(({ label, code }) => (
+                <label
+                  key={code}
+                  className="flex items-center gap-2 rounded border border-input px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedPhoto.declaredModificationCodes.includes(code)}
+                    onChange={(e) =>
+                      void handleTogglePhotoTag(selectedPhoto.id, code, e.target.checked)
+                    }
+                    className="rounded border-input"
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+
+            {selectedPhoto.declaredModificationCodes.length === 0 && (
+              <p className="text-xs text-destructive" role="alert">
+                Tag at least one modification for this photo
+              </p>
+            )}
+          </div>
         )}
+
+        <PhotoUploadInterface
+          key={photoKey}
+          ref={photoUploadRef}
+          onUpload={(files) => {
+            void handlePhotoUpload(files);
+          }}
+          maxFiles={Math.max(0, 10 - photos.length)}
+          maxSizeMB={10}
+          disabled={photos.length >= 10}
+        />
 
         {photoError && (
           <p className="text-sm text-destructive" role="alert">
@@ -999,8 +1048,24 @@ export function IntakeForm() {
         )}
       </section>
 
-      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Consent</h2>
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold">Floor Plans & Layout Sketches</h2>
+          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+            Optional
+          </span>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Optionally upload architectural drawings, floor plans, room measurements, or hand-drawn layout sketches to help our team understand the dimensions and layout of your space.
+        </p>
+        <FloorPlanUploadInterface
+          projectId={projectId}
+          ensureProjectId={ensureProjectId}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold mb-3">Consent</h2>
         <div className="rounded-md border border-input bg-muted/30 p-4 space-y-3">
           <p className="text-sm text-muted-foreground">
             We collect your contact details, address, photos, and other information in this form so
@@ -1016,7 +1081,7 @@ export function IntakeForm() {
               id="intake-client-consent"
               type="checkbox"
               {...register("clientConsentConfirmed")}
-              className="mt-1 h-4 w-4 rounded border-gray-300 accent-emerald-600"
+              className="mt-1 rounded border-input"
               aria-invalid={!!errors.clientConsentConfirmed}
               aria-describedby={
                 errors.clientConsentConfirmed ? "intake-client-consent-error" : undefined
@@ -1046,9 +1111,8 @@ export function IntakeForm() {
         </p>
       )}
 
-      {/* Stacks full-width on narrow screens — three buttons in one row overflow a 320px viewport. */}
-      <div className="flex flex-col sm:flex-row gap-4 mt-2">
-        <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmittingForm} className="w-full sm:w-auto">
+      <div className="flex gap-4 mt-2">
+        <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmittingForm}>
           Cancel
         </Button>
 
@@ -1057,12 +1121,11 @@ export function IntakeForm() {
           variant="outline"
           onClick={() => void handleSaveDraft()}
           disabled={isSubmittingForm || isSaving}
-          className="w-full sm:w-auto"
         >
           {isSaving ? "Saving…" : "Save as Draft"}
         </Button>
 
-        <Button type="submit" disabled={isSubmittingForm || isSaving} className="w-full sm:w-auto">
+        <Button type="submit" disabled={isSubmittingForm || isSaving}>
           {isSubmittingForm ? "Submitting…" : "Submit"}
         </Button>
       </div>

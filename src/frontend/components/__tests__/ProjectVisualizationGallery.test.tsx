@@ -27,7 +27,7 @@ describe("ProjectVisualizationGallery", () => {
     expect(screen.getByText("Space Visualizations")).toBeInTheDocument();
     expect(screen.getAllByText("Original uploaded photo").length).toBe(2);
     expect(
-      screen.getByText("Toggle between your original uploaded photos and AI-generated modification visuals.")
+      screen.getByText("Toggle between your original uploaded photos and InPlace AI-generated modification visuals.")
     ).toBeInTheDocument();
   });
 
@@ -35,18 +35,18 @@ describe("ProjectVisualizationGallery", () => {
     render(<ProjectVisualizationGallery photos={mockPhotos} />);
 
     expect(screen.getByRole("button", { name: /original photos/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /ai renditions/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /inplace ai renditions/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /before \/ after/i })).toBeInTheDocument();
   });
 
-  it("can switch to AI Renditions view mode", () => {
+  it("can switch to InPlace AI Renditions view mode", () => {
     render(<ProjectVisualizationGallery photos={mockPhotos} />);
 
-    const aiButton = screen.getByRole("button", { name: /ai renditions/i });
+    const aiButton = screen.getByRole("button", { name: /inplace ai renditions/i });
     fireEvent.click(aiButton);
 
-    expect(screen.getByText("AI-generated modification visual")).toBeInTheDocument();
-    expect(screen.getByText("AI visual not available yet — showing original")).toBeInTheDocument();
+    expect(screen.getByText("InPlace AI-generated modification visual")).toBeInTheDocument();
+    expect(screen.getByText("InPlace AI visual not available yet — showing original")).toBeInTheDocument();
   });
 
   it("can switch to Before / After slider view mode", () => {
@@ -56,7 +56,7 @@ describe("ProjectVisualizationGallery", () => {
     fireEvent.click(sliderButton);
 
     expect(screen.getByRole("slider")).toBeInTheDocument();
-    expect(screen.getByText("AI rendition pending — comparison will appear when generated.")).toBeInTheDocument();
+    expect(screen.getByText("InPlace AI rendition pending — comparison will appear when generated.")).toBeInTheDocument();
   });
 
   it("opens lightbox modal when a photo is clicked", () => {
@@ -81,7 +81,34 @@ describe("ProjectVisualizationGallery", () => {
 
     expect(screen.getByText("No Photos Submitted")).toBeInTheDocument();
     expect(
-      screen.getByText("Upload project photos to see AI-generated visual renditions of proposed modifications.")
+      screen.getByText("Upload project photos to see InPlace AI-generated visual renditions of proposed modifications.")
+    ).toBeInTheDocument();
+  });
+
+  it("hides the AI Renditions and Compare tabs when no photo has a real rendition yet", () => {
+    const pendingPhotos = [
+      {
+        id: "photo-1",
+        imageUrl: "https://placehold.co/800x600?text=Original+Bathroom",
+        generatedImageUrl: null,
+      },
+      {
+        id: "photo-2",
+        imageUrl: "https://placehold.co/800x600?text=Original+Entryway",
+        generatedImageUrl: null,
+      },
+    ];
+
+    render(<ProjectVisualizationGallery photos={pendingPhotos} />);
+
+    // No real rendition exists for any photo, so there's nothing to toggle
+    // to — the whole tab bar (including "Original Photos") is skipped.
+    expect(screen.queryByRole("button", { name: /original photos/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /inplace ai renditions/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /before \/ after/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Original uploaded photo").length).toBe(2);
+    expect(
+      screen.getByText("Your original uploaded project photos. InPlace AI renditions will appear here once generated.")
     ).toBeInTheDocument();
   });
 });
