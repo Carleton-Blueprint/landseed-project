@@ -11,6 +11,8 @@ import {
   type ProjectStatusHistoryEntry,
 } from "@/frontend/components/ProjectStatusPanel";
 import { ProjectAdminDocuments } from "@/app/admin/ProjectAdminDocuments";
+import { MODIFICATION_CODES } from "@/backend/eligibility/types";
+import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 import {
   CheckCircleIcon,
   ClipboardIcon,
@@ -303,6 +305,17 @@ function fmtMoney(value: string) {
   return `$${parseFloat(value).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Per-photo tag picker options, mirroring IntakeForm.tsx's derivation from the
+// same canonical modification-code list, so admin overrides offer exactly
+// the same tags a client could have chosen at intake.
+const photoModificationOptions = Object.values(MODIFICATION_CODES).map((code) => ({
+  code,
+  label: MODIFICATION_COST_CATALOG[code].label,
+}));
+const MODIFICATION_LABEL_BY_CODE: Record<string, string> = Object.fromEntries(
+  photoModificationOptions.map(({ code, label }) => [code, label])
+);
+
 /* ================================================================== */
 /*  Stat Card                                                          */
 /* ================================================================== */
@@ -342,6 +355,70 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
   const [syncMessage, setSyncMessage] = React.useState<string | null>(null);
   const [retrying, setRetrying] = React.useState(false);
   const [retryMessage, setRetryMessage] = React.useState<string | null>(null);
+
+  const canOverrideModifications = project.status === "SUBMITTED" && !quote;
+  const [overrideEditing, setOverrideEditing] = React.useState(false);
+  const [overrideDraft, setOverrideDraft] = React.useState<Record<string, string[]>>({});
+  const [overrideReason, setOverrideReason] = React.useState("");
+  const [overrideSaving, setOverrideSaving] = React.useState(false);
+  const [overrideMessage, setOverrideMessage] = React.useState<{ type: "success" | "error"; text: string } | null>(
+    null
+  );
+  const overrideHasUntaggedPhoto = Object.values(overrideDraft).some((codes) => codes.length === 0);
+
+  function startOverrideEditing() {
+    const seed: Record<string, string[]> = {};
+    for (const photo of project.photos ?? []) {
+      seed[photo.id] = [...photo.declaredModificationCodes];
+    }
+    setOverrideDraft(seed);
+    setOverrideReason("");
+    setOverrideMessage(null);
+    setOverrideEditing(true);
+  }
+
+  function cancelOverrideEditing() {
+    setOverrideEditing(false);
+    setOverrideMessage(null);
+  }
+
+  function toggleOverrideCode(photoId: string, code: string, checked: boolean) {
+    setOverrideDraft((prev) => {
+      const current = prev[photoId] ?? [];
+      const next = checked ? Array.from(new Set([...current, code])) : current.filter((c) => c !== code);
+      return { ...prev, [photoId]: next };
+    });
+  }
+
+  async function handleSaveOverride() {
+    setOverrideSaving(true);
+    setOverrideMessage(null);
+    try {
+      const photoModifications = Object.entries(overrideDraft).map(([photoId, declaredModificationCodes]) => ({
+        photoId,
+        declaredModificationCodes,
+      }));
+      const response = await fetch(`/api/admin/projects/${project.id}/modification-override`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoModifications, reason: overrideReason.trim() || undefined }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.error ?? "Failed to save modification tags");
+      }
+      setOverrideEditing(false);
+      setOverrideMessage({ type: "success", text: "Modification tags updated." });
+      router.refresh();
+    } catch (error) {
+      setOverrideMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Failed to save modification tags",
+      });
+    } finally {
+      setOverrideSaving(false);
+    }
+  }
 
   async function handleMarkSynced() {
     setSyncing(true);
@@ -493,6 +570,112 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
           </div>
         </div>
       </div>
+
+      {canOverrideModifications && (
+        <div className="rounded-lg border bg-white p-5 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b pb-3">
+            <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+              <ClipboardIcon size={16} className="text-blue-600" />
+              Modification Tags (Pre-Estimate Override)
+            </h4>
+            {!overrideEditing && (
+              <Button variant="outline" className="text-xs h-8" onClick={startOverrideEditing}>
+                Edit tags
+              </Button>
+            )}
+          </div>
+
+          {overrideMessage && (
+            <p
+              className={`text-xs ${overrideMessage.type === "error" ? "text-destructive" : "text-emerald-700"}`}
+              role={overrideMessage.type === "error" ? "alert" : undefined}
+            >
+              {overrideMessage.text}
+            </p>
+          )}
+
+          {!overrideEditing ? (
+            <div className="space-y-2">
+              {(project.photos ?? []).map((photo) => (
+                <div key={photo.id} className="flex items-center gap-3 text-xs">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photo.url} alt="" className="h-10 w-10 rounded object-cover border" />
+                  <div className="flex flex-wrap gap-1">
+                    {photo.declaredModificationCodes.length > 0 ? (
+                      photo.declaredModificationCodes.map((code) => (
+                        <span
+                          key={code}
+                          className="inline-flex items-center rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 font-medium text-blue-700"
+                        >
+                          {MODIFICATION_LABEL_BY_CODE[code] ?? code}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="italic text-destructive">Not tagged</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {(project.photos ?? []).map((photo) => (
+                <div key={photo.id} className="rounded border p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photo.url} alt="" className="h-12 w-12 rounded object-cover border" />
+                    <span className="text-xs text-gray-500">Photo {photo.id.slice(0, 8)}</span>
+                  </div>
+                  <div className="grid gap-1.5 sm:grid-cols-2">
+                    {photoModificationOptions.map(({ code, label }) => (
+                      <label key={code} className="flex items-center gap-2 rounded border border-input px-2 py-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={(overrideDraft[photo.id] ?? []).includes(code)}
+                          onChange={(e) => toggleOverrideCode(photo.id, code, e.target.checked)}
+                          className="rounded border-input"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  {(overrideDraft[photo.id] ?? []).length === 0 && (
+                    <p className="text-xs text-destructive" role="alert">
+                      Tag at least one modification for this photo
+                    </p>
+                  )}
+                </div>
+              ))}
+
+              <div>
+                <label htmlFor="override-reason" className="mb-1 block text-xs font-medium text-gray-700">
+                  Reason (optional, recorded in the audit log)
+                </label>
+                <textarea
+                  id="override-reason"
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  rows={2}
+                  className="w-full rounded border border-input px-2 py-1 text-xs"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  className="text-xs h-8"
+                  disabled={overrideSaving || overrideHasUntaggedPhoto}
+                  onClick={handleSaveOverride}
+                >
+                  {overrideSaving ? "Saving…" : "Save"}
+                </Button>
+                <Button variant="outline" className="text-xs h-8" disabled={overrideSaving} onClick={cancelOverrideEditing}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
         {/* ── AI Estimation ── */}
