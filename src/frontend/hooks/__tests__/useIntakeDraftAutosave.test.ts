@@ -513,7 +513,7 @@ describe("useIntakeDraftAutosave", () => {
     expect(result.current.restoredAt).toBeNull();
   });
 
-  it("discards the draft and strips the query param when the URL has ?new=1", async () => {
+  it("?new=1 with no existing draft discards silently and strips the query param", async () => {
     mockSearchParams = new URLSearchParams("new=1");
 
     let deleteCalled = false;
@@ -523,7 +523,7 @@ describe("useIntakeDraftAutosave", () => {
         return Promise.resolve({ ok: true, json: async () => ({ deleted: true }) });
       }
       if (url === "/api/intake-draft" && !init?.method) {
-        throw new Error("Should not hydrate from the server when ?new=1 is present");
+        return Promise.resolve({ ok: true, json: async () => ({ draft: null }) });
       }
       return Promise.resolve({ ok: false, json: async () => ({}) });
     });
@@ -533,8 +533,117 @@ describe("useIntakeDraftAutosave", () => {
 
     expect(deleteCalled).toBe(true);
     expect(result.current.draftId).toBeNull();
+    expect(result.current.showNewProjectConfirm).toBe(false);
+    expect(mockRouterReplace).toHaveBeenCalledWith("/", { scroll: false });
+  });
+
+  it("?new=1 with a content-bearing draft hydrates it and shows the confirm prompt instead of discarding", async () => {
+    mockSearchParams = new URLSearchParams("new=1");
+
+    let deleteCalled = false;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/intake-draft" && init?.method === "DELETE") {
+        deleteCalled = true;
+        return Promise.resolve({ ok: true, json: async () => ({ deleted: true }) });
+      }
+      if (url === "/api/intake-draft" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            draftId: "draft-1",
+            guidedData: { mobilityAssistance: "yes" },
+            intakeData: null,
+            projectId: "project-1",
+            photos: [],
+            savedAt: "2026-06-20T12:00:00.000Z",
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    const { result } = renderHook(() => useIntakeDraftAutosave());
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+
+    expect(result.current.showNewProjectConfirm).toBe(true);
+    expect(result.current.draftId).toBe("draft-1");
+    expect(result.current.guidedData).toEqual({ mobilityAssistance: "yes" });
+    expect(deleteCalled).toBe(false);
+    expect(mockRouterReplace).not.toHaveBeenCalled();
+  });
+
+  it("confirmStartNew discards the pending draft and strips the query param", async () => {
+    mockSearchParams = new URLSearchParams("new=1");
+
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/intake-draft" && init?.method === "DELETE") {
+        return Promise.resolve({ ok: true, json: async () => ({ deleted: true }) });
+      }
+      if (url === "/api/intake-draft" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            draftId: "draft-1",
+            guidedData: { mobilityAssistance: "yes" },
+            intakeData: null,
+            projectId: "project-1",
+            photos: [],
+            savedAt: "2026-06-20T12:00:00.000Z",
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    const { result } = renderHook(() => useIntakeDraftAutosave());
+    await waitFor(() => expect(result.current.showNewProjectConfirm).toBe(true));
+
+    await act(async () => {
+      await result.current.confirmStartNew();
+    });
+
+    expect(result.current.showNewProjectConfirm).toBe(false);
+    expect(result.current.draftId).toBeNull();
     expect(result.current.guidedData).toBeNull();
-    expect(result.current.intakeData).toBeNull();
+    expect(mockRouterReplace).toHaveBeenCalledWith("/", { scroll: false });
+  });
+
+  it("cancelStartNew keeps the hydrated draft intact and just strips the query param", async () => {
+    mockSearchParams = new URLSearchParams("new=1");
+
+    let deleteCalled = false;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/intake-draft" && init?.method === "DELETE") {
+        deleteCalled = true;
+        return Promise.resolve({ ok: true, json: async () => ({ deleted: true }) });
+      }
+      if (url === "/api/intake-draft" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            draftId: "draft-1",
+            guidedData: { mobilityAssistance: "yes" },
+            intakeData: null,
+            projectId: "project-1",
+            photos: [],
+            savedAt: "2026-06-20T12:00:00.000Z",
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    const { result } = renderHook(() => useIntakeDraftAutosave());
+    await waitFor(() => expect(result.current.showNewProjectConfirm).toBe(true));
+
+    act(() => {
+      result.current.cancelStartNew();
+    });
+
+    expect(deleteCalled).toBe(false);
+    expect(result.current.showNewProjectConfirm).toBe(false);
+    expect(result.current.draftId).toBe("draft-1");
+    expect(result.current.guidedData).toEqual({ mobilityAssistance: "yes" });
     expect(mockRouterReplace).toHaveBeenCalledWith("/", { scroll: false });
   });
 });

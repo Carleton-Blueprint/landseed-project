@@ -222,7 +222,7 @@ export function DashboardProjectsClient({
         </nav>
 
         {projects.length > 0 && (
-          <Link href="/">
+          <Link href="/?new=1">
             <Button className="h-9 gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all">
               <span className="text-base leading-none">+</span>
               Start New Project
@@ -250,7 +250,7 @@ export function DashboardProjectsClient({
           </p>
           {projects.length === 0 && (
             <div className="mt-6">
-              <Link href="/">
+              <Link href="/?new=1">
                 <Button className="gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all">
                   <span className="text-base leading-none">+</span>
                   Start New Project

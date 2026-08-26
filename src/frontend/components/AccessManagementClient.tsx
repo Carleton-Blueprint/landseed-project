@@ -609,7 +609,7 @@ export function AccessManagementClient({ projects, currentUserId }: Props) {
           <p className="mt-1 text-xs text-gray-500 max-w-sm mx-auto">
             Collaboration requires a home modification assessment project. Start a new project request to share access.
           </p>
-          <Link href="/">
+          <Link href="/?new=1">
             <Button className="mt-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm rounded-lg active:scale-95 transition-all">
               Request Assessment
             </Button>

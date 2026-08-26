@@ -114,11 +114,14 @@ export interface IntakeDraftAutosave {
   lastSaved: Date | null;
   saveError: string | null;
   restoredAt: Date | null;
+  showNewProjectConfirm: boolean;
   setGuidedSnapshot: (data: GuidedData) => void;
   setIntakeSnapshot: (data: IntakeData) => void;
   ensureProjectId: () => Promise<string | null>;
   saveNow: () => Promise<void>;
   discardDraft: () => Promise<void>;
+  confirmStartNew: () => Promise<void>;
+  cancelStartNew: () => void;
   flushBeaconSave: () => void;
   addPhoto: (photo: DraftPhoto) => void;
   removePhoto: (photoId: string) => Promise<void>;
@@ -141,6 +144,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [restoredAt, setRestoredAt] = useState<Date | null>(null);
+  const [showNewProjectConfirm, setShowNewProjectConfirm] = useState(false);
 
   const guidedSnapshotRef = useRef<GuidedData | null>(null);
   const intakeSnapshotRef = useRef<IntakeData | null>(null);
@@ -251,6 +255,31 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     setSaveError(null);
     setRestoredAt(null);
   }, []);
+
+  // Strips the ?new=1 query param (added by "Start New Project" links) once
+  // it has been acted on, so a page refresh doesn't re-trigger the discard
+  // flow or the confirm modal.
+  const stripNewParam = useCallback(() => {
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("new");
+    const qs = nextParams.toString();
+    router.replace(qs ? `/?${qs}` : "/", { scroll: false });
+  }, [router, searchParams]);
+
+  // User confirmed "Discard your in-progress draft and start over?" — wipe it
+  // for real and clear the query param so a refresh doesn't reopen the modal.
+  const confirmStartNew = useCallback(async () => {
+    await discardDraft();
+    setShowNewProjectConfirm(false);
+    stripNewParam();
+  }, [discardDraft, stripNewParam]);
+
+  // User backed out of discarding — leave the already-hydrated draft alone
+  // and just drop the query param so the page reads as a normal visit to "/".
+  const cancelStartNew = useCallback(() => {
+    setShowNewProjectConfirm(false);
+    stripNewParam();
+  }, [stripNewParam]);
 
   const ensureDraft = useCallback(async () => {
     if (draftEnsuredRef.current && draftId) {
@@ -523,16 +552,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
 
     async function loadDraft() {
       try {
-        if (searchParams.get("new") === "1") {
-          await discardDraft();
-          if (cancelled) return;
-
-          const nextParams = new URLSearchParams(searchParams.toString());
-          nextParams.delete("new");
-          const qs = nextParams.toString();
-          router.replace(qs ? `/?${qs}` : "/", { scroll: false });
-          return;
-        }
+        const wantsNew = searchParams.get("new") === "1";
 
         const res = await fetch("/api/intake-draft");
         if (!res.ok) {
@@ -542,13 +562,39 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
         const data = (await res.json()) as IntakeDraftGetResponse;
         if (cancelled) return;
 
-        if ("draft" in data) {
-          setIsHydrated(true);
-          isHydratingRef.current = false;
+        if (!("draft" in data)) {
+          const hasContent =
+            hasGuidedContent(data.guidedData) ||
+            hasIntakeContent(data.intakeData) ||
+            data.photos.length > 0;
+
+          if (wantsNew && hasContent) {
+            // There's something worth losing — hydrate it so the form (and
+            // the confirm modal's "from [restoredAt]" copy) has it ready,
+            // then wait for the user's decision instead of wiping silently.
+            hydrateFromServer(data);
+            setShowNewProjectConfirm(true);
+            return;
+          }
+
+          if (wantsNew) {
+            // Nothing worth keeping — discard (idempotent) and move on.
+            await discardDraft();
+            if (cancelled) return;
+            stripNewParam();
+            return;
+          }
+
+          hydrateFromServer(data);
           return;
         }
 
-        hydrateFromServer(data);
+        // No draft exists server-side at all.
+        if (wantsNew) {
+          await discardDraft();
+          if (cancelled) return;
+          stripNewParam();
+        }
       } catch {
         if (!cancelled) {
           setSaveError("Could not load saved draft.");
@@ -584,11 +630,14 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     lastSaved,
     saveError,
     restoredAt,
+    showNewProjectConfirm,
     setGuidedSnapshot,
     setIntakeSnapshot,
     ensureProjectId,
     saveNow,
     discardDraft,
+    confirmStartNew,
+    cancelStartNew,
     flushBeaconSave,
     addPhoto,
     removePhoto,
