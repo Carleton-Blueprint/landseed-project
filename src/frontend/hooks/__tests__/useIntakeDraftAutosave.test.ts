@@ -179,7 +179,7 @@ describe("useIntakeDraftAutosave", () => {
     ).toBe(0);
   });
 
-  it("updatePhotoTags PATCHes the photo and updates local state", async () => {
+  it("toggleModificationCode PATCHes the photo and updates local state", async () => {
     mockFetch.mockImplementationOnce((url: string, init?: RequestInit) => {
       if (url === "/api/intake-draft" && !init?.method) {
         return Promise.resolve({
@@ -217,12 +217,121 @@ describe("useIntakeDraftAutosave", () => {
     ]);
 
     await act(async () => {
-      await result.current.updatePhotoTags("photo-1", ["GRAB_BARS"]);
+      await result.current.toggleModificationCode("photo-1", "GRAB_BARS", true);
     });
 
     expect(result.current.photos).toEqual([
       { id: "photo-1", url: "https://example.com/a.jpg", declaredModificationCodes: ["GRAB_BARS"] },
     ]);
+  });
+
+  it("toggleModificationCode does not lose picks when 3 codes are toggled in rapid succession", async () => {
+    mockFetch.mockImplementationOnce((url: string, init?: RequestInit) => {
+      if (url === "/api/intake-draft" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            draftId: "draft-1",
+            guidedData: null,
+            intakeData: null,
+            projectId: "project-1",
+            photos: [{ id: "photo-1", url: "https://example.com/a.jpg", declaredModificationCodes: [] }],
+            savedAt: "2026-06-20T12:00:00.000Z",
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    // Each photo PATCH is held open under manual control so the test can
+    // resolve them out of order, mimicking real network jitter across 3 rapid
+    // checkbox clicks on the same photo.
+    type PendingPatch = {
+      modificationItems: string[];
+      resolve: (value: { ok: true; json: () => Promise<unknown> }) => void;
+    };
+    const pendingPatches: PendingPatch[] = [];
+
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/photos/photo-1" && init?.method === "PATCH") {
+        const { modificationItems } = JSON.parse(init.body as string) as {
+          modificationItems: string[];
+        };
+        return new Promise((resolve) => {
+          pendingPatches.push({ modificationItems, resolve });
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    const { result } = renderHook(() => useIntakeDraftAutosave());
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+
+    let p1!: Promise<void>, p2!: Promise<void>, p3!: Promise<void>;
+    act(() => {
+      p1 = result.current.toggleModificationCode("photo-1", "GRAB_BARS", true);
+      p2 = result.current.toggleModificationCode("photo-1", "RAMP", true);
+      p3 = result.current.toggleModificationCode("photo-1", "STAIR_LIFT", true);
+    });
+
+    // The optimistic update must include all 3 picks immediately, before any
+    // network response has resolved.
+    expect(result.current.photos[0].declaredModificationCodes).toEqual(
+      expect.arrayContaining(["GRAB_BARS", "RAMP", "STAIR_LIFT"])
+    );
+
+    // Fake timers block waitFor's own polling, so drain the microtask queue
+    // by hand between each manually-controlled PATCH resolution below.
+    const flushMicrotasks = async () => {
+      await act(async () => {
+        for (let i = 0; i < 10; i++) {
+          await Promise.resolve();
+        }
+      });
+    };
+
+    // The per-photo queue serializes the actual network calls, so only the
+    // first PATCH should be in flight at this point.
+    await flushMicrotasks();
+    expect(pendingPatches.length).toBe(1);
+
+    // Resolve the first request; this unblocks the queue and fires the second.
+    pendingPatches[0].resolve({
+      ok: true,
+      json: async () => ({
+        success: true,
+        photo: { id: "photo-1", declaredModificationCodes: pendingPatches[0].modificationItems },
+      }),
+    });
+    await flushMicrotasks();
+    expect(pendingPatches.length).toBe(2);
+
+    pendingPatches[1].resolve({
+      ok: true,
+      json: async () => ({
+        success: true,
+        photo: { id: "photo-1", declaredModificationCodes: pendingPatches[1].modificationItems },
+      }),
+    });
+    await flushMicrotasks();
+    expect(pendingPatches.length).toBe(3);
+
+    pendingPatches[2].resolve({
+      ok: true,
+      json: async () => ({
+        success: true,
+        photo: { id: "photo-1", declaredModificationCodes: pendingPatches[2].modificationItems },
+      }),
+    });
+
+    await act(async () => {
+      await Promise.all([p1, p2, p3]);
+    });
+
+    expect(result.current.photos[0].declaredModificationCodes).toEqual(
+      expect.arrayContaining(["GRAB_BARS", "RAMP", "STAIR_LIFT"])
+    );
+    expect(result.current.photos[0].declaredModificationCodes).toHaveLength(3);
   });
 
   it("flushBeaconSave sends keepalive PATCH for unsaved changes", async () => {

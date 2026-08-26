@@ -251,7 +251,7 @@ export function IntakeForm() {
     ensureProjectId,
     addPhoto,
     removePhoto,
-    updatePhotoTags,
+    toggleModificationCode,
   } = useIntakeDraft();
   const {
     register,
@@ -419,16 +419,9 @@ export function IntakeForm() {
   };
 
   const handleTogglePhotoTag = async (photoId: string, code: string, checked: boolean) => {
-    const photo = photos.find((p) => p.id === photoId);
-    if (!photo) return;
-
-    const nextCodes = checked
-      ? Array.from(new Set([...photo.declaredModificationCodes, code]))
-      : photo.declaredModificationCodes.filter((c) => c !== code);
-
     setPhotoError(null);
     try {
-      await updatePhotoTags(photoId, nextCodes);
+      await toggleModificationCode(photoId, code, checked);
     } catch {
       setPhotoError("Failed to update photo tags. Please try again.");
     }
