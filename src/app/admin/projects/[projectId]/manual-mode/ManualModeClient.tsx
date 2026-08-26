@@ -631,9 +631,12 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
           {!locked && (
             <div className="flex flex-wrap items-end gap-2 border-t pt-3">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Photo</label>
+                <label htmlFor="manual-mode-photo-file" className="block text-xs font-medium text-gray-700 mb-1">
+                  Photo
+                </label>
                 <div className="flex h-10 items-center">
                   <input
+                    id="manual-mode-photo-file"
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
                     onChange={(e) => setSelectedPhoto(e.target.files?.[0] ?? null)}
@@ -682,20 +685,32 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Grant Title</label>
-                      <Input value={entry.title} onChange={(e) => updateGrantEntry(index, { title: e.target.value })} />
+                      <label htmlFor={`grant-${index}-title`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Grant Title
+                      </label>
+                      <Input
+                        id={`grant-${index}-title`}
+                        value={entry.title}
+                        onChange={(e) => updateGrantEntry(index, { title: e.target.value })}
+                      />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Jurisdiction</label>
+                      <label htmlFor={`grant-${index}-jurisdiction`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Jurisdiction
+                      </label>
                       <Input
+                        id={`grant-${index}-jurisdiction`}
                         value={entry.jurisdiction}
                         onChange={(e) => updateGrantEntry(index, { jurisdiction: e.target.value })}
                         placeholder="e.g. City of Ottawa"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Scope</label>
+                      <label htmlFor={`grant-${index}-scope`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Scope
+                      </label>
                       <select
+                        id={`grant-${index}-scope`}
                         className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                         value={entry.scope}
                         onChange={(e) =>
@@ -708,8 +723,11 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Decision</label>
+                      <label htmlFor={`grant-${index}-decision`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Decision
+                      </label>
                       <select
+                        id={`grant-${index}-decision`}
                         className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                         value={entry.decision}
                         onChange={(e) =>
@@ -723,8 +741,11 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Confidence</label>
+                      <label htmlFor={`grant-${index}-confidence`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Confidence
+                      </label>
                       <select
+                        id={`grant-${index}-confidence`}
                         className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                         value={entry.confidence}
                         onChange={(e) =>
@@ -737,26 +758,33 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Estimated Funding (optional)</label>
+                      <label htmlFor={`grant-${index}-funding`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Estimated Funding (optional)
+                      </label>
                       <Input
+                        id={`grant-${index}-funding`}
                         value={entry.estimatedFundingAmount ?? ""}
                         onChange={(e) => updateGrantEntry(index, { estimatedFundingAmount: e.target.value })}
                         placeholder="e.g. Up to $2,500"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Source URL (optional)</label>
+                      <label htmlFor={`grant-${index}-sourceUrl`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Source URL (optional)
+                      </label>
                       <Input
+                        id={`grant-${index}-sourceUrl`}
                         value={entry.sourceUrl ?? ""}
                         onChange={(e) => updateGrantEntry(index, { sourceUrl: e.target.value })}
                         placeholder="https://..."
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                      <label htmlFor={`grant-${index}-relevanceScore`} className="block text-xs font-medium text-gray-700 mb-1">
                         Relevance Score (0-100)
                       </label>
                       <Input
+                        id={`grant-${index}-relevanceScore`}
                         type="number"
                         min={0}
                         max={100}
@@ -767,8 +795,11 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Summary</label>
+                    <label htmlFor={`grant-${index}-summary`} className="block text-xs font-medium text-gray-700 mb-1">
+                      Summary
+                    </label>
                     <textarea
+                      id={`grant-${index}-summary`}
                       className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-16"
                       value={entry.summary}
                       onChange={(e) => updateGrantEntry(index, { summary: e.target.value })}
@@ -776,8 +807,11 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Rationale</label>
+                    <label htmlFor={`grant-${index}-rationale`} className="block text-xs font-medium text-gray-700 mb-1">
+                      Rationale
+                    </label>
                     <textarea
+                      id={`grant-${index}-rationale`}
                       className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-16"
                       value={entry.rationale}
                       onChange={(e) => updateGrantEntry(index, { rationale: e.target.value })}

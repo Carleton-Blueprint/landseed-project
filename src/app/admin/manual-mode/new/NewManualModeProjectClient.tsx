@@ -148,6 +148,7 @@ export function NewManualModeProjectClient() {
             ) : (
               <div className="space-y-2">
                 <Input
+                  aria-label="Search registered clients by name or email"
                   value={clientQuery}
                   onChange={(e) => setClientQuery(e.target.value)}
                   placeholder="Search registered clients by name or email"
@@ -184,21 +185,30 @@ export function NewManualModeProjectClient() {
             <h2 className="text-lg font-semibold text-gray-900">Project Address &amp; Details</h2>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
-              <Input value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} required />
+              <label htmlFor="nmp-addressLine1" className="block text-sm font-medium text-gray-700 mb-1">
+                Street Address
+              </label>
+              <Input id="nmp-addressLine1" value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} required />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 2 (optional)</label>
-              <Input value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} />
+              <label htmlFor="nmp-addressLine2" className="block text-sm font-medium text-gray-700 mb-1">
+                Address Line 2 (optional)
+              </label>
+              <Input id="nmp-addressLine2" value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} />
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
-                <Input value={city} onChange={(e) => setCity(e.target.value)} required />
+                <label htmlFor="nmp-city" className="block text-sm font-medium text-gray-700 mb-1">
+                  City
+                </label>
+                <Input id="nmp-city" value={city} onChange={(e) => setCity(e.target.value)} required />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Province</label>
+                <label htmlFor="nmp-province" className="block text-sm font-medium text-gray-700 mb-1">
+                  Province
+                </label>
                 <select
+                  id="nmp-province"
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   value={province}
                   onChange={(e) => setProvince(e.target.value)}
@@ -211,14 +221,19 @@ export function NewManualModeProjectClient() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Postal Code</label>
-                <Input value={postalCode} onChange={(e) => setPostalCode(e.target.value)} required />
+                <label htmlFor="nmp-postalCode" className="block text-sm font-medium text-gray-700 mb-1">
+                  Postal Code
+                </label>
+                <Input id="nmp-postalCode" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} required />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ownership Status</label>
+              <label htmlFor="nmp-ownershipStatus" className="block text-sm font-medium text-gray-700 mb-1">
+                Ownership Status
+              </label>
               <select
+                id="nmp-ownershipStatus"
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 value={ownershipStatus}
                 onChange={(e) => setOwnershipStatus(e.target.value as "owner" | "tenant" | "other")}
@@ -232,20 +247,27 @@ export function NewManualModeProjectClient() {
             {ownershipStatus === "tenant" && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Landlord Name</label>
-                  <Input value={landlordName} onChange={(e) => setLandlordName(e.target.value)} required />
+                  <label htmlFor="nmp-landlordName" className="block text-sm font-medium text-gray-700 mb-1">
+                    Landlord Name
+                  </label>
+                  <Input id="nmp-landlordName" value={landlordName} onChange={(e) => setLandlordName(e.target.value)} required />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Landlord Phone</label>
-                  <Input value={landlordPhone} onChange={(e) => setLandlordPhone(e.target.value)} required />
+                  <label htmlFor="nmp-landlordPhone" className="block text-sm font-medium text-gray-700 mb-1">
+                    Landlord Phone
+                  </label>
+                  <Input id="nmp-landlordPhone" value={landlordPhone} onChange={(e) => setLandlordPhone(e.target.value)} required />
                 </div>
               </div>
             )}
 
             {ownershipStatus === "other" && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ownership Details</label>
+                <label htmlFor="nmp-ownershipOtherDetails" className="block text-sm font-medium text-gray-700 mb-1">
+                  Ownership Details
+                </label>
                 <Input
+                  id="nmp-ownershipOtherDetails"
                   value={ownershipOtherDetails}
                   onChange={(e) => setOwnershipOtherDetails(e.target.value)}
                   required
@@ -254,8 +276,11 @@ export function NewManualModeProjectClient() {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Urgency</label>
+              <label htmlFor="nmp-urgency" className="block text-sm font-medium text-gray-700 mb-1">
+                Urgency
+              </label>
               <select
+                id="nmp-urgency"
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 value={urgency}
                 onChange={(e) =>
