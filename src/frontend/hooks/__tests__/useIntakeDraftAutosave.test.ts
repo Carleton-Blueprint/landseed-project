@@ -142,6 +142,55 @@ describe("useIntakeDraftAutosave", () => {
     );
   });
 
+  it("isDirty resolves to false after saving even if the response echoes guidedData back with keys in a different order", async () => {
+    // Postgres jsonb does not preserve object key insertion order, so the
+    // save response can come back with keys reordered relative to what the
+    // client sent even though the content is unchanged. The dirty check
+    // must treat that as "saved", not as a fresh change.
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/intake-draft" && !init?.method) {
+        return Promise.resolve({ ok: true, json: async () => ({ draft: null }) });
+      }
+      if (url === "/api/intake-draft" && init?.method === "POST") {
+        return Promise.resolve({ ok: true, json: async () => ({ ...baseDraftResponse }) });
+      }
+      if (url === "/api/intake-draft" && init?.method === "PATCH") {
+        const body = JSON.parse(init.body as string);
+        const reorderedGuidedData = body.guidedData
+          ? Object.fromEntries(Object.entries(body.guidedData).reverse())
+          : null;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ...baseDraftResponse,
+            guidedData: reorderedGuidedData,
+            intakeData: body.intakeData ?? null,
+            savedAt: "2026-06-20T12:01:00.000Z",
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    const { result } = renderHook(() => useIntakeDraftAutosave());
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+
+    act(() => {
+      result.current.setGuidedSnapshot({
+        mobilityAssistance: "yes",
+        safetyFeatures: ["grab-bars"],
+        bathroomModifications: "no",
+        urgency: "soon",
+      });
+    });
+
+    await act(async () => {
+      await result.current.saveNow();
+    });
+
+    expect(result.current.isDirty).toBe(false);
+  });
+
   it("does not PATCH when the debounced snapshot matches the last saved state", async () => {
     const { result } = renderHook(() => useIntakeDraftAutosave());
     await waitFor(() => expect(result.current.isHydrated).toBe(true));

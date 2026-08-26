@@ -39,8 +39,32 @@ type IntakeDraftPatchResponse = {
   savedAt: string;
 };
 
+// Recursively sorts object keys before stringifying. guidedData/intakeData are
+// stored as Postgres jsonb, which does not preserve object key insertion
+// order, so a value echoed back from a save response can have keys in a
+// different order than the client-built object it started from even when
+// the content is identical. Plain JSON.stringify equality would treat that
+// as a "change" forever, leaving isDirty stuck true after a successful
+// save (the leave-guard's warning would then fire even though nothing was
+// actually unsaved). Sorting keys deep makes the comparison content-based
+// instead of order-based. Array element order is left untouched — jsonb
+// does preserve that.
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortKeysDeep);
+  }
+  if (value !== null && typeof value === "object") {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
 function stableSerialize(value: unknown): string {
-  return JSON.stringify(value ?? null);
+  return JSON.stringify(sortKeysDeep(value ?? null));
 }
 
 function hasGuidedContent(data: GuidedData | null | undefined): boolean {
