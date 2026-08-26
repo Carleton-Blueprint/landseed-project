@@ -186,6 +186,7 @@ describe("assembleGrantPdfInput", () => {
       address: "1 Pending Ave",
       draftData: { ownershipStatus: "owner", modificationItems: ["Grab bars"] },
       userId: "user-6",
+      photos: [],
       user: { name: "Pending User", email: "pending@example.com", phone: "555-3333" },
       quotes: [],
       eligibilityAssessments: [{ overallDecision: "NEEDS_MORE_INFO", discoveredGrants: [] }],

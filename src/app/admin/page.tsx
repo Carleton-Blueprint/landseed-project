@@ -67,7 +67,7 @@ export default async function AdminDashboardPage() {
         select: {
           id: true, projectId: true, subtotal: true, total: true,
           status: true, generatedAt: true,
-          estimateMin: true, estimateMax: true,
+          estimateMin: true, estimateMax: true, refinedEstimate: true,
           questions: { select: { id: true, status: true } },
         },
       }),
@@ -181,6 +181,7 @@ export default async function AdminDashboardPage() {
           openQuestions: latestQuote.questions.filter((q: { status: string }) => q.status === "OPEN").length,
           estimateMin: latestQuote.estimateMin ? latestQuote.estimateMin.toString() : null,
           estimateMax: latestQuote.estimateMax ? latestQuote.estimateMax.toString() : null,
+          refinedEstimate: latestQuote.refinedEstimate,
         } : null,
         eligibility: aExtended ? {
           id: aExtended.id,

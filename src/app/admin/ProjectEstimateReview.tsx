@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import { EditIcon } from "@/frontend/components/icons";
 import type { SerializedProject } from "./AdminDashboardClient";
-import { isTieredEstimate, DEFAULT_PRICING_TIER } from "@/backend/services/pricingTiers";
+import { isTieredEstimate, DEFAULT_PRICING_TIER, type AnyRefinedEstimate } from "@/backend/services/pricingTiers";
 import type { RefinedEstimateLineItem } from "@/backend/services/refinedEstimate";
 
 interface ProjectEstimateReviewProps {
@@ -26,7 +26,7 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
   const router = useRouter();
 
   // grab the correct estimate structure since it can be either tiered or flat
-  const rawRefinedEstimate = project.quote?.refinedEstimate;
+  const rawRefinedEstimate = project.quote?.refinedEstimate as AnyRefinedEstimate | null | undefined;
   const initialEstimate = isTieredEstimate(rawRefinedEstimate)
     ? rawRefinedEstimate.tiers[rawRefinedEstimate.selectedTier ?? DEFAULT_PRICING_TIER]
     : rawRefinedEstimate;

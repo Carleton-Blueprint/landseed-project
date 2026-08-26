@@ -54,7 +54,9 @@ describe("createEligibilityAssessmentSnapshot", () => {
       }),
     };
 
-    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) =>
+      (callback as (tx: unknown) => Promise<unknown>)(tx)
+    );
 
     const result = await createEligibilityAssessmentSnapshot(baseInput());
 
@@ -68,10 +70,12 @@ describe("createEligibilityAssessmentSnapshot", () => {
 
   it("bakes projectId into the $executeRaw UPDATE statement values", async () => {
     const tx = {
-      $executeRaw: jest.fn().mockResolvedValue(1),
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "assessment-2" }]),
+      $executeRaw: jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(1),
+      $queryRaw: jest.fn<(...args: unknown[]) => Promise<Array<{ id: string }>>>().mockResolvedValue([{ id: "assessment-2" }]),
     };
-    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) =>
+      (callback as (tx: unknown) => Promise<unknown>)(tx)
+    );
 
     await createEligibilityAssessmentSnapshot(baseInput());
 
@@ -85,10 +89,12 @@ describe("createEligibilityAssessmentSnapshot", () => {
 
   it("bakes the assessment fields into the $queryRaw INSERT statement values", async () => {
     const tx = {
-      $executeRaw: jest.fn().mockResolvedValue(1),
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "assessment-3" }]),
+      $executeRaw: jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(1),
+      $queryRaw: jest.fn<(...args: unknown[]) => Promise<Array<{ id: string }>>>().mockResolvedValue([{ id: "assessment-3" }]),
     };
-    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) =>
+      (callback as (tx: unknown) => Promise<unknown>)(tx)
+    );
 
     const input = {
       projectId: "project-3",
@@ -128,10 +134,12 @@ describe("createEligibilityAssessmentSnapshot", () => {
 
   it("defaults optional discovery fields to null in the INSERT values when omitted", async () => {
     const tx = {
-      $executeRaw: jest.fn().mockResolvedValue(1),
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "assessment-4" }]),
+      $executeRaw: jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(1),
+      $queryRaw: jest.fn<(...args: unknown[]) => Promise<Array<{ id: string }>>>().mockResolvedValue([{ id: "assessment-4" }]),
     };
-    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) =>
+      (callback as (tx: unknown) => Promise<unknown>)(tx)
+    );
 
     await createEligibilityAssessmentSnapshot(baseInput());
 
@@ -142,10 +150,12 @@ describe("createEligibilityAssessmentSnapshot", () => {
 
   it("returns null when $queryRaw resolves to an empty array", async () => {
     const tx = {
-      $executeRaw: jest.fn().mockResolvedValue(1),
-      $queryRaw: jest.fn().mockResolvedValue([]),
+      $executeRaw: jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(1),
+      $queryRaw: jest.fn<(...args: unknown[]) => Promise<Array<{ id: string }>>>().mockResolvedValue([]),
     };
-    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+    prisma.$transaction.mockImplementation(async (callback) =>
+      (callback as (tx: unknown) => Promise<unknown>)(tx)
+    );
 
     const result = await createEligibilityAssessmentSnapshot(baseInput());
 

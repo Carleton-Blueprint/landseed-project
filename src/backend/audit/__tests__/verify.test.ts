@@ -11,10 +11,6 @@ jest.mock("lib/prisma", () => ({
   },
 }));
 
-const { prisma } = require("lib/prisma") as {
-  prisma: { auditEvent: { findMany: jest.Mock } };
-};
-
 const { verifyAuditChain } = require("../verify") as typeof import("../verify");
 
 type AuditEventRow = {
@@ -33,6 +29,10 @@ type AuditEventRow = {
   eventHash: string;
   prevHash: string | null;
   signature: string | null;
+};
+
+const { prisma } = require("lib/prisma") as {
+  prisma: { auditEvent: { findMany: jest.Mock<(...args: unknown[]) => Promise<AuditEventRow[]>> } };
 };
 
 function computeHash(ev: Omit<AuditEventRow, "eventHash" | "prevHash" | "signature">): string {

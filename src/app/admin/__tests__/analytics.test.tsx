@@ -94,7 +94,7 @@ const mockProjects: SerializedProject[] = [
 
 describe("Admin Dashboard Analytics", () => {
   it("computes and displays automation rate, pricing accuracy, and deviation on the analytics tab", () => {
-    render(<AdminDashboardClient projects={mockProjects} userName="Test Advisor" userId="mock-user-id" />);
+    render(<AdminDashboardClient projects={mockProjects} userName="Test Advisor" />);
 
     // Default tab should be projects list
     expect(screen.getByText("Projects List")).toBeInTheDocument();

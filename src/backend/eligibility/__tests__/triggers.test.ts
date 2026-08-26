@@ -22,15 +22,23 @@ jest.mock("../service", () => ({
   evaluateProjectEligibility: jest.fn(),
 }));
 
+type ProjectRow = {
+  id: string;
+  isManualMode: boolean;
+  [key: string]: unknown;
+};
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { prisma } = require("lib/prisma") as {
   prisma: {
-    eligibilityAssessment: { findFirst: jest.Mock };
-    project: { findUnique: jest.Mock };
+    eligibilityAssessment: {
+      findFirst: jest.Mock<(...args: unknown[]) => Promise<{ createdAt: Date } | null>>;
+    };
+    project: { findUnique: jest.Mock<(...args: unknown[]) => Promise<ProjectRow | null>> };
   };
 };
 const { evaluateProjectEligibility } = require("../service") as {
-  evaluateProjectEligibility: jest.Mock;
+  evaluateProjectEligibility: jest.Mock<(...args: unknown[]) => Promise<undefined>>;
 };
 
 const { queueEligibilityEvaluation } = require("../triggers") as typeof import("../triggers");
@@ -39,12 +47,12 @@ function flushImmediate() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-function buildProject(overrides?: Record<string, unknown>) {
+function buildProject(overrides?: Record<string, unknown>): ProjectRow {
   return {
     id: "project-1",
     isManualMode: false,
     ...overrides,
-  } as never;
+  };
 }
 
 describe("triggers", () => {
