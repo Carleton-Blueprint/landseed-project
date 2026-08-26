@@ -109,6 +109,7 @@ export interface IntakeDraftAutosave {
   isHydrated: boolean;
   isDirty: boolean;
   isSaving: boolean;
+  isSubmitting: boolean;
   lastSaved: Date | null;
   saveError: string | null;
   restoredAt: Date | null;
@@ -120,6 +121,8 @@ export interface IntakeDraftAutosave {
   addPhoto: (photo: DraftPhoto) => void;
   removePhoto: (photoId: string) => Promise<void>;
   toggleModificationCode: (photoId: string, code: string, checked: boolean) => Promise<void>;
+  waitForPendingPhotoTagWrites: () => Promise<void>;
+  setIsSubmitting: (submitting: boolean) => void;
 }
 
 export function useIntakeDraftAutosave(): IntakeDraftAutosave {
@@ -130,6 +133,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
   const [intakeData, setIntakeData] = useState<IntakeData | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [restoredAt, setRestoredAt] = useState<Date | null>(null);
@@ -475,6 +479,13 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     []
   );
 
+  // Submit must never promote a draft while a photo-tag PATCH triggered by a
+  // just-clicked checkbox is still queued/in flight — otherwise it could
+  // finalize the project before that tag write lands.
+  const waitForPendingPhotoTagWrites = useCallback(async () => {
+    await Promise.allSettled(Array.from(photoTagQueueRef.current.values()));
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -525,6 +536,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     isHydrated,
     isDirty,
     isSaving,
+    isSubmitting,
     lastSaved,
     saveError,
     restoredAt,
@@ -536,5 +548,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     addPhoto,
     removePhoto,
     toggleModificationCode,
+    waitForPendingPhotoTagWrites,
+    setIsSubmitting,
   };
 }

@@ -383,6 +383,65 @@ describe("useIntakeDraftAutosave", () => {
     expect(result.current.photos[0].declaredModificationCodes).toHaveLength(3);
   });
 
+  it("waitForPendingPhotoTagWrites resolves only after the in-flight photo PATCH settles", async () => {
+    mockFetch.mockImplementationOnce((url: string, init?: RequestInit) => {
+      if (url === "/api/intake-draft" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            draftId: "draft-1",
+            guidedData: null,
+            intakeData: null,
+            projectId: "project-1",
+            photos: [{ id: "photo-1", url: "https://example.com/a.jpg", declaredModificationCodes: [] }],
+            savedAt: "2026-06-20T12:00:00.000Z",
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    let resolvePatch!: (value: { ok: true; json: () => Promise<unknown> }) => void;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/photos/photo-1" && init?.method === "PATCH") {
+        return new Promise((resolve) => {
+          resolvePatch = resolve;
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    const { result } = renderHook(() => useIntakeDraftAutosave());
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+
+    act(() => {
+      void result.current.toggleModificationCode("photo-1", "GRAB_BARS", true);
+    });
+
+    let settled = false;
+    const wait = result.current.waitForPendingPhotoTagWrites().then(() => {
+      settled = true;
+    });
+
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+    expect(settled).toBe(false);
+
+    resolvePatch({
+      ok: true,
+      json: async () => ({
+        success: true,
+        photo: { id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] },
+      }),
+    });
+
+    await act(async () => {
+      await wait;
+    });
+    expect(settled).toBe(true);
+  });
+
   it("flushBeaconSave sends keepalive PATCH for unsaved changes", async () => {
     const { result } = renderHook(() => useIntakeDraftAutosave());
 
