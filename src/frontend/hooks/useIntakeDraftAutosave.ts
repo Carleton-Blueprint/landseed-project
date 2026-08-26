@@ -39,8 +39,32 @@ type IntakeDraftPatchResponse = {
   savedAt: string;
 };
 
+// Recursively sorts object keys before stringifying. guidedData/intakeData are
+// stored as Postgres jsonb, which does not preserve object key insertion
+// order, so a value echoed back from a save response can have keys in a
+// different order than the client-built object it started from even when
+// the content is identical. Plain JSON.stringify equality would treat that
+// as a "change" forever, leaving isDirty stuck true after a successful
+// save (the leave-guard's warning would then fire even though nothing was
+// actually unsaved). Sorting keys deep makes the comparison content-based
+// instead of order-based. Array element order is left untouched — jsonb
+// does preserve that.
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortKeysDeep);
+  }
+  if (value !== null && typeof value === "object") {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
 function stableSerialize(value: unknown): string {
-  return JSON.stringify(value ?? null);
+  return JSON.stringify(sortKeysDeep(value ?? null));
 }
 
 function hasGuidedContent(data: GuidedData | null | undefined): boolean {
@@ -85,6 +109,7 @@ export interface IntakeDraftAutosave {
   isHydrated: boolean;
   isDirty: boolean;
   isSaving: boolean;
+  isSubmitting: boolean;
   lastSaved: Date | null;
   saveError: string | null;
   restoredAt: Date | null;
@@ -95,7 +120,9 @@ export interface IntakeDraftAutosave {
   flushBeaconSave: () => void;
   addPhoto: (photo: DraftPhoto) => void;
   removePhoto: (photoId: string) => Promise<void>;
-  updatePhotoTags: (photoId: string, modificationItems: string[]) => Promise<void>;
+  toggleModificationCode: (photoId: string, code: string, checked: boolean) => Promise<void>;
+  waitForPendingPhotoTagWrites: () => Promise<void>;
+  setIsSubmitting: (submitting: boolean) => void;
 }
 
 export function useIntakeDraftAutosave(): IntakeDraftAutosave {
@@ -106,6 +133,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
   const [intakeData, setIntakeData] = useState<IntakeData | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [restoredAt, setRestoredAt] = useState<Date | null>(null);
@@ -118,6 +146,20 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
   const intakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftEnsuredRef = useRef(false);
   const isHydratingRef = useRef(true);
+
+  // Authoritative, synchronously-updated mirror of each photo's tag list.
+  // React state updates aren't guaranteed to run synchronously within a
+  // batch (e.g. several rapid checkbox toggles fired back to back), so
+  // toggleModificationCode must never derive its next value by reading
+  // `photos` state — it reads/writes this ref instead, then mirrors the
+  // result into `photos` purely for rendering.
+  const photoCodesRef = useRef<Map<string, string[]>>(new Map());
+
+  function syncPhotoCodesRef(list: DraftPhoto[]) {
+    const map = new Map<string, string[]>();
+    for (const photo of list) map.set(photo.id, photo.declaredModificationCodes);
+    photoCodesRef.current = map;
+  }
 
   const computeIsDirty = useCallback(() => {
     const guidedDirty =
@@ -137,9 +179,11 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
 
   const applySaveMetadata = useCallback(
     (data: IntakeDraftPatchResponse) => {
+      const normalizedPhotos = normalizePhotos(data.photos);
       setDraftId(data.draftId);
       setProjectId(data.projectId);
-      setPhotos(normalizePhotos(data.photos));
+      setPhotos(normalizedPhotos);
+      syncPhotoCodesRef(normalizedPhotos);
       setLastSaved(new Date(data.savedAt));
       savedGuidedRef.current = stableSerialize(data.guidedData);
       savedIntakeRef.current = stableSerialize(data.intakeData);
@@ -157,9 +201,11 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
       photos: DraftPhoto[];
       savedAt: string;
     }) => {
+      const normalizedPhotos = normalizePhotos(data.photos);
       setDraftId(data.draftId);
       setProjectId(data.projectId);
-      setPhotos(normalizePhotos(data.photos));
+      setPhotos(normalizedPhotos);
+      syncPhotoCodesRef(normalizedPhotos);
       setGuidedData(data.guidedData);
       setIntakeData(data.intakeData);
       setLastSaved(new Date(data.savedAt));
@@ -352,7 +398,9 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
   const addPhoto = useCallback((photo: DraftPhoto) => {
     setPhotos((prev) => {
       if (prev.some((p) => p.id === photo.id)) return prev;
-      return [...prev, photo];
+      const next = [...prev, photo];
+      syncPhotoCodesRef(next);
+      return next;
     });
   }, []);
 
@@ -362,49 +410,80 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
       throw new Error("Failed to remove photo");
     }
 
-    setPhotos((prev) => prev.filter((photo) => photo.id !== photoId));
+    setPhotos((prev) => {
+      const next = prev.filter((photo) => photo.id !== photoId);
+      syncPhotoCodesRef(next);
+      return next;
+    });
   }, []);
 
-  const updatePhotoTags = useCallback(async (photoId: string, modificationItems: string[]) => {
-    let previousCodes: string[] | undefined;
-    setPhotos((prev) =>
-      prev.map((photo) => {
-        if (photo.id !== photoId) return photo;
-        previousCodes = photo.declaredModificationCodes;
-        return { ...photo, declaredModificationCodes: modificationItems };
-      })
-    );
+  // Per-photo FIFO queue: rapid checkbox toggles on the same photo (e.g. tagging
+  // 3 modification types back to back) must never overwrite each other. Each
+  // toggle reads/writes photoCodesRef synchronously — never React state, whose
+  // setState updater isn't guaranteed to run synchronously within a batch — so
+  // back-to-back toggles in the same tick always build on one another. The
+  // network PATCH for a given photo is serialized through this queue so
+  // responses can't land out of order, and a response is only mirrored into
+  // local state if no newer toggle for that photo has been queued since
+  // (otherwise it would clobber that later, more-current value with stale
+  // server data).
+  const photoTagQueueRef = useRef<Map<string, Promise<void>>>(new Map());
 
-    try {
-      const res = await fetch(`/api/photos/${photoId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modificationItems }),
+  const toggleModificationCode = useCallback(
+    (photoId: string, code: string, checked: boolean): Promise<void> => {
+      const currentCodes = photoCodesRef.current.get(photoId);
+      if (currentCodes === undefined) return Promise.resolve();
+
+      const nextCodes = checked
+        ? Array.from(new Set([...currentCodes, code]))
+        : currentCodes.filter((c) => c !== code);
+
+      photoCodesRef.current.set(photoId, nextCodes);
+      setPhotos((prev) =>
+        prev.map((photo) =>
+          photo.id === photoId ? { ...photo, declaredModificationCodes: nextCodes } : photo
+        )
+      );
+
+      const previousTask = photoTagQueueRef.current.get(photoId) ?? Promise.resolve();
+      const task: Promise<void> = previousTask.catch(() => {}).then(async () => {
+        const res = await fetch(`/api/photos/${photoId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modificationItems: nextCodes }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to update photo tags");
+        }
+
+        const data = (await res.json()) as {
+          photo: { id: string; declaredModificationCodes: string[] };
+        };
+
+        if (photoTagQueueRef.current.get(photoId) === task) {
+          photoCodesRef.current.set(photoId, data.photo.declaredModificationCodes);
+          setPhotos((prev) =>
+            prev.map((photo) =>
+              photo.id === photoId
+                ? { ...photo, declaredModificationCodes: data.photo.declaredModificationCodes }
+                : photo
+            )
+          );
+        }
       });
-      if (!res.ok) {
-        throw new Error("Failed to update photo tags");
-      }
 
-      const data = (await res.json()) as {
-        photo: { id: string; declaredModificationCodes: string[] };
-      };
-      setPhotos((prev) =>
-        prev.map((photo) =>
-          photo.id === photoId
-            ? { ...photo, declaredModificationCodes: data.photo.declaredModificationCodes }
-            : photo
-        )
-      );
-    } catch (error) {
-      setPhotos((prev) =>
-        prev.map((photo) =>
-          photo.id === photoId && previousCodes !== undefined
-            ? { ...photo, declaredModificationCodes: previousCodes }
-            : photo
-        )
-      );
-      throw error;
-    }
+      photoTagQueueRef.current.set(photoId, task);
+      return task;
+    },
+    []
+  );
+
+  // Submit must never promote a draft while a photo-tag PATCH triggered by a
+  // just-clicked checkbox is still queued/in flight — otherwise it could
+  // finalize the project before that tag write lands.
+  const waitForPendingPhotoTagWrites = useCallback(async () => {
+    await Promise.allSettled(Array.from(photoTagQueueRef.current.values()));
   }, []);
 
   useEffect(() => {
@@ -457,6 +536,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     isHydrated,
     isDirty,
     isSaving,
+    isSubmitting,
     lastSaved,
     saveError,
     restoredAt,
@@ -467,6 +547,8 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     flushBeaconSave,
     addPhoto,
     removePhoto,
-    updatePhotoTags,
+    toggleModificationCode,
+    waitForPendingPhotoTagWrites,
+    setIsSubmitting,
   };
 }

@@ -245,13 +245,16 @@ export function IntakeForm() {
     photos,
     isHydrated,
     isSaving,
+    isSubmitting: isSubmittingForm,
     saveError,
     setIntakeSnapshot,
     saveNow,
     ensureProjectId,
     addPhoto,
     removePhoto,
-    updatePhotoTags,
+    toggleModificationCode,
+    waitForPendingPhotoTagWrites,
+    setIsSubmitting: setIsSubmittingForm,
   } = useIntakeDraft();
   const {
     register,
@@ -273,7 +276,6 @@ export function IntakeForm() {
   const [photoError, setPhotoError] = React.useState<string | null>(null);
   const [accountError, setAccountError] = React.useState<string | null>(null);
   const [, setIsSettingUpAccount] = React.useState(false);
-  const [isSubmittingForm, setIsSubmittingForm] = React.useState(false);
   const [removingPhotoId, setRemovingPhotoId] = React.useState<string | null>(null);
   const [selectedPhotoId, setSelectedPhotoId] = React.useState<string | null>(null);
   const previousUploadCountRef = React.useRef(0);
@@ -419,16 +421,9 @@ export function IntakeForm() {
   };
 
   const handleTogglePhotoTag = async (photoId: string, code: string, checked: boolean) => {
-    const photo = photos.find((p) => p.id === photoId);
-    if (!photo) return;
-
-    const nextCodes = checked
-      ? Array.from(new Set([...photo.declaredModificationCodes, code]))
-      : photo.declaredModificationCodes.filter((c) => c !== code);
-
     setPhotoError(null);
     try {
-      await updatePhotoTags(photoId, nextCodes);
+      await toggleModificationCode(photoId, code, checked);
     } catch {
       setPhotoError("Failed to update photo tags. Please try again.");
     }
@@ -459,12 +454,20 @@ export function IntakeForm() {
     }
 
     setPhotoError(null);
+    // Disarms the leave-guard (native beforeunload prompt and the in-app
+    // modal) for the duration of the submit: once this is in flight, the
+    // draft is being saved and promoted on its own and must be allowed to
+    // finish rather than risk the user navigating away mid-save.
     setIsSubmittingForm(true);
 
     try {
       const ready = await ensureIntakeAccountBeforeAction();
       if (!ready) return;
 
+      // A modification-tag checkbox click just before Submit may still have
+      // its PATCH queued/in flight — wait for it to land so the promoted
+      // project reflects every tag the user picked.
+      await waitForPendingPhotoTagWrites();
       await saveNow();
 
       const promoteResponse = await fetch("/api/intake-draft/promote", {

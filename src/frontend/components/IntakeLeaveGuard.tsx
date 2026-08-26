@@ -5,9 +5,12 @@ import { useIntakeLeaveGuard } from "@/frontend/hooks/useIntakeLeaveGuard";
 import { LeaveConfirmModal } from "@/frontend/components/LeaveConfirmModal";
 
 export function IntakeLeaveGuard() {
-  const { isDirty, isSaving, saveNow, flushBeaconSave } = useIntakeDraft();
+  const { isDirty, isSaving, isSubmitting, saveNow, flushBeaconSave } = useIntakeDraft();
   const { isModalOpen, isLeaving, handleStay, handleSaveAndLeave } = useIntakeLeaveGuard({
-    enabled: isDirty || isSaving,
+    // Once Submit is clicked, the form is already saving and promoting the
+    // draft on its own — the leave-guard must not interrupt that with a
+    // "changes not saved" prompt (native or in-app) while it finishes.
+    enabled: (isDirty || isSaving) && !isSubmitting,
     isSaving,
     saveNow,
     flushBeaconSave,
