@@ -17,8 +17,10 @@ jest.mock("lib/prisma", () => ({
 
 const { prisma } = require("lib/prisma") as {
   prisma: {
-    auditEvent: { findFirst: jest.Mock };
-    $executeRaw: jest.Mock;
+    auditEvent: {
+      findFirst: jest.Mock<(...args: unknown[]) => Promise<{ eventHash: string } | null>>;
+    };
+    $executeRaw: jest.Mock<(...args: unknown[]) => Promise<unknown>>;
   };
 };
 

@@ -13,7 +13,7 @@ jest.mock("@/backend/eligibility/discoverySearchProvider", () => ({
   detectCatalogContradictions: jest.fn(),
 }));
 
-const mockManualReviewQueueAdd = jest.fn();
+const mockManualReviewQueueAdd = jest.fn<(...args: unknown[]) => Promise<undefined>>();
 jest.mock("@/backend/queue", () => ({
   manualReviewQueue: { add: (...args: unknown[]) => mockManualReviewQueueAdd(...args) },
 }));

@@ -37,7 +37,7 @@ describe("queueDeniedAdminAccessAudit", () => {
   });
 
   it("dispatches a POST to the internal audit endpoint resolved against request.url", () => {
-    const fetchMock = jest.fn().mockResolvedValue({ ok: true });
+    const fetchMock = jest.fn<(...args: unknown[]) => Promise<{ ok: boolean }>>().mockResolvedValue({ ok: true });
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const event = makeFetchEvent();
@@ -75,7 +75,7 @@ describe("queueDeniedAdminAccessAudit", () => {
 
   it("catches a rejected fetch instead of throwing, and logs it via console.error", async () => {
     const fetchError = new Error("network down");
-    const fetchMock = jest.fn().mockRejectedValue(fetchError);
+    const fetchMock = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockRejectedValue(fetchError);
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const event = makeFetchEvent();

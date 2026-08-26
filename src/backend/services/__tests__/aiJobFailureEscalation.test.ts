@@ -12,17 +12,23 @@ jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
 }));
 
-const mockManualReviewQueueAdd = jest.fn().mockResolvedValue(undefined);
+const mockManualReviewQueueAdd = jest.fn<(...args: unknown[]) => Promise<undefined>>().mockResolvedValue(undefined);
 jest.mock("@/backend/queue", () => ({
   manualReviewQueue: { add: (...args: unknown[]) => mockManualReviewQueueAdd(...args) },
 }));
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { prisma } = require("lib/prisma") as {
-  prisma: { photo: { findUnique: jest.Mock } };
+  prisma: {
+    photo: {
+      findUnique: jest.Mock<
+        (...args: unknown[]) => Promise<{ id: string; projectId: string } | null>
+      >;
+    };
+  };
 };
 const { logAuditEventNonBlocking } = require("@/backend/audit/log") as {
-  logAuditEventNonBlocking: jest.Mock;
+  logAuditEventNonBlocking: jest.Mock<(...args: unknown[]) => Promise<void>>;
 };
 const { flagAiJobFailureForManualReview } = require("../aiJobFailureEscalation") as
   typeof import("../aiJobFailureEscalation");

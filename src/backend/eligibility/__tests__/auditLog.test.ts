@@ -12,12 +12,22 @@ jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
 }));
 
+type AuditHistoryRow = {
+  id: string;
+  action: string;
+  outcome: string;
+  description: string;
+  createdAt: Date;
+  actorUser: { email: string; name: string } | null;
+  metadata: unknown;
+};
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { prisma } = require("lib/prisma") as {
-  prisma: { auditEvent: { findMany: jest.Mock } };
+  prisma: { auditEvent: { findMany: jest.Mock<(...args: unknown[]) => Promise<AuditHistoryRow[]>> } };
 };
 const { logAuditEventNonBlocking } = require("@/backend/audit/log") as {
-  logAuditEventNonBlocking: jest.Mock;
+  logAuditEventNonBlocking: jest.Mock<(...args: unknown[]) => Promise<void>>;
 };
 
 const {
