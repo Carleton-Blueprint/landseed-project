@@ -39,6 +39,7 @@ export default async function AdminDashboardPage() {
             virus_scan_status: true,
             createdAt: true,
             declaredModificationCodes: true,
+            aiModificationCodes: true,
           },
         },
         manualReviewFlag: true,
@@ -233,11 +234,20 @@ export default async function AdminDashboardPage() {
           urgency: typeof mergedData.urgency === "string" && mergedData.urgency ? mergedData.urgency : null,
           submittedAt: p.createdAt.toISOString(),
         },
-        photos: p.photos.map((photo: { id: string; url?: string; virus_scan_status?: string; createdAt?: Date }) => ({
+        photos: p.photos.map((photo: {
+          id: string;
+          url?: string;
+          virus_scan_status?: string;
+          createdAt?: Date;
+          declaredModificationCodes?: string[];
+          aiModificationCodes?: string[];
+        }) => ({
           id: photo.id,
           url: photo.url ?? "/placeholder-photo.jpg",
           virus_scan_status: photo.virus_scan_status ?? "clean",
           createdAt: photo.createdAt ? photo.createdAt.toISOString() : p.createdAt.toISOString(),
+          declaredModificationCodes: photo.declaredModificationCodes ?? [],
+          aiModificationCodes: photo.aiModificationCodes ?? [],
         })),
       };
     });
@@ -321,8 +331,8 @@ export default async function AdminDashboardPage() {
           submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
         },
         photos: [
-          { id: "photo-101-1", url: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString() },
-          { id: "photo-101-2", url: "https://images.unsplash.com/photo-1507652313519-d4e9174996dd?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString() },
+          { id: "photo-101-1", url: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(), declaredModificationCodes: ["GRAB_BARS"], aiModificationCodes: ["GRAB_BARS"] },
+          { id: "photo-101-2", url: "https://images.unsplash.com/photo-1507652313519-d4e9174996dd?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(), declaredModificationCodes: ["HANDRAILS"], aiModificationCodes: ["HANDRAILS"] },
         ],
       },
       {
@@ -409,7 +419,7 @@ export default async function AdminDashboardPage() {
           submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(),
         },
         photos: [
-          { id: "photo-102-1", url: "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString() },
+          { id: "photo-102-1", url: "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(), declaredModificationCodes: ["RAMP"], aiModificationCodes: ["RAMP"] },
         ],
       },
       {
@@ -468,7 +478,7 @@ export default async function AdminDashboardPage() {
           submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         },
         photos: [
-          { id: "photo-103-1", url: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString() },
+          { id: "photo-103-1", url: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(), declaredModificationCodes: ["STAIR_LIFT"], aiModificationCodes: ["STAIR_LIFT"] },
         ],
       },
       {
@@ -638,7 +648,7 @@ export default async function AdminDashboardPage() {
           submittedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString(),
         },
         photos: [
-          { id: "photo-105-1", url: "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString() },
+          { id: "photo-105-1", url: "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=500&auto=format&fit=crop", virus_scan_status: "clean", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString(), declaredModificationCodes: ["WIDENED_DOORWAY"], aiModificationCodes: ["WIDENED_DOORWAY"] },
         ],
       }
     ];

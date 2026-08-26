@@ -108,6 +108,8 @@ export interface SerializedProject {
     url: string;
     virus_scan_status: string;
     createdAt: string;
+    declaredModificationCodes: string[];
+    aiModificationCodes: string[];
   }>;
 }
 
