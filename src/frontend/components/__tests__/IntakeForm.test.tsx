@@ -9,7 +9,9 @@ import { IntakeDraftProvider } from "@/frontend/contexts/IntakeDraftContext";
 jest.mock("next/navigation", () => ({
   useRouter: () => ({
     push: jest.fn(),
+    replace: jest.fn(),
   }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock("next-auth/react", () => ({

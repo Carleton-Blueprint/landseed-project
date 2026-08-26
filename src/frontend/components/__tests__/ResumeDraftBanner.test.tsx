@@ -3,6 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { IntakeDraftProvider } from "@/frontend/contexts/IntakeDraftContext";
 import { ResumeDraftBanner } from "../ResumeDraftBanner";
 
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+  }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 const mockFetch = jest.fn();
 
 beforeEach(() => {

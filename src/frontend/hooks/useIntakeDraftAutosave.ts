@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { GuidedData, IntakeData } from "@/backend/schemas/intakeDraft";
 
 const AUTOSAVE_DEBOUNCE_MS = 2000;
@@ -117,6 +118,7 @@ export interface IntakeDraftAutosave {
   setIntakeSnapshot: (data: IntakeData) => void;
   ensureProjectId: () => Promise<string | null>;
   saveNow: () => Promise<void>;
+  discardDraft: () => Promise<void>;
   flushBeaconSave: () => void;
   addPhoto: (photo: DraftPhoto) => void;
   removePhoto: (photoId: string) => Promise<void>;
@@ -126,6 +128,8 @@ export interface IntakeDraftAutosave {
 }
 
 export function useIntakeDraftAutosave(): IntakeDraftAutosave {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [draftId, setDraftId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [photos, setPhotos] = useState<DraftPhoto[]>([]);
@@ -219,6 +223,34 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     },
     [refreshDirty]
   );
+
+  // Discards the saved draft (and its shell project, server-side) and
+  // resets every piece of local state back to blank so the form renders
+  // empty without a page reload — used when the user explicitly asks to
+  // start a new project rather than resume the one in progress.
+  const discardDraft = useCallback(async () => {
+    if (guidedTimerRef.current) clearTimeout(guidedTimerRef.current);
+    if (intakeTimerRef.current) clearTimeout(intakeTimerRef.current);
+
+    await fetch("/api/intake-draft", { method: "DELETE" });
+
+    guidedSnapshotRef.current = null;
+    intakeSnapshotRef.current = null;
+    savedGuidedRef.current = EMPTY_SERIALIZED;
+    savedIntakeRef.current = EMPTY_SERIALIZED;
+    draftEnsuredRef.current = false;
+    photoCodesRef.current = new Map();
+
+    setDraftId(null);
+    setProjectId(null);
+    setPhotos([]);
+    setGuidedData(null);
+    setIntakeData(null);
+    setIsDirty(false);
+    setLastSaved(null);
+    setSaveError(null);
+    setRestoredAt(null);
+  }, []);
 
   const ensureDraft = useCallback(async () => {
     if (draftEnsuredRef.current && draftId) {
@@ -491,6 +523,17 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
 
     async function loadDraft() {
       try {
+        if (searchParams.get("new") === "1") {
+          await discardDraft();
+          if (cancelled) return;
+
+          const nextParams = new URLSearchParams(searchParams.toString());
+          nextParams.delete("new");
+          const qs = nextParams.toString();
+          router.replace(qs ? `/?${qs}` : "/", { scroll: false });
+          return;
+        }
+
         const res = await fetch("/api/intake-draft");
         if (!res.ok) {
           throw new Error("Failed to load draft");
@@ -525,7 +568,8 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
       if (guidedTimerRef.current) clearTimeout(guidedTimerRef.current);
       if (intakeTimerRef.current) clearTimeout(intakeTimerRef.current);
     };
-  }, [hydrateFromServer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrateFromServer, discardDraft]);
 
   return {
     draftId,
@@ -544,6 +588,7 @@ export function useIntakeDraftAutosave(): IntakeDraftAutosave {
     setIntakeSnapshot,
     ensureProjectId,
     saveNow,
+    discardDraft,
     flushBeaconSave,
     addPhoto,
     removePhoto,
