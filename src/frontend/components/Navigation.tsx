@@ -5,6 +5,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 
+function getInitials(name?: string | null, email?: string | null): string {
+  const trimmedName = name?.trim();
+  if (trimmedName) {
+    const parts = trimmedName.split(/\s+/);
+    const initials = parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0];
+    return initials.toUpperCase();
+  }
+  const trimmedEmail = email?.trim();
+  if (trimmedEmail) return trimmedEmail.slice(0, 2).toUpperCase();
+  return "?";
+}
+
 export function Navigation() {
   const pathname = usePathname();
   const { data: session } = useSession();
@@ -17,9 +29,7 @@ export function Navigation() {
         { href: "/dashboard", label: "Project Tracker" },
         ...(isAdmin ? [{ href: "/admin", label: "Advisor Panel" }] : []),
       ]
-    : [
-        { href: "/auth/signin", label: "Client Portal" },
-      ];
+    : [];
 
   return (
     <header className="sticky top-0 z-40 border-b border-gray-100 bg-white/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80">
@@ -33,7 +43,7 @@ export function Navigation() {
             </svg>
           </div>
           <span className="text-base font-extrabold text-slate-800 transition-colors duration-200 group-hover:text-emerald-700">
-            LandSeed <span className="text-emerald-600">Demo</span>
+            LandSeed
           </span>
         </Link>
 
@@ -70,19 +80,24 @@ export function Navigation() {
             );
           })}
 
-          {/* Elegant Profile Link */}
+          {/* Account access */}
           <div className="h-6 w-[1px] bg-gray-200 mx-1 hidden sm:block" />
-          
           <Link
-            href="/profile"
-            className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white shadow-md transition-all duration-200 active:scale-90 ${
+            href={isAuthenticated ? "/profile" : "/auth/signin"}
+            className={`flex h-11 w-11 items-center justify-center rounded-full text-xs font-bold text-white shadow-md transition-all duration-200 active:scale-90 ${
               pathname === "/profile"
                 ? "bg-emerald-600 ring-2 ring-emerald-400"
                 : "bg-slate-700 hover:bg-emerald-600 hover:scale-105"
             }`}
-            title="My Profile"
+            title={isAuthenticated ? "My Profile" : "Sign in"}
           >
-            DU
+            {isAuthenticated ? (
+              getInitials(session?.user?.name, session?.user?.email)
+            ) : (
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+              </svg>
+            )}
           </Link>
         </nav>
         

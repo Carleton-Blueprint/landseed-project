@@ -4,6 +4,7 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { signOut } from "next-auth/react";
 import { Button } from "@/frontend/components/ui/button";
 
 const profileSchema = z.object({
@@ -87,6 +88,12 @@ export default function ProfilePage() {
     }
   }
 
+  const [isSigningOut, setIsSigningOut] = React.useState(false);
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+    await signOut({ callbackUrl: "/" });
+  };
+
   const handleExport = async (format: "pdf" | "csv") => {
     setExportError(null);
     if (format === "pdf") setIsExportingPdf(true);
@@ -128,11 +135,25 @@ export default function ProfilePage() {
     <main className="min-h-screen p-6 md:p-8 bg-gray-50/50">
       <div className="mx-auto max-w-2xl space-y-8">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">My Profile</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            View and update your Landseed account details.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">My Profile</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              View and update your Landseed account details.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleSignOut}
+            disabled={isSigningOut}
+            className="gap-1.5 rounded-xl text-sm text-gray-600 hover:text-red-600 hover:border-red-200 hover:bg-red-50"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+            </svg>
+            {isSigningOut ? "Signing out…" : "Sign out"}
+          </Button>
         </div>
 
         {/* 1. Account details form */}
@@ -207,7 +228,7 @@ export default function ProfilePage() {
               </div>
             )}
 
-            <Button type="submit" disabled={isSubmitting} className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-medium shadow-sm transition-colors text-sm">
+            <Button type="submit" disabled={isSubmitting} className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-medium shadow-sm transition-colors text-sm">
               {isSubmitting ? "Saving…" : "Update Profile"}
             </Button>
           </form>
@@ -262,7 +283,7 @@ export default function ProfilePage() {
                 onClick={() => handleExport("pdf")}
                 disabled={isExportingPdf || isExportingCsv}
                 aria-label="Download personal data report as PDF"
-                className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs transition-colors disabled:opacity-50"
+                className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs transition-colors disabled:opacity-50"
               >
                 {isExportingPdf ? (
                   <>

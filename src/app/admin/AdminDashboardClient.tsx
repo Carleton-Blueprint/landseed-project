@@ -18,6 +18,7 @@ import {
 import { ProjectStaffNotes } from "./ProjectStaffNotes";
 import { ProjectAdminDocuments } from "./ProjectAdminDocuments";
 import { ProjectEstimateReview } from "./ProjectEstimateReview";
+import type { AnyRefinedEstimate } from "@/backend/services/pricingTiers";
 
 /* ================================================================== */
 /*  Types                                                              */
@@ -49,7 +50,7 @@ export interface SerializedProject {
     openQuestions: number;
     estimateMin?: string | null;
     estimateMax?: string | null;
-    refinedEstimate?: any;
+    refinedEstimate?: AnyRefinedEstimate | null;
   } | null;
   eligibility: {
     id: string;
@@ -941,7 +942,7 @@ export function AdminDashboardClient({
                         )}
                         {analyticsData.inRangeCount > 0 && (
                           <div
-                            className="bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold transition-all"
+                            className="bg-emerald-700 text-white flex items-center justify-center text-[10px] font-bold transition-all"
                             style={{ width: `${(analyticsData.inRangeCount / analyticsData.quoteCount) * 100}%` }}
                             title={`In Range: ${analyticsData.inRangeCount}`}
                           >

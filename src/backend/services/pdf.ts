@@ -115,6 +115,16 @@ export async function generateGrantPdf(input: GrantPdfInput): Promise<Buffer> {
     y -= Math.max(fieldGap, wrappedValue.length * lineGap + 8);
   }
 
+  // Sits directly under "Estimated Cost" above, on the same page — no scrolling needed.
+  page.drawText("All prices shown are before HST.", {
+    x: marginX,
+    y,
+    size: 9,
+    font: bodyFont,
+    color: rgb(0.5, 0.5, 0.5),
+  });
+  y -= fieldGap;
+
   const items = input.modificationItems?.filter((item) => item.trim().length > 0) ?? [];
   page.drawText("Modification Items:", {
     x: marginX,

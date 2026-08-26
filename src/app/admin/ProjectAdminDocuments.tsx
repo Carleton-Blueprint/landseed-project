@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { Button } from "@/frontend/components/ui/button";
+import { FileIcon } from "@/frontend/components/icons";
+import { useAdminResourceList } from "@/frontend/hooks/useAdminResourceList";
 
 interface AdminDocument {
   id: string;
@@ -22,38 +24,23 @@ export function ProjectAdminDocuments({
 }: {
   projectId: string;
 }) {
-  const [documents, setDocuments] = useState<AdminDocument[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  
+  const {
+    items: documents,
+    setItems: setDocuments,
+    loading,
+    error,
+  } = useAdminResourceList<AdminDocument, { documents?: AdminDocument[] }>(
+    `/api/admin/projects/${projectId}/documents`,
+    (data) => data.documents || [],
+    "Failed to load documents"
+  );
+
   const [uploading, setUploading] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [docType, setDocType] = useState("OTHER");
   const [isClientVisible, setIsClientVisible] = useState(true);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const fetchDocuments = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch(`/api/admin/projects/${projectId}/documents`);
-      if (!res.ok) {
-        throw new Error("Failed to load documents");
-      }
-      const data = await res.json();
-      setDocuments(data.documents || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchDocuments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -83,8 +70,8 @@ export function ProjectAdminDocuments({
       }
 
       const data = await res.json();
-      setDocuments([data.document, ...documents]);
-      
+      setDocuments((docs) => [data.document, ...docs]);
+
       setFile(null);
       setDocType("OTHER");
       setIsClientVisible(true);
@@ -125,16 +112,14 @@ export function ProjectAdminDocuments({
     <div className="rounded-lg border bg-white p-5 shadow-sm space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-          <svg className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-          </svg>
+          <FileIcon size={20} strokeWidth={1.5} className="text-gray-500" />
           Project Documents
         </h3>
       </div>
 
       <form onSubmit={handleUpload} className="space-y-3 p-4 bg-gray-50 rounded-md border border-gray-200">
         <h4 className="text-sm font-semibold text-gray-700">Upload New Document</h4>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">File</label>
@@ -146,7 +131,7 @@ export function ProjectAdminDocuments({
               disabled={uploading}
             />
           </div>
-          
+
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Document Type</label>
             <select
@@ -173,7 +158,7 @@ export function ProjectAdminDocuments({
             />
             <span className="text-sm font-medium text-gray-700">Visible to Client</span>
           </label>
-          
+
           <Button
             type="submit"
             disabled={!file || uploading}
@@ -216,7 +201,7 @@ export function ProjectAdminDocuments({
                   <td className="px-4 py-3 whitespace-nowrap text-sm">
                     <button
                       onClick={() => handleToggleVisibility(doc.id, doc.isClientVisible)}
-                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out p-2.5 -m-2.5 bg-clip-padding focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
                         doc.isClientVisible ? 'bg-emerald-500' : 'bg-gray-200'
                       }`}
                       role="switch"

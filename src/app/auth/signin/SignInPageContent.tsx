@@ -4,9 +4,10 @@ import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@/frontend/components/ui/button";
+import { AuthSubmitButton } from "@/frontend/components/auth/AuthSubmitButton";
 import { AuthPageShell } from "@/frontend/components/auth/AuthPageShell";
 import { SignInVerificationAlert } from "@/frontend/components/auth/SignInVerificationAlert";
+import { AuthSwitchLink } from "@/frontend/components/auth/AuthSwitchLink";
 
 function PasswordSignInForm() {
   const router = useRouter();
@@ -109,13 +110,9 @@ function PasswordSignInForm() {
           </div>
         )}
 
-        <Button
-          type="submit"
-          disabled={isLoading || !mfaCode.trim()}
-          className="w-full py-6 mt-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 text-base"
-        >
+        <AuthSubmitButton disabled={isLoading || !mfaCode.trim()}>
           {isLoading ? "Verifying..." : "Verify"}
-        </Button>
+        </AuthSubmitButton>
 
         <button
           type="button"
@@ -144,7 +141,7 @@ function PasswordSignInForm() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm"
-          placeholder="jane@example.com"
+          placeholder="you@example.com"
         />
       </div>
 
@@ -178,13 +175,9 @@ function PasswordSignInForm() {
         </div>
       )}
 
-      <Button
-        type="submit"
-        disabled={isLoading}
-        className="w-full py-6 mt-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 text-base"
-      >
+      <AuthSubmitButton disabled={isLoading}>
         {isLoading ? "Signing in..." : "Sign In"}
-      </Button>
+      </AuthSubmitButton>
     </form>
   );
 }
@@ -196,7 +189,6 @@ function LegacySignInForm() {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -210,7 +202,6 @@ function LegacySignInForm() {
         redirect: false,
         name,
         email,
-        phone,
         callbackUrl,
       });
 
@@ -237,7 +228,7 @@ function LegacySignInForm() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm"
-          placeholder="Jane Doe"
+          placeholder="Full name"
         />
       </div>
 
@@ -250,19 +241,7 @@ function LegacySignInForm() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm"
-          placeholder="jane@example.com"
-        />
-      </div>
-
-      <div>
-        <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">Phone (Optional)</label>
-        <input
-          id="phone"
-          type="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm"
-          placeholder="(555) 000-0000"
+          placeholder="you@example.com"
         />
       </div>
 
@@ -272,13 +251,9 @@ function LegacySignInForm() {
         </div>
       )}
 
-      <Button
-        type="submit"
-        disabled={isLoading}
-        className="w-full py-6 mt-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 text-base"
-      >
-        {isLoading ? "Entering Portal..." : "Enter Portal"}
-      </Button>
+      <AuthSubmitButton disabled={isLoading}>
+        {isLoading ? "Signing in..." : "Sign in"}
+      </AuthSubmitButton>
     </form>
   );
 }
@@ -289,14 +264,7 @@ function SignInForm({ legacyMode }: { legacyMode: boolean }) {
 
 export function SignInPageContent({ legacyMode }: { legacyMode: boolean }) {
   return (
-    <AuthPageShell
-      title="Client Portal"
-      description={
-        legacyMode
-          ? "Enter your details to access your projects"
-          : "Sign in with your email and password to access your projects"
-      }
-    >
+    <AuthPageShell title="Client Portal">
       <Suspense
         fallback={
           <div className="h-[300px] flex items-center justify-center">
@@ -306,13 +274,8 @@ export function SignInPageContent({ legacyMode }: { legacyMode: boolean }) {
       >
         <SignInVerificationAlert />
         <SignInForm legacyMode={legacyMode} />
-        
-        <div className="mt-6 text-center text-sm text-gray-600">
-          Don&apos;t have an account?{" "}
-          <Link href="/auth/signup" className="font-semibold text-emerald-600 hover:text-emerald-500">
-            Sign up
-          </Link>
-        </div>
+
+        <AuthSwitchLink prompt="Don't have an account?" href="/auth/signup" label="Sign up" />
       </Suspense>
     </AuthPageShell>
   );

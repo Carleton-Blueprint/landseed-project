@@ -29,6 +29,8 @@ import {
 import { AlertCircle } from "lucide-react";
 import { EmailVerificationBanner } from "@/frontend/components/auth/EmailVerificationBanner";
 import { isDevAuthBypassEnabled } from "@/backend/auth/devBypass";
+import { MANUAL_REVIEW_CLIENT_MESSAGE } from "@/shared/manualReviewMessage";
+import { HST_DISCLAIMER_TEXT } from "@/shared/hstDisclaimer";
 
 /* ------------------------------------------------------------------ */
 /* Status helpers                                                      */
@@ -70,6 +72,7 @@ function getEstimateSummary(project: {
       value: "Available after project finalization",
       explanation:
         "Once your project request is finalized, an initial estimate range will appear here. Pricing is dynamically generated from real-time external retail data.",
+      showHstDisclaimer: false,
     };
   }
 
@@ -79,6 +82,7 @@ function getEstimateSummary(project: {
       value: `$${estimateRange.min.toLocaleString()} – $${estimateRange.max.toLocaleString()}`,
       explanation:
         "This pricing is dynamically generated from real-time external retail data and may change as retailer pricing and product availability update.",
+      showHstDisclaimer: true,
     };
   }
 
@@ -87,6 +91,7 @@ function getEstimateSummary(project: {
     value: "Generating estimate…",
     explanation:
       "We are generating your estimate using real-time external retail data.",
+    showHstDisclaimer: false,
   };
 }
 
@@ -479,6 +484,11 @@ export default async function DashboardPage() {
                           <p className="mt-1 text-xs text-gray-500 leading-relaxed">
                             {estimateSummary.explanation}
                           </p>
+                          {estimateSummary.showHstDisclaimer && (
+                            <p className="mt-1 text-xs text-gray-400 italic">
+                              {HST_DISCLAIMER_TEXT}
+                            </p>
+                          )}
                         </div>
 
                         {/* ═══ AI-Discovered Grant Eligibility ═══ */}
@@ -501,6 +511,11 @@ export default async function DashboardPage() {
                                     AI‑Discovered
                                   </span>
                                 </div>
+                                {eligibility.overallDecision === "MANUAL_REVIEW" && (
+                                  <p className={`mt-1.5 text-xs leading-relaxed ${decisionDisplay!.color}`}>
+                                    {MANUAL_REVIEW_CLIENT_MESSAGE}
+                                  </p>
+                                )}
 
                                 {/* Grant counts by scope */}
                                 {eligibility.discoveredGrants.length > 0 ? (

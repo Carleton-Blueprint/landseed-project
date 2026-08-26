@@ -284,7 +284,7 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Scope</label>
             <textarea
-              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-24 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm min-h-24 disabled:cursor-not-allowed disabled:opacity-50"
               value={scope}
               onChange={(e) => setScope(e.target.value)}
               disabled={locked}
@@ -295,7 +295,7 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
             <textarea
-              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-16 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm min-h-16 disabled:cursor-not-allowed disabled:opacity-50"
               value={notes ?? ""}
               onChange={(e) => setNotes(e.target.value)}
               disabled={locked}
@@ -426,7 +426,7 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
                 <select
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-10 rounded-md border border-input bg-background px-3 text-base sm:text-sm"
                   value={uploadDocumentType}
                   onChange={(e) => setUploadDocumentType(e.target.value as "MANUAL_MODE_DRAWING" | "VENDOR_QUOTE")}
                 >

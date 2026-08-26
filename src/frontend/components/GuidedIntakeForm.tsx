@@ -80,43 +80,44 @@ export function GuidedIntakeForm() {
   }, [watch, setGuidedSnapshot, isHydrated]);
 
   return (
-    <div className="max-w-2xl mx-auto p-4 border rounded shadow-sm">
-      <div className="text-center mb-6">
-        <h2 className="text-xl font-bold">Needs Assessment</h2>
-        <p className="text-gray-500 text-sm">Please answer a few questions.</p>
+    <div className="max-w-2xl mx-auto rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+      <div className="text-center mb-8">
+        <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Needs Assessment</h2>
+        <p className="text-gray-500 text-sm mt-1">Please answer a few questions.</p>
       </div>
 
       <div className="space-y-4">
-        <div className="p-3 border bg-gray-50 rounded">
-          <p className="font-semibold mb-2">1. Do you use mobility assistance?</p>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-1">
-              <input type="radio" value="yes" {...register("mobilityAssistance")} />
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 sm:p-5">
+          <p className="font-semibold text-gray-900 mb-3">1. Do you use mobility assistance?</p>
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input type="radio" value="yes" {...register("mobilityAssistance")} className="h-4 w-4 accent-emerald-600" />
               Yes
             </label>
-            <label className="flex items-center gap-1">
-              <input type="radio" value="no" {...register("mobilityAssistance")} />
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input type="radio" value="no" {...register("mobilityAssistance")} className="h-4 w-4 accent-emerald-600" />
               No
             </label>
           </div>
           {errors.mobilityAssistance && (
-            <p className="text-red-500 text-xs mt-1">{errors.mobilityAssistance.message}</p>
+            <p className="text-red-500 text-xs mt-2">{errors.mobilityAssistance.message}</p>
           )}
         </div>
 
-        <div className="p-3 border bg-gray-50 rounded">
-          <p className="font-semibold mb-2">2. Which safety features do you want?</p>
-          <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 sm:p-5">
+          <p className="font-semibold text-gray-900 mb-3">2. Which safety features do you want?</p>
+          <div className="grid grid-cols-2 gap-3">
             <Controller
               name="safetyFeatures"
               control={control}
               render={({ field }) => (
                 <>
                   {safetyList.map((item) => (
-                    <label key={item.id} className="flex items-center gap-1">
+                    <label key={item.id} className="flex items-center gap-2 text-sm text-gray-700">
                       <input
                         type="checkbox"
                         checked={field.value?.includes(item.id)}
+                        className="h-4 w-4 rounded border-gray-300 accent-emerald-600"
                         onChange={(e) => {
                           let cv = field.value || [];
                           if (e.target.checked) {
@@ -132,7 +133,7 @@ export function GuidedIntakeForm() {
                           field.onChange(cv);
                         }}
                       />
-                      <span className="text-sm">{item.label}</span>
+                      <span>{item.label}</span>
                     </label>
                   ))}
                 </>
@@ -140,32 +141,36 @@ export function GuidedIntakeForm() {
             />
           </div>
           {errors.safetyFeatures && (
-            <p className="text-red-500 text-xs mt-1">{errors.safetyFeatures.message}</p>
+            <p className="text-red-500 text-xs mt-2">{errors.safetyFeatures.message}</p>
           )}
         </div>
 
-        <div className="p-3 border bg-gray-50 rounded">
-          <p className="font-semibold mb-2">3. Do you need bathroom mods?</p>
-          <div className="flex flex-col gap-1">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 sm:p-5">
+          <p className="font-semibold text-gray-900 mb-3">3. Do you need bathroom mods?</p>
+          <div className="flex flex-col gap-2">
             {[
               { v: "yes", l: "Yes" },
               { v: "no", l: "No" },
               { v: "not sure", l: "Not sure" },
             ].map((opt) => (
-              <label key={opt.v} className="flex items-center gap-1">
-                <input type="radio" value={opt.v} {...register("bathroomModifications")} />
-                <span className="text-sm">{opt.l}</span>
+              <label key={opt.v} className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="radio" value={opt.v} {...register("bathroomModifications")} className="h-4 w-4 accent-emerald-600" />
+                <span>{opt.l}</span>
               </label>
             ))}
           </div>
           {errors.bathroomModifications && (
-            <p className="text-red-500 text-xs mt-1">{errors.bathroomModifications.message}</p>
+            <p className="text-red-500 text-xs mt-2">{errors.bathroomModifications.message}</p>
           )}
         </div>
 
-        <div className="p-3 border bg-gray-50 rounded">
-          <p className="font-semibold mb-2">4. What is your timeline?</p>
-          <select className="w-full p-2 border rounded" {...register("urgency")}>
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 sm:p-5">
+          <p className="font-semibold text-gray-900 mb-3">4. What is your timeline?</p>
+          <select
+            className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+            aria-label="What is your timeline?"
+            {...register("urgency")}
+          >
             <option value="" disabled hidden>
               Pick one...
             </option>
@@ -175,15 +180,20 @@ export function GuidedIntakeForm() {
             <option value="just exploring">No timeline</option>
           </select>
           {errors.urgency && (
-            <p className="text-red-500 text-xs mt-1">{errors.urgency.message}</p>
+            <p className="text-red-500 text-xs mt-2">{errors.urgency.message}</p>
           )}
         </div>
 
-        <div className="p-3 border bg-gray-50 rounded">
-          <p className="font-semibold mb-2">5. Any other details? (Optional)</p>
-          <textarea rows={3} className="w-full p-2 border rounded" {...register("additionalDetails")} />
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 sm:p-5">
+          <p className="font-semibold text-gray-900 mb-3">5. Any other details? (Optional)</p>
+          <textarea
+            rows={3}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
+            aria-label="Any other details (optional)"
+            {...register("additionalDetails")}
+          />
           {errors.additionalDetails && (
-            <p className="text-red-500 text-xs mt-1">{errors.additionalDetails.message}</p>
+            <p className="text-red-500 text-xs mt-2">{errors.additionalDetails.message}</p>
           )}
         </div>
       </div>

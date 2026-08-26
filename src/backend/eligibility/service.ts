@@ -11,7 +11,7 @@
 import { Prisma, Project, User } from '@prisma/client';
 import { assembleEligibilityInput } from './assembler';
 import { createEligibilityAssessmentSnapshot } from './repository';
-import { EligibilityDecision } from './types';
+import { EligibilityDecision, isFinalEligibilityDecision } from './types';
 import {
   discoverAndEvaluateGrants,
   DiscoveredGrant,
@@ -196,8 +196,9 @@ export async function evaluateProjectEligibility(
           ],
         });
         console.log(`Auto-generated quote after eligibility assessment for project ${project.id}`);
-        // Auto-generate the pre-filled grant PDF when the project is eligible.
-        if (evaluation.overallDecision === 'ELIGIBLE') {
+        // Auto-generate the grant eligibility summary PDF once the assessment reaches a final
+        // decision, so clients can always download a summary (including zero-matches/INELIGIBLE).
+        if (isFinalEligibilityDecision(evaluation.overallDecision)) {
           import('@/backend/services/grantDocument')
             .then(({ generateAndStoreGrantDocument }) =>
               generateAndStoreGrantDocument({

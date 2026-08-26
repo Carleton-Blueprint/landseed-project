@@ -5,6 +5,15 @@ export enum EligibilityDecision {
   MANUAL_REVIEW = "MANUAL_REVIEW",
 }
 
+/** ELIGIBLE/INELIGIBLE are the only terminal decisions — NEEDS_MORE_INFO and MANUAL_REVIEW mean
+ *  the assessment isn't finished yet. Single source of truth for anything gated on "is this done"
+ *  (e.g. whether the grant eligibility summary PDF has been generated). */
+export function isFinalEligibilityDecision(
+  decision: EligibilityDecision | string | null | undefined
+): boolean {
+  return decision === EligibilityDecision.ELIGIBLE || decision === EligibilityDecision.INELIGIBLE;
+}
+
 export enum EligibilityProgram {
   CMHC = "CMHC",
   PROVINCIAL = "PROVINCIAL",

@@ -15,6 +15,8 @@ import { ConsultationScheduler } from "@/frontend/components/ConsultationSchedul
 import { getLatestGrantDocumentGenerationInfo } from "@/backend/services/grantDocument";
 import { GrantDocumentCard } from "./GrantDocumentCard";
 import { listInformationRequestsForProject } from "@/backend/services/informationRequests";
+import { HST_DISCLAIMER_TEXT } from "@/shared/hstDisclaimer";
+import { isFinalEligibilityDecision } from "@/backend/eligibility/types";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -49,6 +51,7 @@ function getEstimateSummary(project: {
       value: "Available after project finalization",
       explanation:
         "Your initial estimate range will appear here after your project request is finalized. Pricing is dynamically generated from real-time external retail data.",
+      showHstDisclaimer: false,
     };
   }
 
@@ -57,6 +60,7 @@ function getEstimateSummary(project: {
       value: `$${estimateRange.min.toLocaleString()} – $${estimateRange.max.toLocaleString()}`,
       explanation:
         "This pricing is dynamically generated from real-time external retail data and may change as retailer pricing and product availability update.",
+      showHstDisclaimer: true,
     };
   }
 
@@ -64,6 +68,7 @@ function getEstimateSummary(project: {
     value: "Generating estimate…",
     explanation:
       "We are generating your estimate using real-time external retail data.",
+    showHstDisclaimer: false,
   };
 }
 
@@ -128,6 +133,7 @@ export default async function ProjectDetailPage({
   }
 
   let project = null;
+  let usingDevFallbackProject = false;
   try {
     project = await prisma.project.findUnique({
       where: { id: resolvedParams.id },
@@ -162,6 +168,7 @@ export default async function ProjectDetailPage({
     });
   } catch {
     if (process.env.NODE_ENV === "development") {
+      usingDevFallbackProject = true;
       project = {
         id: resolvedParams.id,
         address: "123 Dev Lane, Mockville",
@@ -193,21 +200,43 @@ export default async function ProjectDetailPage({
 
   const estimateSummary = getEstimateSummary({ status: project.status, quotes: project.quotes });
 
+  // independent lookups — run them concurrently
+  const [grantDocumentInfoResult, latestAssessmentResult, informationRequestsResult] =
+    await Promise.allSettled([
+      getLatestGrantDocumentGenerationInfo(project.id),
+      usingDevFallbackProject
+        ? Promise.resolve(null)
+        : prisma.eligibilityAssessment.findFirst({
+            where: { projectId: project.id, isLatest: true },
+            select: { overallDecision: true },
+          }),
+      listInformationRequestsForProject(project.id),
+    ]);
+
   let grantDocumentInfo: { generatedAt: Date; incompleteFields: string[] } | null = null;
-  try {
-    grantDocumentInfo = await getLatestGrantDocumentGenerationInfo(project.id);
-  } catch (error) {
-    console.warn("Failed to load grant document generation info:", error);
+  if (grantDocumentInfoResult.status === "fulfilled") {
+    grantDocumentInfo = grantDocumentInfoResult.value;
+  } else {
+    console.warn("Failed to load grant document generation info:", grantDocumentInfoResult.reason);
+  }
+
+  // See GrantDocumentCard's assessmentComplete prop for why this gate exists.
+  let eligibilityAssessmentComplete = usingDevFallbackProject;
+  if (!usingDevFallbackProject) {
+    if (latestAssessmentResult.status === "fulfilled") {
+      eligibilityAssessmentComplete = isFinalEligibilityDecision(latestAssessmentResult.value?.overallDecision);
+    } else {
+      console.warn("Failed to load eligibility assessment status:", latestAssessmentResult.reason);
+    }
   }
 
   let openInformationRequests: Awaited<ReturnType<typeof listInformationRequestsForProject>> = [];
-  try {
-    const allRequests = await listInformationRequestsForProject(project.id);
-    openInformationRequests = allRequests.filter(
+  if (informationRequestsResult.status === "fulfilled") {
+    openInformationRequests = informationRequestsResult.value.filter(
       (r) => r.status === "PENDING" || r.status === "FOLLOW_UP_FLAGGED"
     );
-  } catch (error) {
-    console.warn("Failed to load information requests:", error);
+  } else {
+    console.warn("Failed to load information requests:", informationRequestsResult.reason);
   }
 
   let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
@@ -365,6 +394,9 @@ export default async function ProjectDetailPage({
           </h2>
           <p className="text-xl font-bold text-gray-800">{estimateSummary.value}</p>
           <p className="mt-2 text-sm text-gray-500">{estimateSummary.explanation}</p>
+          {estimateSummary.showHstDisclaimer && (
+            <p className="mt-1 text-xs text-gray-400 italic">{HST_DISCLAIMER_TEXT}</p>
+          )}
         </div>
 
         {/* ═══════ Work Order (BuilderTrend) ═══════ */}
@@ -451,20 +483,21 @@ export default async function ProjectDetailPage({
         {/* ═══════ AI-Sourced Grant Discovery Summary ═══════ */}
         <GrantDiscoverySummary projectId={project.id} />
 
+        {/* ═══════ Grant Eligibility Summary PDF Download ═══════ */}
+        <GrantDocumentCard
+          projectId={project.id}
+          assessmentComplete={eligibilityAssessmentComplete}
+          hasDocument={Boolean(project.grantDocumentKey)}
+          lastGeneratedAt={grantDocumentInfo?.generatedAt.toISOString() ?? null}
+          incompleteFields={grantDocumentInfo?.incompleteFields ?? []}
+        />
+
         {/* ═══════ Mandatory Consultation Scheduler ═══════ */}
         {project.status !== "draft" && (
           <ConsultationScheduler projectId={project.id} />
         )}
 
         <SupportingDocumentsSection grantApplicationId={project.id} />
-
-        {/* ═══════ Grant PDF Download Card ═══════ */}
-        <GrantDocumentCard
-          projectId={project.id}
-          hasDocument={Boolean(project.grantDocumentKey)}
-          lastGeneratedAt={grantDocumentInfo?.generatedAt.toISOString() ?? null}
-          incompleteFields={grantDocumentInfo?.incompleteFields ?? []}
-        />
       </div>
     </main>
   );

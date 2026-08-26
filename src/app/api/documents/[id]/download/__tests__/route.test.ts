@@ -46,6 +46,7 @@ jest.mock("@/backend/auth/projectAccess", () => ({
 
 jest.mock("lib/s3", () => ({
   getSignedDownloadUrl: jest.fn(),
+  objectExistsInS3: jest.fn(),
 }));
 
 jest.mock("@/backend/audit/requestContext", () => ({
@@ -76,8 +77,9 @@ const { hasProjectAccess } = require("@/backend/auth/projectAccess") as {
   hasProjectAccess: jest.Mock;
 };
 
-const { getSignedDownloadUrl } = require("lib/s3") as {
+const { getSignedDownloadUrl, objectExistsInS3 } = require("lib/s3") as {
   getSignedDownloadUrl: jest.Mock;
+  objectExistsInS3: jest.Mock;
 };
 
 describe("GET /api/documents/[id]/download", () => {
@@ -92,6 +94,7 @@ describe("GET /api/documents/[id]/download", () => {
   const mockedGetSignedDownloadUrl = getSignedDownloadUrl as jest.Mock<
     (key: string, expiresIn: number) => Promise<string>
   >;
+  const mockedObjectExistsInS3 = objectExistsInS3 as jest.Mock<(key: string) => Promise<boolean>>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -132,6 +135,7 @@ describe("GET /api/documents/[id]/download", () => {
       grantDocumentKey: "projects/project-1/grant/grant-application-v1.pdf",
     });
     mockedHasProjectAccess.mockResolvedValue(true);
+    mockedObjectExistsInS3.mockResolvedValue(true);
     mockedGetSignedDownloadUrl.mockResolvedValue("https://signed.example.com/file");
 
     process.env.GRANT_DOCUMENT_DOWNLOAD_URL_EXPIRY_SECONDS = "900";
@@ -140,11 +144,29 @@ describe("GET /api/documents/[id]/download", () => {
       params: Promise.resolve({ id: "project-1" }),
     });
 
+    expect(mockedObjectExistsInS3).toHaveBeenCalledWith("projects/project-1/grant/grant-application-v1.pdf");
     expect(mockedGetSignedDownloadUrl).toHaveBeenCalledWith(
       "projects/project-1/grant/grant-application-v1.pdf",
       900
     );
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://signed.example.com/file");
+  });
+
+  it("returns 404 without generating a signed URL when the DB key points at a file no longer in S3", async () => {
+    mockedAuth.mockResolvedValue({ user: { id: "user-1" } });
+    mockedFindUnique.mockResolvedValue({
+      id: "project-1",
+      grantDocumentKey: "projects/project-1/grant/grant-application-v1.pdf",
+    });
+    mockedHasProjectAccess.mockResolvedValue(true);
+    mockedObjectExistsInS3.mockResolvedValue(false);
+
+    const response = await GET({} as Request, {
+      params: Promise.resolve({ id: "project-1" }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(mockedGetSignedDownloadUrl).not.toHaveBeenCalled();
   });
 });

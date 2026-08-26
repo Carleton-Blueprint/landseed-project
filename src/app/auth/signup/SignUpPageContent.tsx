@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState, Suspense } from "react";
-import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/frontend/components/ui/button";
 import { AuthPageShell } from "@/frontend/components/auth/AuthPageShell";
+import { AuthSwitchLink } from "@/frontend/components/auth/AuthSwitchLink";
+import { AuthSubmitButton } from "@/frontend/components/auth/AuthSubmitButton";
 import { validatePasswordStrength } from "@/shared/passwordPolicy";
 
 function SignUpForm() {
@@ -83,7 +83,7 @@ function SignUpForm() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm"
-          placeholder="Jane Doe"
+          placeholder="Full name"
         />
       </div>
 
@@ -96,7 +96,7 @@ function SignUpForm() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm"
-          placeholder="jane@example.com"
+          placeholder="you@example.com"
         />
       </div>
 
@@ -135,20 +135,11 @@ function SignUpForm() {
         </div>
       )}
 
-      <Button
-        type="submit"
-        disabled={isLoading || !!passwordError}
-        className="w-full py-6 mt-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 text-base"
-      >
+      <AuthSubmitButton disabled={isLoading || !!passwordError}>
         {isLoading ? "Creating Account..." : "Create Account"}
-      </Button>
+      </AuthSubmitButton>
 
-      <div className="mt-6 text-center text-sm text-gray-600">
-        Already have an account?{" "}
-        <Link href="/auth/signin" className="font-semibold text-emerald-600 hover:text-emerald-500">
-          Sign in
-        </Link>
-      </div>
+      <AuthSwitchLink prompt="Already have an account?" href="/auth/signin" label="Sign in" />
     </form>
   );
 }

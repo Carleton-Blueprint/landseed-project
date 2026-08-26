@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { AuthPageShell } from "@/frontend/components/auth/AuthPageShell";
-import { Button } from "@/frontend/components/ui/button";
+import { AuthSubmitButton } from "@/frontend/components/auth/AuthSubmitButton";
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
@@ -126,13 +126,9 @@ function ResetPasswordForm() {
         </div>
       )}
 
-      <Button
-        type="submit"
-        disabled={isLoading}
-        className="w-full py-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium text-base"
-      >
+      <AuthSubmitButton disabled={isLoading}>
         {isLoading ? "Saving..." : "Set new password"}
-      </Button>
+      </AuthSubmitButton>
 
       <Link
         href="/auth/signin"

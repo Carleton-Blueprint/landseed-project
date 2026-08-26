@@ -157,7 +157,7 @@ describe("assembleGrantPdfInput", () => {
     expect(result.incompleteFields).not.toEqual(expect.arrayContaining(["client name", "client email", "client phone"]));
   });
 
-  it("maps tenant ownership status and uses a generic program name when not eligible", async () => {
+  it("maps tenant ownership status and names the zero-matches case explicitly when ineligible", async () => {
     prisma.project.findUnique.mockResolvedValue({
       id: "proj-5",
       address: "789 Side St",
@@ -171,6 +171,22 @@ describe("assembleGrantPdfInput", () => {
     const result = await assembleGrantPdfInput("proj-5");
 
     expect(result.ownershipStatus).toBe("Tenant");
+    expect(result.grantProgramName).toBe("No matching grants found");
+  });
+
+  it("uses a generic program name when there is no final eligibility decision yet", async () => {
+    prisma.project.findUnique.mockResolvedValue({
+      id: "proj-6",
+      address: "1 Pending Ave",
+      draftData: { ownershipStatus: "owner", modificationItems: ["Grab bars"] },
+      userId: "user-6",
+      user: { name: "Pending User", email: "pending@example.com", phone: "555-3333" },
+      quotes: [],
+      eligibilityAssessments: [{ overallDecision: "NEEDS_MORE_INFO", discoveredGrants: [] }],
+    });
+
+    const result = await assembleGrantPdfInput("proj-6");
+
     expect(result.grantProgramName).toBe("Landseed Grant Application");
   });
 

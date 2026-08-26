@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Button } from "@/frontend/components/ui/button";
+import { AlertTriangleIcon } from "@/frontend/components/icons";
+import { useAdminResourceList } from "@/frontend/hooks/useAdminResourceList";
 
 interface Note {
   id: string;
@@ -23,36 +25,21 @@ export function ProjectStaffNotes({
   projectId: string;
   currentUserId: string;
 }) {
-  const [notes, setNotes] = useState<Note[]>([]);
+  const {
+    items: notes,
+    setItems: setNotes,
+    loading,
+    error,
+  } = useAdminResourceList<Note, { notes?: Note[] }>(
+    `/api/admin/projects/${projectId}/notes`,
+    (data) => data.notes || [],
+    "Failed to load staff notes"
+  );
   const [newNote, setNewNote] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
-
-  const fetchNotes = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch(`/api/admin/projects/${projectId}/notes`);
-      if (!res.ok) {
-        throw new Error("Failed to load staff notes");
-      }
-      const data = await res.json();
-      setNotes(data.notes || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchNotes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
 
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,14 +52,14 @@ export function ProjectStaffNotes({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: newNote }),
       });
-      
+
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Failed to add note");
       }
-      
+
       const createdNote = await res.json();
-      setNotes([createdNote, ...notes]);
+      setNotes((notes) => [createdNote, ...notes]);
       setNewNote("");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to add note");
@@ -91,14 +78,14 @@ export function ProjectStaffNotes({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: editContent }),
       });
-      
+
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Failed to update note");
       }
-      
+
       const updatedNote = await res.json();
-      setNotes(notes.map((n) => (n.id === noteId ? updatedNote : n)));
+      setNotes((notes) => notes.map((n) => (n.id === noteId ? updatedNote : n)));
       setEditingNoteId(null);
       setEditContent("");
     } catch (err) {
@@ -116,13 +103,13 @@ export function ProjectStaffNotes({
       const res = await fetch(`/api/admin/projects/${projectId}/notes/${noteId}`, {
         method: "DELETE",
       });
-      
+
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Failed to delete note");
       }
-      
-      setNotes(notes.filter((n) => n.id !== noteId));
+
+      setNotes((notes) => notes.filter((n) => n.id !== noteId));
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete note");
     } finally {
@@ -139,9 +126,7 @@ export function ProjectStaffNotes({
     <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-5 shadow-sm space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-bold text-amber-900 flex items-center gap-2">
-          <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
+          <AlertTriangleIcon size={20} strokeWidth={1.5} className="text-amber-600" />
           Internal Staff Notes
         </h3>
         <span className="text-xs font-semibold uppercase tracking-wider text-amber-700 bg-amber-200 px-2.5 py-1 rounded-full">
@@ -192,14 +177,14 @@ export function ProjectStaffNotes({
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => startEdit(note)}
-                      className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                      className="text-xs text-gray-500 hover:text-gray-700 font-medium p-2 -m-2"
                       disabled={submitting}
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => handleDeleteNote(note.id)}
-                      className="text-xs text-red-500 hover:text-red-700 font-medium"
+                      className="text-xs text-red-500 hover:text-red-700 font-medium p-2 -m-2"
                       disabled={submitting}
                     >
                       Delete

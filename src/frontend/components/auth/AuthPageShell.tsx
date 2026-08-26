@@ -2,13 +2,13 @@ import type { ReactNode } from "react";
 
 type AuthPageShellProps = {
   title: string;
-  description: string;
+  description?: string;
   children: ReactNode;
 };
 
 export function AuthPageShell({ title, description, children }: AuthPageShellProps) {
   return (
-    <div className="relative min-h-screen bg-white flex items-center justify-center overflow-hidden font-sans z-0">
+    <div className="relative min-h-screen bg-gray-50/60 flex items-center justify-center overflow-hidden font-sans z-0">
       <style>{`
         @keyframes drift-1 {
           from { background-position: 0 0; }
@@ -30,13 +30,17 @@ export function AuthPageShell({ title, description, children }: AuthPageShellPro
         }
       `}</style>
 
+      {/* soft gradient base for depth, with the drifting house pattern layered on top */}
+      <div className="pointer-events-none absolute -top-32 -left-32 -z-20 h-96 w-96 rounded-full bg-emerald-100/60 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -right-32 -z-20 h-96 w-96 rounded-full bg-emerald-50 blur-3xl" />
       <div className="fixed inset-0 -z-10 bg-houses-1 opacity-20 pointer-events-none" />
       <div className="fixed inset-0 -z-10 bg-houses-2 opacity-50 pointer-events-none" />
 
-      <div className="relative z-10 w-full max-w-md mx-4 p-8 bg-white/90 backdrop-blur-md border border-gray-200/60 rounded-3xl shadow-xl">
+      {/* no backdrop-blur on the card — combined with the animated bg layers, Firefox renders a visible seam */}
+      <div className="relative z-10 w-full max-w-md mx-4 p-8 bg-white border border-gray-200 rounded-3xl shadow-xl">
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">{title}</h1>
-          <p className="text-base text-gray-600 mt-2">{description}</p>
+          {description && <p className="text-base text-gray-600 mt-2">{description}</p>}
         </div>
         {children}
       </div>

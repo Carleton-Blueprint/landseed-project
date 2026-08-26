@@ -359,7 +359,7 @@ function ProjectAccessPanel({
                           type="button"
                           onClick={() => handleRevoke(member)}
                           disabled={actionState === "updating" || actionState === "revoking"}
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-gray-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50"
+                          className="flex h-11 w-11 items-center justify-center rounded-md border border-transparent text-gray-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50"
                           aria-label={`Revoke access for ${member.user.name ?? member.user.email}`}
                           title="Revoke access"
                         >
@@ -565,7 +565,7 @@ export function AccessManagementClient({ projects, currentUserId }: Props) {
         {/* Step-by-Step Walkthrough Grid */}
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm space-y-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 text-xs font-bold">1</div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold">1</div>
             <h3 className="text-sm font-bold text-gray-900">Create an Assessment</h3>
             <p className="text-xs text-gray-500 leading-relaxed">
               Submit your initial home modification request. This establishes a project dashboard that acts as the collaboration hub.

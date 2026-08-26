@@ -487,10 +487,10 @@ export function IntakeForm() {
       aria-label="Digital intake form"
       className="space-y-6 max-w-2xl"
     >
-      <h1 className="text-xl font-semibold">Intake Form</h1>
+      <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Intake Form</h2>
 
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold mb-3">Contact</h2>
+      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Contact</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Please provide your contact information.
         </p>
@@ -503,7 +503,7 @@ export function IntakeForm() {
             id="intake-name"
             type="text"
             {...register("name")}
-            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
             aria-invalid={!!errors.name}
             aria-describedby={errors.name ? "intake-name-error" : undefined}
           />
@@ -522,7 +522,7 @@ export function IntakeForm() {
             id="intake-email"
             type="email"
             {...register("email")}
-            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? "intake-email-error" : undefined}
           />
@@ -541,7 +541,7 @@ export function IntakeForm() {
             id="intake-phone"
             type="tel"
             {...register("phone")}
-            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
             aria-invalid={!!errors.phone}
             aria-describedby={errors.phone ? "intake-phone-error" : undefined}
           />
@@ -563,7 +563,7 @@ export function IntakeForm() {
                 type="password"
                 autoComplete="new-password"
                 {...register("password")}
-                className="rounded border border-input bg-background px-3 py-2 text-sm"
+                className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
                 aria-invalid={!!errors.password}
                 aria-describedby={errors.password ? "intake-password-error" : undefined}
               />
@@ -583,7 +583,7 @@ export function IntakeForm() {
                 type="password"
                 autoComplete="new-password"
                 {...register("confirmPassword")}
-                className="rounded border border-input bg-background px-3 py-2 text-sm"
+                className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
                 aria-invalid={!!errors.confirmPassword}
                 aria-describedby={
                   errors.confirmPassword ? "intake-confirm-password-error" : undefined
@@ -613,7 +613,7 @@ export function IntakeForm() {
             id="intake-caregiver"
             type="checkbox"
             {...register("isCaregiver")}
-            className="rounded border-input"
+            className="h-4 w-4 rounded border-gray-300 accent-emerald-600"
           />
           <label htmlFor="intake-caregiver" className="text-sm">
             I am a caregiver submitting this request on behalf of a senior
@@ -622,8 +622,8 @@ export function IntakeForm() {
       </section>
 
       {isCaregiver && (
-        <section className="space-y-3">
-          <h2 className="text-base font-semibold mb-3">Caregiver</h2>
+        <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Caregiver</h2>
           <p className="text-sm text-muted-foreground mb-3">
             You are submitting on behalf of a senior. Please provide their details and confirm
             consent.
@@ -637,7 +637,7 @@ export function IntakeForm() {
               id="intake-senior-name"
               type="text"
               {...register("seniorName")}
-              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
               aria-invalid={!!errors.seniorName}
               aria-describedby={errors.seniorName ? "intake-senior-name-error" : undefined}
             />
@@ -663,7 +663,7 @@ export function IntakeForm() {
               id="intake-relationship-to-senior"
               type="text"
               {...register("relationshipToSenior")}
-              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
               aria-invalid={!!errors.relationshipToSenior}
               aria-describedby={
                 errors.relationshipToSenior ? "intake-relationship-error" : undefined
@@ -681,7 +681,7 @@ export function IntakeForm() {
               id="intake-caregiver-consent"
               type="checkbox"
               {...register("caregiverConsentConfirmed")}
-              className="rounded border-input"
+              className="h-4 w-4 rounded border-gray-300 accent-emerald-600"
             />
             <label htmlFor="intake-caregiver-consent" className="text-sm">
               I confirm I have authority to submit this form and the senior has consented.
@@ -696,8 +696,8 @@ export function IntakeForm() {
         </section>
       )}
 
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold mb-3">Service address</h2>
+      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Service address</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Street address, city, province, and postal code.
         </p>
@@ -710,7 +710,7 @@ export function IntakeForm() {
             id="intake-address1"
             type="text"
             {...register("addressLine1")}
-            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
             aria-invalid={!!errors.addressLine1}
             aria-describedby={errors.addressLine1 ? "intake-address1-error" : undefined}
           />
@@ -729,7 +729,7 @@ export function IntakeForm() {
             id="intake-address2"
             type="text"
             {...register("addressLine2")}
-            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
             aria-invalid={!!errors.addressLine2}
             aria-describedby={errors.addressLine2 ? "intake-address2-error" : undefined}
           />
@@ -749,7 +749,7 @@ export function IntakeForm() {
               id="intake-city"
               type="text"
               {...register("city")}
-              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
               aria-invalid={!!errors.city}
               aria-describedby={errors.city ? "intake-city-error" : undefined}
             />
@@ -767,7 +767,7 @@ export function IntakeForm() {
             <select
               id="intake-province"
               {...register("province")}
-              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
               aria-invalid={!!errors.province}
               aria-describedby={errors.province ? "intake-province-error" : undefined}
             >
@@ -792,7 +792,7 @@ export function IntakeForm() {
               id="intake-postal"
               type="text"
               {...register("postalCode")}
-              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
               aria-invalid={!!errors.postalCode}
               aria-describedby={errors.postalCode ? "intake-postal-error" : undefined}
             />
@@ -805,8 +805,8 @@ export function IntakeForm() {
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold mb-3">Ownership</h2>
+      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Ownership</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Are you the owner, tenant, or something else?
         </p>
@@ -818,7 +818,7 @@ export function IntakeForm() {
           <select
             id="intake-ownership"
             {...register("ownershipStatus")}
-            className="rounded border border-input bg-background px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
             aria-invalid={!!errors.ownershipStatus}
             aria-describedby={errors.ownershipStatus ? "intake-ownership-error" : undefined}
           >
@@ -843,7 +843,7 @@ export function IntakeForm() {
                 id="intake-landlord-name"
                 type="text"
                 {...register("landlordName")}
-                className="rounded border border-input bg-background px-3 py-2 text-sm"
+                className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
                 aria-invalid={!!errors.landlordName}
                 aria-describedby={errors.landlordName ? "intake-landlord-name-error" : undefined}
               />
@@ -866,7 +866,7 @@ export function IntakeForm() {
                 id="intake-landlord-phone"
                 type="tel"
                 {...register("landlordPhone")}
-                className="rounded border border-input bg-background px-3 py-2 text-sm"
+                className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
                 aria-invalid={!!errors.landlordPhone}
                 aria-describedby={
                   errors.landlordPhone ? "intake-landlord-phone-error" : undefined
@@ -894,7 +894,7 @@ export function IntakeForm() {
               id="intake-ownership-other"
               type="text"
               {...register("ownershipOtherDetails")}
-              className="rounded border border-input bg-background px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-base shadow-sm transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:text-sm"
               aria-invalid={!!errors.ownershipOtherDetails}
               aria-describedby={
                 errors.ownershipOtherDetails ? "intake-ownership-other-error" : undefined
@@ -913,8 +913,8 @@ export function IntakeForm() {
         )}
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold mb-3">Modification items</h2>
+      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Modification items</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Select all modifications needed for this request.
         </p>
@@ -923,13 +923,13 @@ export function IntakeForm() {
           {modificationOptions.map((item) => (
             <label
               key={item}
-              className="flex items-center gap-2 rounded border border-input px-3 py-2 text-sm"
+              className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm transition-colors hover:border-emerald-300 hover:bg-emerald-50/30"
             >
               <input
                 type="checkbox"
                 value={item}
                 {...register("modificationItems")}
-                className="rounded border-input"
+                className="h-4 w-4 rounded border-gray-300 accent-emerald-600"
               />
               <span>{item}</span>
             </label>
@@ -943,8 +943,8 @@ export function IntakeForm() {
         )}
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold mb-3">Photos</h2>
+      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Photos</h2>
         <p className="text-sm text-muted-foreground mb-3">
           Upload between 1 and 10 photos of the space requiring modification. Accepted file types:
           JPG, JPEG, PNG, and HEIC. Maximum file size: 10MB per photo.
@@ -964,7 +964,7 @@ export function IntakeForm() {
                     type="button"
                     onClick={() => void handleRemovePhoto(photo.id)}
                     disabled={removingPhotoId === photo.id}
-                    className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-black/85 disabled:opacity-60"
+                    className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-2 text-xs font-medium text-white transition-colors hover:bg-black/85 disabled:opacity-60"
                     aria-label="Remove photo"
                   >
                     {removingPhotoId === photo.id ? "Removing…" : "Remove"}
@@ -999,8 +999,8 @@ export function IntakeForm() {
         )}
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold mb-3">Consent</h2>
+      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Consent</h2>
         <div className="rounded-md border border-input bg-muted/30 p-4 space-y-3">
           <p className="text-sm text-muted-foreground">
             We collect your contact details, address, photos, and other information in this form so
@@ -1016,7 +1016,7 @@ export function IntakeForm() {
               id="intake-client-consent"
               type="checkbox"
               {...register("clientConsentConfirmed")}
-              className="mt-1 rounded border-input"
+              className="mt-1 h-4 w-4 rounded border-gray-300 accent-emerald-600"
               aria-invalid={!!errors.clientConsentConfirmed}
               aria-describedby={
                 errors.clientConsentConfirmed ? "intake-client-consent-error" : undefined
@@ -1046,8 +1046,9 @@ export function IntakeForm() {
         </p>
       )}
 
-      <div className="flex gap-4 mt-2">
-        <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmittingForm}>
+      {/* Stacks full-width on narrow screens — three buttons in one row overflow a 320px viewport. */}
+      <div className="flex flex-col sm:flex-row gap-4 mt-2">
+        <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmittingForm} className="w-full sm:w-auto">
           Cancel
         </Button>
 
@@ -1056,11 +1057,12 @@ export function IntakeForm() {
           variant="outline"
           onClick={() => void handleSaveDraft()}
           disabled={isSubmittingForm || isSaving}
+          className="w-full sm:w-auto"
         >
           {isSaving ? "Saving…" : "Save as Draft"}
         </Button>
 
-        <Button type="submit" disabled={isSubmittingForm || isSaving}>
+        <Button type="submit" disabled={isSubmittingForm || isSaving} className="w-full sm:w-auto">
           {isSubmittingForm ? "Submitting…" : "Submit"}
         </Button>
       </div>

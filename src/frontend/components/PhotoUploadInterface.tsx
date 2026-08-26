@@ -185,7 +185,7 @@ export const PhotoUploadInterface = React.forwardRef<
             : "border-gray-300 hover:border-blue-400"
         }`}
       >
-        <input {...getInputProps()} />
+        <input {...getInputProps({ "aria-label": "Upload project photos" })} />
         <div>
           <p className="font-semibold text-gray-700">
             {isDragActive ? "Drop here..." : "Click or drag files here to upload"}
@@ -265,6 +265,7 @@ export const PhotoUploadInterface = React.forwardRef<
             ref={fileInputRef}
             className="hidden"
             accept=".jpg,.jpeg,.png,.heic,image/jpeg,image/png,image/heic,image/heif"
+            capture="environment"
             onChange={handleReplaceFile}
           />
         </div>

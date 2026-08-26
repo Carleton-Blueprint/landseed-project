@@ -7,6 +7,7 @@ import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient"
 import { AdminMfaPanel } from "./AdminMfaPanel";
 import { AdminAlertThresholdsPanel } from "./AdminAlertThresholdsPanel";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
+import type { AnyRefinedEstimate } from "@/backend/services/pricingTiers";
 
 export const metadata: Metadata = {
   title: "Advisor Panel — Landseed Project",
@@ -144,7 +145,9 @@ export default async function AdminDashboardPage() {
           openQuestions: latestQuote.questions.filter((q: { status: string }) => q.status === "OPEN").length,
           estimateMin: latestQuote.estimateMin ? latestQuote.estimateMin.toString() : null,
           estimateMax: latestQuote.estimateMax ? latestQuote.estimateMax.toString() : null,
-          refinedEstimate: latestQuote.refinedEstimate,
+          // Prisma types this Json column as `JsonValue`; it's always either null or the
+          // RefinedEstimate/TieredRefinedEstimate shape produced by the pricing services.
+          refinedEstimate: latestQuote.refinedEstimate as AnyRefinedEstimate | null,
         } : null,
         eligibility: aExtended ? {
           id: aExtended.id,

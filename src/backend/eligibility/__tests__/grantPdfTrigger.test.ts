@@ -1,11 +1,13 @@
 /**
  * @jest-environment node
  *
- * Verifies FR-3.2 wiring: evaluateProjectEligibility triggers grant PDF
- * generation when the overall decision is ELIGIBLE, and does not when it
- * is not ELIGIBLE. Uses the node test environment because the code under
- * test relies on the Node `setImmediate` global, which jsdom (this repo's
- * default test environment) does not provide.
+ * Verifies FR-3.2/Task 6 wiring: evaluateProjectEligibility triggers grant
+ * eligibility summary PDF generation for both final decisions — ELIGIBLE and
+ * INELIGIBLE (zero matching grants) — so the client can always download a
+ * summary once the assessment completes, but not for NEEDS_MORE_INFO/
+ * MANUAL_REVIEW, which aren't final decisions yet. Uses the node test
+ * environment because the code under test relies on the Node `setImmediate`
+ * global, which jsdom (this repo's default test environment) does not provide.
  */
 
 jest.mock('lib/prisma', () => ({
@@ -62,7 +64,7 @@ const baseProject = {
   draftData: {},
 } as never;
 
-function baseEvaluation(overallDecision: 'ELIGIBLE' | 'INELIGIBLE') {
+function baseEvaluation(overallDecision: 'ELIGIBLE' | 'INELIGIBLE' | 'NEEDS_MORE_INFO' | 'MANUAL_REVIEW') {
   return {
     overallDecision,
     programDecisions: {},
@@ -120,7 +122,7 @@ describe('evaluateProjectEligibility grant PDF trigger', () => {
     );
   });
 
-  it('does not generate the grant PDF when overallDecision is INELIGIBLE', async () => {
+  it('generates the grant PDF (zero-matches summary) when overallDecision is INELIGIBLE', async () => {
     (discoverAndEvaluateGrants as jest.Mock).mockResolvedValue(baseEvaluation('INELIGIBLE'));
 
     const result = await evaluateProjectEligibility(baseProject);
@@ -128,6 +130,27 @@ describe('evaluateProjectEligibility grant PDF trigger', () => {
 
     await flushBackgroundJobs();
 
-    expect(generateAndStoreGrantDocument).not.toHaveBeenCalled();
+    expect(generateAndStoreGrantDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj-1' })
+    );
+  });
+
+  it('does not generate the grant PDF when the decision is not final yet (NEEDS_MORE_INFO/MANUAL_REVIEW)', async () => {
+    for (const decision of ['NEEDS_MORE_INFO', 'MANUAL_REVIEW'] as const) {
+      jest.clearAllMocks();
+      (assembleEligibilityInput as jest.Mock).mockReturnValue({});
+      (createEligibilityAssessmentSnapshot as jest.Mock).mockResolvedValue({
+        id: 'assessment-1',
+        createdAt: new Date(),
+      });
+      (discoverAndEvaluateGrants as jest.Mock).mockResolvedValue(baseEvaluation(decision));
+
+      const result = await evaluateProjectEligibility(baseProject);
+      expect('code' in (result as object)).toBe(false);
+
+      await flushBackgroundJobs();
+
+      expect(generateAndStoreGrantDocument).not.toHaveBeenCalled();
+    }
   });
 });

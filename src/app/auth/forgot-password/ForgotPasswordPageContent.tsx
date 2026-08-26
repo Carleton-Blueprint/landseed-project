@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { AuthPageShell } from "@/frontend/components/auth/AuthPageShell";
-import { Button } from "@/frontend/components/ui/button";
+import { AuthSubmitButton } from "@/frontend/components/auth/AuthSubmitButton";
 
 const GENERIC_SUCCESS_MESSAGE =
   "If an account exists for that email, we sent password reset instructions.";
@@ -71,7 +71,7 @@ export function ForgotPasswordPageContent() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-base text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm"
-              placeholder="jane@example.com"
+              placeholder="you@example.com"
             />
           </div>
 
@@ -81,13 +81,9 @@ export function ForgotPasswordPageContent() {
             </div>
           )}
 
-          <Button
-            type="submit"
-            disabled={isLoading}
-            className="w-full py-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium text-base"
-          >
+          <AuthSubmitButton disabled={isLoading}>
             {isLoading ? "Sending..." : "Send reset link"}
-          </Button>
+          </AuthSubmitButton>
 
           <Link
             href="/auth/signin"
