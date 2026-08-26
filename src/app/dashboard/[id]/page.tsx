@@ -15,6 +15,7 @@ import { getLatestGrantDocumentGenerationInfo } from "@/backend/services/grantDo
 import { GrantDocumentCard } from "./GrantDocumentCard";
 import { listInformationRequestsForProject } from "@/backend/services/informationRequests";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
+import { isFinalEligibilityDecision } from "@/backend/eligibility/types";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 
 /* ------------------------------------------------------------------ */
@@ -120,6 +121,7 @@ export default async function ProjectDetailPage({
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let project: any = null;
+  let usingDevFallbackProject = false;
   try {
     project = await prisma.project.findUnique({
       where: { id: resolvedParams.id },
@@ -154,6 +156,7 @@ export default async function ProjectDetailPage({
     });
   } catch {
     if (process.env.NODE_ENV === "development") {
+      usingDevFallbackProject = true;
       project = {
         id: resolvedParams.id,
         address: "123 Dev Lane, Mockville",
@@ -189,6 +192,20 @@ export default async function ProjectDetailPage({
     grantDocumentInfo = await getLatestGrantDocumentGenerationInfo(project.id);
   } catch (error) {
     console.warn("Failed to load grant document generation info:", error);
+  }
+
+  // See GrantDocumentCard's assessmentComplete prop for why this gate exists.
+  let eligibilityAssessmentComplete = usingDevFallbackProject;
+  if (!usingDevFallbackProject) {
+    try {
+      const latestAssessment = await prisma.eligibilityAssessment.findFirst({
+        where: { projectId: project.id, isLatest: true },
+        select: { overallDecision: true },
+      });
+      eligibilityAssessmentComplete = isFinalEligibilityDecision(latestAssessment?.overallDecision);
+    } catch (error) {
+      console.warn("Failed to load eligibility assessment status:", error);
+    }
   }
 
   let openInformationRequests: Awaited<ReturnType<typeof listInformationRequestsForProject>> = [];
@@ -466,6 +483,7 @@ export default async function ProjectDetailPage({
         {/* ═══════ Grant PDF Download Card ═══════ */}
         <GrantDocumentCard
           projectId={project.id}
+          assessmentComplete={eligibilityAssessmentComplete}
           hasDocument={Boolean(project.grantDocumentKey)}
           lastGeneratedAt={grantDocumentInfo?.generatedAt.toISOString() ?? null}
           incompleteFields={grantDocumentInfo?.incompleteFields ?? []}

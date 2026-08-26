@@ -56,6 +56,7 @@ export interface SerializedProject {
     openQuestions: number;
     estimateMin?: string | null;
     estimateMax?: string | null;
+    refinedEstimate?: unknown;
   } | null;
   eligibility: {
     id: string;
