@@ -178,6 +178,44 @@ describe("overridePreEstimateModifications", () => {
     expect(mockedTxPhotoUpdate).not.toHaveBeenCalled();
   });
 
+  it("rejects a photo entry with no modification codes", async () => {
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-5b",
+      status: "SUBMITTED",
+      quotes: [],
+      photos: [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
+    });
+
+    await expect(
+      overridePreEstimateModifications({
+        projectId: "proj-5b",
+        actorUserId: "admin-1",
+        photoModifications: [{ photoId: "photo-1", declaredModificationCodes: [] }],
+      })
+    ).rejects.toMatchObject({ code: "INVALID_PHOTO_MODIFICATIONS", statusCode: 400 });
+
+    expect(mockedTxPhotoUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects an override attempt when the project has no photos at all", async () => {
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-5c",
+      status: "SUBMITTED",
+      quotes: [],
+      photos: [],
+    });
+
+    await expect(
+      overridePreEstimateModifications({
+        projectId: "proj-5c",
+        actorUserId: "admin-1",
+        photoModifications: [{ photoId: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }],
+      })
+    ).rejects.toMatchObject({ code: "INVALID_PHOTO_MODIFICATIONS", statusCode: 400 });
+
+    expect(mockedTxPhotoUpdate).not.toHaveBeenCalled();
+  });
+
   it("updates photo tags, writes a per-photo audit trail, and queues re-evaluation", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-6",

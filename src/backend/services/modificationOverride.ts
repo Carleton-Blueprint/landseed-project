@@ -130,6 +130,14 @@ function validatePhotoModifications(
       );
     }
 
+    if (codes.length === 0) {
+      throw new ModificationOverrideError(
+        `Photo ${photoId} must have at least one modification tag`,
+        400,
+        "INVALID_PHOTO_MODIFICATIONS"
+      );
+    }
+
     entries.push({ photoId, declaredModificationCodes: codes });
   }
 
