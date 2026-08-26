@@ -300,7 +300,7 @@ describe("processPhotoModificationAnalysisJob", () => {
 
   it("logs outputSource=MOCK (not a fallback) when PHOTO_ANALYSIS_MOCK_AI is enabled", async () => {
     process.env.PHOTO_ANALYSIS_MOCK_AI = "true";
-    mockPhoto(["Grab bars"]);
+    mockPhoto();
     mockProjectPhotos([{ analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "MEDIUM" }]);
 
     await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
@@ -316,7 +316,7 @@ describe("processPhotoModificationAnalysisJob", () => {
   });
 
   it("logs outputSource=NONE when the live call fails (no mock fallback is applied)", async () => {
-    mockPhoto(["Grab bars"]);
+    mockPhoto();
     mockCreate.mockRejectedValue(new Error("OpenAI rate limited"));
 
     await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
