@@ -1368,9 +1368,17 @@ export function AdminDashboardClient({
             {/* Table of Flagged Projects */}
             {analyticsData.flaggedProjects.length > 0 && (
               <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b bg-gray-50/50">
-                  <h3 className="text-sm font-bold text-gray-900">Projects Requiring Attention ({analyticsData.flaggedProjects.length})</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">These projects triggered manual review and require human advisor approval</p>
+                <div className="px-5 py-4 border-b bg-gray-50/50 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">Projects Requiring Attention ({analyticsData.flaggedProjects.length})</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">These projects triggered manual review and require human advisor approval</p>
+                  </div>
+                  <Link
+                    href="/admin/flagged-projects"
+                    className="shrink-0 text-xs font-semibold text-orange-700 hover:text-orange-800 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-lg border border-orange-200 transition-colors"
+                  >
+                    View Flagged Projects
+                  </Link>
                 </div>
                 <div className="divide-y text-xs">
                   {analyticsData.flaggedProjects.map((p) => (
