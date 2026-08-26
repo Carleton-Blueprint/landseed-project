@@ -62,12 +62,16 @@ const mockProjectWithSubmission: SerializedProject = {
       url: "https://example.com/photo1.jpg",
       virus_scan_status: "clean",
       createdAt: new Date("2026-07-01T10:30:00Z").toISOString(),
+      declaredModificationCodes: ["GRAB_BARS"],
+      aiModificationCodes: ["GRAB_BARS"],
     },
     {
       id: "photo-2",
       url: "https://example.com/photo2.jpg",
       virus_scan_status: "clean",
       createdAt: new Date("2026-07-01T10:31:00Z").toISOString(),
+      declaredModificationCodes: ["HANDRAILS"],
+      aiModificationCodes: ["HANDRAILS"],
     },
   ],
 };
