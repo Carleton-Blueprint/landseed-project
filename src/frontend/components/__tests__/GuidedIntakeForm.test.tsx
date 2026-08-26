@@ -2,6 +2,14 @@ import { render, screen, waitFor, act, fireEvent } from "@testing-library/react"
 import { IntakeDraftProvider } from "@/frontend/contexts/IntakeDraftContext";
 import { GuidedIntakeForm } from "../GuidedIntakeForm";
 
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+  }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 const mockFetch = jest.fn();
 
 beforeEach(() => {

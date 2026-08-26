@@ -304,8 +304,25 @@ export function IntakeForm() {
     return true;
   }, [getValues, isAuthenticated]);
 
+  // Only reset back to blank when intakeData goes from present to absent
+  // (an explicit discard while this form is mounted) — not on the ordinary
+  // "just hydrated, no draft ever existed" case, which would otherwise wipe
+  // out anything the user already typed while hydration was still pending.
+  const hadIntakeDataRef = React.useRef(false);
+
   React.useEffect(() => {
-    if (!isHydrated || !intakeData) return;
+    if (!isHydrated) return;
+    if (!intakeData) {
+      if (hadIntakeDataRef.current) {
+        reset(defaultValues);
+        setPhotoKey((prev) => prev + 1);
+        previousUploadCountRef.current = 0;
+        setPhotoError(null);
+      }
+      hadIntakeDataRef.current = false;
+      return;
+    }
+    hadIntakeDataRef.current = true;
     reset({ ...defaultValues, ...intakeData } as IntakeFormValues);
   }, [intakeData, isHydrated, reset]);
 

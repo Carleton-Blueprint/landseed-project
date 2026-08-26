@@ -60,8 +60,22 @@ export function GuidedIntakeForm() {
     defaultValues,
   });
 
+  // Only reset back to blank when guidedData goes from present to absent
+  // (an explicit discard while this form is mounted) — not on the ordinary
+  // "just hydrated, no draft ever existed" case, which would otherwise wipe
+  // out anything the user already selected while hydration was still pending.
+  const hadGuidedDataRef = React.useRef(false);
+
   React.useEffect(() => {
-    if (!isHydrated || !guidedData) return;
+    if (!isHydrated) return;
+    if (!guidedData) {
+      if (hadGuidedDataRef.current) {
+        reset(defaultValues as FormValues);
+      }
+      hadGuidedDataRef.current = false;
+      return;
+    }
+    hadGuidedDataRef.current = true;
     reset({
       ...defaultValues,
       ...guidedData,

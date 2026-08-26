@@ -7,6 +7,7 @@ import { IntakeDraftProvider } from "@/frontend/contexts/IntakeDraftContext";
 import { GuidedIntakeForm } from "@/frontend/components/GuidedIntakeForm";
 import { IntakeForm } from "@/frontend/components/IntakeForm";
 import { IntakeLeaveGuard } from "@/frontend/components/IntakeLeaveGuard";
+import { NewProjectConfirmModal } from "@/frontend/components/NewProjectConfirmModal";
 import { Button } from "@/frontend/components/ui/button";
 import { ShieldCheck, LogIn, UserPlus, Sparkles } from "lucide-react";
 
@@ -72,6 +73,7 @@ export function IntakePageContent() {
   return (
     <IntakeDraftProvider>
       <IntakeLeaveGuard />
+      <NewProjectConfirmModal />
 
       <div id="guided-intake" className="mb-12">
         <GuidedIntakeForm />
