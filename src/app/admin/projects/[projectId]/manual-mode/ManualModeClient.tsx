@@ -31,6 +31,32 @@ export interface ManualModeDocumentData {
   createdAt: string;
 }
 
+export interface ManualModePhotoData {
+  id: string;
+  url: string;
+  virusScanStatus: string;
+  createdAt: string;
+}
+
+export interface ManualModeGrantEntry {
+  title: string;
+  scope: "MUNICIPAL" | "PROVINCIAL" | "NATIONAL";
+  jurisdiction: string;
+  sourceUrl: string | null;
+  summary: string;
+  decision: "ELIGIBLE" | "INELIGIBLE" | "NEEDS_MORE_INFO" | "MANUAL_REVIEW";
+  relevanceScore: number;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  rationale: string;
+  estimatedFundingAmount: string | null;
+}
+
+export interface ManualModeGrantsData {
+  overallDecision: string;
+  isManualEntry: boolean;
+  entries: ManualModeGrantEntry[];
+}
+
 export interface ManualModeInitialData {
   projectId: string;
   address: string;
@@ -40,6 +66,23 @@ export interface ManualModeInitialData {
   hasExistingAiQuote: boolean;
   submission: ManualModeSubmissionData | null;
   documents: ManualModeDocumentData[];
+  photos: ManualModePhotoData[];
+  grants: ManualModeGrantsData | null;
+}
+
+function emptyGrantEntry(): ManualModeGrantEntry {
+  return {
+    title: "",
+    scope: "MUNICIPAL",
+    jurisdiction: "",
+    sourceUrl: "",
+    summary: "",
+    decision: "ELIGIBLE",
+    relevanceScore: 80,
+    confidence: "MEDIUM",
+    rationale: "",
+    estimatedFundingAmount: "",
+  };
 }
 
 function fmtMoney(value: number): string {
@@ -60,7 +103,7 @@ const DOCUMENT_TYPE_LABEL: Record<string, string> = {
 
 export function ManualModeClient({ initialData }: { initialData: ManualModeInitialData }) {
   const router = useRouter();
-  const { projectId, submission: initialSubmission, documents } = initialData;
+  const { projectId, submission: initialSubmission, documents, photos, grants: initialGrants } = initialData;
   const locked = initialSubmission?.status === "PACKAGE_GENERATED";
 
   const [modificationType, setModificationType] = useState(initialSubmission?.modificationType ?? "");
@@ -90,6 +133,27 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
   );
   const [uploadLabel, setUploadLabel] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const [grantEntries, setGrantEntries] = useState<ManualModeGrantEntry[]>(
+    initialGrants?.entries.length ? initialGrants.entries : [emptyGrantEntry()]
+  );
+  const [grantsOverallDecision, setGrantsOverallDecision] = useState(initialGrants?.overallDecision ?? null);
+  const [savingGrants, setSavingGrants] = useState(false);
+
+  function updateGrantEntry(index: number, patch: Partial<ManualModeGrantEntry>) {
+    setGrantEntries((entries) => entries.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)));
+  }
+
+  function addGrantEntry() {
+    setGrantEntries((entries) => [...entries, emptyGrantEntry()]);
+  }
+
+  function removeGrantEntry(index: number) {
+    setGrantEntries((entries) => (entries.length > 1 ? entries.filter((_, i) => i !== index) : entries));
+  }
 
   const computedTotal = useMemo(
     () =>
@@ -184,6 +248,79 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
       setErrorMessage(error instanceof Error ? error.message : "Failed to upload document");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleUploadPhoto() {
+    if (!selectedPhoto) {
+      setErrorMessage("Choose a photo to upload first.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setUploadingPhoto(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedPhoto);
+
+      const response = await fetch(`/api/admin/projects/${projectId}/manual-mode/photos`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to upload photo");
+      }
+
+      setSuccessMessage(`Uploaded ${selectedPhoto.name}. Virus scan in progress.`);
+      setSelectedPhoto(null);
+      router.refresh();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to upload photo");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
+  async function handleSaveGrants() {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setSavingGrants(true);
+
+    try {
+      const validEntries = grantEntries
+        .filter((entry) => entry.title.trim() && entry.jurisdiction.trim() && entry.summary.trim() && entry.rationale.trim())
+        .map((entry) => ({
+          ...entry,
+          sourceUrl: entry.sourceUrl?.trim() || null,
+          estimatedFundingAmount: entry.estimatedFundingAmount?.trim() || null,
+        }));
+
+      if (validEntries.length === 0) {
+        throw new Error("Fill in at least one grant entry (title, jurisdiction, summary, and rationale are required).");
+      }
+
+      const response = await fetch(`/api/admin/projects/${projectId}/manual-mode/grants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grants: validEntries }),
+      });
+
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to save grant matches");
+      }
+
+      setGrantsOverallDecision(body.overallDecision);
+      setSuccessMessage(`Saved ${body.grantCount} grant match(es).`);
+      router.refresh();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to save grant matches");
+    } finally {
+      setSavingGrants(false);
     }
   }
 
@@ -456,6 +593,242 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
               <Button type="button" onClick={handleUpload} disabled={uploading}>
                 {uploading ? "Uploading..." : "Upload"}
               </Button>
+            </div>
+          )}
+        </section>
+
+        {/* Photos */}
+        <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900">Photos</h2>
+          <p className="text-sm text-gray-600">
+            Reference photos for staff use. These are never sent through AI analysis or image generation.
+          </p>
+
+          {photos.length === 0 ? (
+            <p className="text-sm text-gray-500 italic">No photos attached yet.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+              {photos.map((photo) => (
+                <div key={photo.id} className="relative overflow-hidden rounded-md border bg-gray-50">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photo.url} alt="Manual mode reference" className="aspect-square w-full object-cover" />
+                  <span
+                    className={`absolute bottom-1 right-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase text-white shadow-sm ${
+                      photo.virusScanStatus === "clean"
+                        ? "bg-emerald-600"
+                        : photo.virusScanStatus === "infected" || photo.virusScanStatus === "failed"
+                        ? "bg-red-600"
+                        : "bg-amber-500"
+                    }`}
+                  >
+                    {photo.virusScanStatus}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!locked && (
+            <div className="flex flex-wrap items-end gap-2 border-t pt-3">
+              <div>
+                <label htmlFor="manual-mode-photo-file" className="block text-xs font-medium text-gray-700 mb-1">
+                  Photo
+                </label>
+                <div className="flex h-10 items-center">
+                  <input
+                    id="manual-mode-photo-file"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => setSelectedPhoto(e.target.files?.[0] ?? null)}
+                    className="text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-input file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700 file:shadow-sm file:transition-colors hover:file:bg-gray-50"
+                  />
+                </div>
+              </div>
+              <Button type="button" onClick={handleUploadPhoto} disabled={uploadingPhoto}>
+                {uploadingPhoto ? "Uploading..." : "Upload"}
+              </Button>
+            </div>
+          )}
+        </section>
+
+        {/* Grants & Eligibility */}
+        <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Grants &amp; Eligibility</h2>
+            {grantsOverallDecision && (
+              <span className="rounded-full border border-gray-300 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700">
+                {grantsOverallDecision.replace(/_/g, " ")}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-gray-600">
+            Record which grants apply directly — this bypasses AI-driven grant discovery. Saving replaces the
+            project&apos;s current eligibility assessment.
+          </p>
+
+          {!locked && (
+            <div className="space-y-4">
+              {grantEntries.map((entry, index) => (
+                <div key={index} className="space-y-3 rounded-md border bg-gray-50 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-gray-800">Grant {index + 1}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeGrantEntry(index)}
+                      disabled={grantEntries.length === 1}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor={`grant-${index}-title`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Grant Title
+                      </label>
+                      <Input
+                        id={`grant-${index}-title`}
+                        value={entry.title}
+                        onChange={(e) => updateGrantEntry(index, { title: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`grant-${index}-jurisdiction`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Jurisdiction
+                      </label>
+                      <Input
+                        id={`grant-${index}-jurisdiction`}
+                        value={entry.jurisdiction}
+                        onChange={(e) => updateGrantEntry(index, { jurisdiction: e.target.value })}
+                        placeholder="e.g. City of Ottawa"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`grant-${index}-scope`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Scope
+                      </label>
+                      <select
+                        id={`grant-${index}-scope`}
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={entry.scope}
+                        onChange={(e) =>
+                          updateGrantEntry(index, { scope: e.target.value as ManualModeGrantEntry["scope"] })
+                        }
+                      >
+                        <option value="MUNICIPAL">Municipal</option>
+                        <option value="PROVINCIAL">Provincial</option>
+                        <option value="NATIONAL">National</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor={`grant-${index}-decision`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Decision
+                      </label>
+                      <select
+                        id={`grant-${index}-decision`}
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={entry.decision}
+                        onChange={(e) =>
+                          updateGrantEntry(index, { decision: e.target.value as ManualModeGrantEntry["decision"] })
+                        }
+                      >
+                        <option value="ELIGIBLE">Eligible</option>
+                        <option value="INELIGIBLE">Ineligible</option>
+                        <option value="NEEDS_MORE_INFO">Needs More Info</option>
+                        <option value="MANUAL_REVIEW">Manual Review</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor={`grant-${index}-confidence`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Confidence
+                      </label>
+                      <select
+                        id={`grant-${index}-confidence`}
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={entry.confidence}
+                        onChange={(e) =>
+                          updateGrantEntry(index, { confidence: e.target.value as ManualModeGrantEntry["confidence"] })
+                        }
+                      >
+                        <option value="HIGH">High</option>
+                        <option value="MEDIUM">Medium</option>
+                        <option value="LOW">Low</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor={`grant-${index}-funding`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Estimated Funding (optional)
+                      </label>
+                      <Input
+                        id={`grant-${index}-funding`}
+                        value={entry.estimatedFundingAmount ?? ""}
+                        onChange={(e) => updateGrantEntry(index, { estimatedFundingAmount: e.target.value })}
+                        placeholder="e.g. Up to $2,500"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`grant-${index}-sourceUrl`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Source URL (optional)
+                      </label>
+                      <Input
+                        id={`grant-${index}-sourceUrl`}
+                        value={entry.sourceUrl ?? ""}
+                        onChange={(e) => updateGrantEntry(index, { sourceUrl: e.target.value })}
+                        placeholder="https://..."
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`grant-${index}-relevanceScore`} className="block text-xs font-medium text-gray-700 mb-1">
+                        Relevance Score (0-100)
+                      </label>
+                      <Input
+                        id={`grant-${index}-relevanceScore`}
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={entry.relevanceScore}
+                        onChange={(e) => updateGrantEntry(index, { relevanceScore: Number(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor={`grant-${index}-summary`} className="block text-xs font-medium text-gray-700 mb-1">
+                      Summary
+                    </label>
+                    <textarea
+                      id={`grant-${index}-summary`}
+                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-16"
+                      value={entry.summary}
+                      onChange={(e) => updateGrantEntry(index, { summary: e.target.value })}
+                      placeholder="What this grant covers and who it's for."
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor={`grant-${index}-rationale`} className="block text-xs font-medium text-gray-700 mb-1">
+                      Rationale
+                    </label>
+                    <textarea
+                      id={`grant-${index}-rationale`}
+                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-16"
+                      value={entry.rationale}
+                      onChange={(e) => updateGrantEntry(index, { rationale: e.target.value })}
+                      placeholder="Why this client qualifies (or doesn't) for this grant."
+                    />
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex items-center justify-between border-t pt-3">
+                <Button type="button" variant="outline" size="sm" onClick={addGrantEntry}>
+                  + Add Grant
+                </Button>
+                <Button type="button" onClick={handleSaveGrants} disabled={savingGrants}>
+                  {savingGrants ? "Saving..." : "Save Grants"}
+                </Button>
+              </div>
             </div>
           )}
         </section>

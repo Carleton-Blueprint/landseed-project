@@ -42,6 +42,8 @@ function outputSourceLabel(outputSource: AiOutputSource): string {
       return 'Heuristic Scoring (catalog-based)';
     case 'MOCK':
       return 'AI-Assisted (mock/test mode)';
+    case 'MANUAL':
+      return 'Staff-Entered (manual)';
     case 'NONE':
     default:
       return 'Not available';

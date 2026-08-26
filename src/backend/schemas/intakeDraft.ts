@@ -41,7 +41,7 @@ export type GuidedData = z.infer<typeof guidedDataSchema>;
 export type IntakeData = z.infer<typeof intakeDataSchema>;
 export type PatchIntakeDraftInput = z.infer<typeof patchIntakeDraftSchema>;
 
-const provinces = [
+export const provinces = [
   "AB",
   "BC",
   "MB",

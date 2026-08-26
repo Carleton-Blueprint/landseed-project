@@ -39,7 +39,7 @@ interface DraftIntakeFields {
 }
 
 function resolveOutputSource(provider: string | null): AiOutputSource {
-  if (provider === 'OPENAI' || provider === 'HEURISTIC' || provider === 'MOCK') {
+  if (provider === 'OPENAI' || provider === 'HEURISTIC' || provider === 'MOCK' || provider === 'MANUAL') {
     return outputSourceForDiscoveryProvider(provider as GrantDiscoveryMetadata['provider']);
   }
   return 'NONE';
