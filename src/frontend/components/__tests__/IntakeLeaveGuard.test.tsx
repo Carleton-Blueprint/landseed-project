@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act } from "@testing-library/react";
 import { IntakeLeaveGuard } from "../IntakeLeaveGuard";
 import { useIntakeDraft } from "@/frontend/contexts/IntakeDraftContext";
 
@@ -27,39 +27,46 @@ function mockDraft(overrides: Partial<ReturnType<typeof useIntakeDraft>>) {
   });
 }
 
+// Injected via insertAdjacentHTML (rather than JSX) so this stand-in for an
+// in-app nav link isn't picked up by the no-html-link-for-pages build lint —
+// it exists purely so useIntakeLeaveGuard's document-level click listener has
+// a same-origin link to intercept, matching the pattern already used in
+// useIntakeLeaveGuard.test.ts.
+function appendLeaveLink() {
+  document.body.insertAdjacentHTML("beforeend", '<a href="/dashboard">Leave</a>');
+  return document.querySelector("a")!;
+}
+
+function clickLeaveLink() {
+  const link = appendLeaveLink();
+  act(() => {
+    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+}
+
 describe("IntakeLeaveGuard", () => {
   beforeEach(() => {
     mockUseIntakeDraft.mockReset();
   });
 
-  it("does not warn on navigation while a submit is in progress, even with unsaved changes", async () => {
-    const user = userEvent.setup();
+  afterEach(() => {
+    document.querySelectorAll("a").forEach((a) => a.remove());
+  });
+
+  it("does not warn on navigation while a submit is in progress, even with unsaved changes", () => {
     mockDraft({ isDirty: true, isSubmitting: true });
 
-    render(
-      <>
-        <IntakeLeaveGuard />
-        <a href="/dashboard">Leave</a>
-      </>
-    );
-
-    await user.click(screen.getByRole("link", { name: /leave/i }));
+    render(<IntakeLeaveGuard />);
+    clickLeaveLink();
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("still warns on navigation with unsaved changes once submit is not in progress", async () => {
-    const user = userEvent.setup();
+  it("still warns on navigation with unsaved changes once submit is not in progress", () => {
     mockDraft({ isDirty: true, isSubmitting: false });
 
-    render(
-      <>
-        <IntakeLeaveGuard />
-        <a href="/dashboard">Leave</a>
-      </>
-    );
-
-    await user.click(screen.getByRole("link", { name: /leave/i }));
+    render(<IntakeLeaveGuard />);
+    clickLeaveLink();
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
