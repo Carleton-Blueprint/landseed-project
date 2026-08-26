@@ -47,6 +47,10 @@ next-env.d.ts
 # Prisma
 prisma/migrations/**/migration_lock.toml
 
+# Local Postgres data directory (e.g. from a local `postgres -D pgdata` / docker volume mount) —
+# this is live database state, not source, and should never be tracked.
+/pgdata/
+
 # Notes
 docs/*
 !docs/DISASTER_RECOVERY.md

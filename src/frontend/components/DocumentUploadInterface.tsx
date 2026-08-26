@@ -118,7 +118,7 @@ function getStatusColor(status: string) {
     case "pending":
       return "text-amber-600 bg-amber-50 border-amber-200";
     case "clean":
-      return "text-emerald-600 bg-emerald-50 border-emerald-200";
+      return "text-emerald-700 bg-emerald-50 border-emerald-200";
     case "infected":
       return "text-red-600 bg-red-50 border-red-200";
     default:
@@ -383,7 +383,7 @@ export function DocumentUploadInterface({
               >
                 {isCompleted && (
                   <div className="absolute top-2 right-2">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500 text-white text-xs font-bold">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-700 text-white text-xs font-bold">
                       ✓
                     </span>
                   </div>
@@ -556,7 +556,7 @@ export function DocumentUploadInterface({
                       </div>
                     )}
                     {qf.status === "success" && (
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-500 text-white">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-700 text-white">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                         </svg>
@@ -672,7 +672,7 @@ export function DocumentUploadInterface({
                         type="button"
                         onClick={() => handleDelete(doc.id)}
                         disabled={deletingId === doc.id}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all duration-200 disabled:opacity-50"
+                        className="flex h-11 w-11 items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all duration-200 disabled:opacity-50"
                         title="Delete document"
                       >
                         {deletingId === doc.id ? (
@@ -717,7 +717,7 @@ export function DocumentUploadInterface({
                 <span
                   className={`
                     flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
-                    ${isUploaded ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-500"}
+                    ${isUploaded ? "bg-emerald-700 text-white" : "bg-gray-200 text-gray-500"}
                   `}
                 >
                   {isUploaded ? "✓" : "·"}

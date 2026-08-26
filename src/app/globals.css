@@ -49,9 +49,26 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /* Browsers disagree on the default background for bare select/textarea elements (e.g. Firefox
+     renders a visibly different shade than Chromium) — fix it once here instead of adding
+     `bg-white` to every individual element. Utility classes on a specific element still win. */
+  select,
+  textarea {
+    @apply bg-background;
+  }
 }
 
-/* WCAG 2.1 Level AA: ensure focus is visible */
+/* outline-2/outline-offset-2/outline-foreground don't set outline-style, so plain <a> tags fell
+   back to the browser's faint default outline. `outline` forces outline-style: solid. */
 :focus-visible {
-  @apply outline-2 outline-offset-2 outline-foreground;
+  @apply outline outline-2 outline-offset-2 outline-foreground;
+}
+
+/* kills the ~300ms tap delay on older Android/iOS without disabling pinch-zoom */
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
 }

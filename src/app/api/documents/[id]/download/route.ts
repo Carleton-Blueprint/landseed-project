@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "lib/prisma";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { getSignedDownloadUrl } from "lib/s3";
+import { getSignedDownloadUrl, objectExistsInS3 } from "lib/s3";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 
@@ -103,6 +103,26 @@ export async function GET(
         ...requestContext,
       });
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
+    }
+
+    const fileExists = await objectExistsInS3(project.grantDocumentKey);
+    if (!fileExists) {
+      await logAuditEventNonBlocking({
+        category: "SENSITIVE_ACCESS",
+        action: "PROJECT_DOCUMENT_DOWNLOAD",
+        outcome: "FAILURE",
+        sensitivityLevel: "RESTRICTED",
+        actorUserId: session.user.id,
+        projectId: project.id,
+        resourceType: "project_document",
+        resourceId: project.id,
+        description: "Document download requested but the referenced file is missing from storage",
+        ...requestContext,
+      });
+      return NextResponse.json(
+        { error: "Document file is missing. Please contact support." },
+        { status: 404 }
+      );
     }
 
     const expiresInSeconds = getDownloadExpirySeconds();

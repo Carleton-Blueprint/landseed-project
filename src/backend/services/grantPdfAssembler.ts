@@ -143,7 +143,8 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
     incompleteFields.push('estimated cost');
   }
 
-  // Grant program: pick top ELIGIBLE discovered grant title if assessment says ELIGIBLE
+  // Grant program: pick top ELIGIBLE discovered grant title if assessment says ELIGIBLE; make the
+  // zero-matches case explicit rather than falling through to a generic placeholder.
   let grantProgramName = 'Landseed Grant Application';
   const assessment = project.eligibilityAssessments[0];
   if (assessment?.overallDecision === 'ELIGIBLE') {
@@ -152,6 +153,8 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
     if (Array.isArray(discovered) && discovered.length > 0 && discovered[0]?.title) {
       grantProgramName = discovered[0].title;
     }
+  } else if (assessment?.overallDecision === 'INELIGIBLE') {
+    grantProgramName = 'No matching grants found';
   }
 
   return {

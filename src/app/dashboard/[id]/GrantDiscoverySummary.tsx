@@ -14,6 +14,7 @@ import {
   CheckCircleIcon,
   AlertTriangleIcon,
 } from "@/frontend/components/icons";
+import { MANUAL_REVIEW_CLIENT_MESSAGE } from "@/shared/manualReviewMessage";
 
 /* ------------------------------------------------------------------ */
 /* Types mirroring DiscoveredGrant from the eligibility backend        */
@@ -354,19 +355,24 @@ function OverallDecisionBanner({
   };
 
   return (
-    <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border ${d.border} ${d.bg} p-4`}>
-      <div className="flex items-center gap-3">
-        <span className="text-2xl">{icons[decision] ?? <FileIcon size={24} className="text-gray-400" />}</span>
-        <div>
-          <p className={`text-sm font-bold ${d.color}`}>{d.label}</p>
-          <p className="text-xs text-gray-600">
-            {grantCount} grant program{grantCount === 1 ? "" : "s"} evaluated
-          </p>
+    <div className={`rounded-xl border ${d.border} ${d.bg} p-4`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">{icons[decision] ?? <FileIcon size={24} className="text-gray-400" />}</span>
+          <div>
+            <p className={`text-sm font-bold ${d.color}`}>{d.label}</p>
+            <p className="text-xs text-gray-600">
+              {grantCount} grant program{grantCount === 1 ? "" : "s"} evaluated
+            </p>
+          </div>
         </div>
+        <p className="text-xs text-gray-500">
+          Assessed {new Date(assessedAt).toLocaleDateString("en-CA", { year: "numeric", month: "short", day: "numeric" })}
+        </p>
       </div>
-      <p className="text-xs text-gray-500">
-        Assessed {new Date(assessedAt).toLocaleDateString("en-CA", { year: "numeric", month: "short", day: "numeric" })}
-      </p>
+      {decision === "MANUAL_REVIEW" && (
+        <p className={`mt-2 text-xs leading-relaxed ${d.color}`}>{MANUAL_REVIEW_CLIENT_MESSAGE}</p>
+      )}
     </div>
   );
 }

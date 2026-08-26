@@ -2,7 +2,7 @@
  * Cloudflare R2 client for photo/document uploads, accessed through the S3-compatible API
  * (@aws-sdk/client-s3 works unmodified against R2). Configured via R2_* env vars.
  */
-import { S3Client, PutObjectCommand, ListBucketsCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, ListBucketsCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "node:stream";
 
@@ -95,6 +95,29 @@ export async function getSignedDownloadUrlFromS3Url(
   }
 
   return getSignedDownloadUrl(key, expiresIn);
+}
+
+/**
+ * Checks whether an object actually exists in S3 before we hand out a signed URL for it — the DB
+ * record referencing a key can drift from what's actually in the bucket (e.g. the object was
+ * deleted out-of-band). Without this check, a caller following the signed URL for a missing object
+ * gets a raw S3 XML error instead of a handled in-app response.
+ */
+export async function objectExistsInS3(key: string): Promise<boolean> {
+  const client = getS3Client();
+  try {
+    await client.send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+    return true;
+  } catch (error) {
+    const name = (error as { name?: string })?.name;
+    const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    if (name === "NotFound" || name === "NoSuchKey" || statusCode === 404) {
+      return false;
+    }
+    // Any other failure (network, permissions, etc.) is not "the file doesn't exist" — let it
+    // propagate so it's reported as a real error rather than masked as a 404.
+    throw error;
+  }
 }
 
 export async function deleteObjectFromS3(key: string): Promise<void> {

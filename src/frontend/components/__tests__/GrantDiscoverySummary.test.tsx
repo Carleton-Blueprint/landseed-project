@@ -153,4 +153,35 @@ describe("GrantDiscoverySummary", () => {
     fireEvent.click(screen.getByText("Hide details"));
     expect(screen.queryByText("Assessment Rationale")).not.toBeInTheDocument();
   });
+
+  it("pairs a Manual Review decision with a plain-language explanation, not internal reason codes", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        assessmentId: "assessment-1",
+        overallDecision: "MANUAL_REVIEW",
+        createdAt: "2026-03-28T12:00:00Z",
+        discovery: {
+          provider: "OPENAI",
+          discoveredGrants: [],
+        },
+      }),
+    });
+
+    render(<GrantDiscoverySummary projectId={projectId} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Manual Review")).toBeInTheDocument();
+    });
+
+    // Friendly, plain-language explanation is shown alongside the existing label.
+    expect(
+      screen.getByText(/Our advisory team is taking a closer look/i)
+    ).toBeInTheDocument();
+
+    // None of the internal reason-code enum values ever appear client-side.
+    for (const code of ["LOW_CONFIDENCE", "HIGH_COMPLEXITY", "PHOTO_MODIFICATION_MISMATCH"]) {
+      expect(screen.queryByText(code)).not.toBeInTheDocument();
+    }
+  });
 });

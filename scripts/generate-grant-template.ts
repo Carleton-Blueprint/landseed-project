@@ -87,6 +87,14 @@ async function main() {
   drawField("Grant Program", GRANT_TEMPLATE_FIELD_NAMES.grantProgramName);
   drawField("Requested Modifications", GRANT_TEMPLATE_FIELD_NAMES.modificationItems, { height: 48 });
   drawField("Estimated Project Cost", GRANT_TEMPLATE_FIELD_NAMES.estimatedCost);
+  page.drawText("All prices shown are before HST.", {
+    x: fieldX,
+    y,
+    size: 8,
+    font: bodyFont,
+    color: rgb(0.5, 0.5, 0.5),
+  });
+  y -= 16;
 
   drawSectionHeader("Administrative");
   drawField("Internal Project ID", GRANT_TEMPLATE_FIELD_NAMES.projectId);

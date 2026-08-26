@@ -12,6 +12,7 @@ import {
 } from "@/frontend/components/icons";
 import type { PricingTierKey } from "@/backend/services/pricingTiers";
 import type { RefinedEstimateLineItem } from "@/backend/services/refinedEstimate";
+import { HST_DISCLAIMER_TEXT } from "@/shared/hstDisclaimer";
 
 type QuoteStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED";
 type Step = "decision" | "confirm-accept" | "survey" | "done";
@@ -205,6 +206,9 @@ export function EstimateClientComponent({
             <p style={{ fontSize: 18, fontWeight: 700, color: "#111827", margin: 0 }}>
               {selectedTierOption.label} &middot; {formatCurrency(selectedTierOption.total)}
             </p>
+            <p style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic", margin: "4px 0 0" }}>
+              {HST_DISCLAIMER_TEXT}
+            </p>
           </div>
         )}
         <ConsultationScheduler projectId={projectId} />
@@ -265,6 +269,10 @@ export function EstimateClientComponent({
           <h3 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 6px", position: "relative", zIndex: 1 }}>Your Decision</h3>
           <p style={{ fontSize: 14, opacity: 0.75, margin: 0, position: "relative", zIndex: 1 }}>Review your estimate and choose how to proceed</p>
         </div>
+
+        <p style={{ fontSize: 12, color: "#9ca3af", fontStyle: "italic", margin: 0 }}>
+          {HST_DISCLAIMER_TEXT}
+        </p>
 
         {hasTiers && (
           <div id="tier-picker" style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: 20 }}>
@@ -369,9 +377,14 @@ export function EstimateClientComponent({
           <p style={{ fontSize: 14, color: "#6b7280", margin: 0 }}>Once accepted, our team will begin scheduling your project.</p>
         </div>
         {hasTiers && selectedTierOption && (
-          <p style={{ fontSize: 13, color: "#065f46", background: "#ecfdf5", borderRadius: 10, padding: "8px 12px", marginBottom: 12, textAlign: "center" }}>
-            You&apos;re accepting the <strong>{selectedTierOption.label}</strong> tier &middot; {formatCurrency(selectedTierOption.total)}
-          </p>
+          <>
+            <p style={{ fontSize: 13, color: "#065f46", background: "#ecfdf5", borderRadius: 10, padding: "8px 12px", marginBottom: 4, textAlign: "center" }}>
+              You&apos;re accepting the <strong>{selectedTierOption.label}</strong> tier &middot; {formatCurrency(selectedTierOption.total)}
+            </p>
+            <p style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic", textAlign: "center", margin: "0 0 12px" }}>
+              {HST_DISCLAIMER_TEXT}
+            </p>
+          </>
         )}
         {error && <div style={{ background: "#fef2f2", color: "#dc2626", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12 }}>{error}</div>}
         <div style={{ display: "flex", gap: 12 }}>

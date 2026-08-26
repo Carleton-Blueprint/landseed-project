@@ -2,7 +2,7 @@
  * Root layout: wraps every page with HTML shell, fonts, and client providers (React Query + NextAuth).
  * Metadata here applies to the whole app unless overridden by a page.
  */
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/frontend/providers/Providers";
 import { Navigation } from "@/frontend/components/Navigation";
@@ -20,6 +20,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Landseed Project",
   description: "Digital intake and project management",
+};
+
+// pinch-zoom stays enabled; viewport-fit=cover lets components use safe-area-inset padding
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

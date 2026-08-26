@@ -85,4 +85,12 @@ describe("fillGrantTemplate", () => {
     const text = extractVisiblePdfText(buffer);
     expect(text).toContain("None provided");
   });
+
+  it("shows the HST disclaimer next to the estimated cost, on the same (only) page", async () => {
+    const buffer = await fillGrantTemplate(baseInput);
+    const text = extractVisiblePdfText(buffer);
+
+    expect(text).toContain("Estimated Project Cost");
+    expect(text).toContain("All prices shown are before HST.");
+  });
 });

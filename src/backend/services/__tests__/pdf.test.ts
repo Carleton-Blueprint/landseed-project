@@ -67,4 +67,24 @@ describe("generateGrantPdf", () => {
     const visibleText = extractVisiblePdfText(buffer);
     expect(visibleText.includes("[Incomplete]")).toBe(true);
   });
+
+  it("renders the HST disclaimer on the same page as the estimated cost, without needing a second page", async () => {
+    const buffer = await generateGrantPdf({
+      projectAddress: "123 Main St, Toronto, ON",
+      applicantName: "Alex Carter",
+      applicantEmail: "alex@example.com",
+      applicantPhone: "555-0123",
+      projectId: "proj-123",
+      grantProgramName: "Accessibility Retrofit Program",
+      estimatedFundingAmount: "$8,750",
+      modificationItems: ["Ramped entry"],
+    });
+
+    const doc = await PDFDocument.load(new Uint8Array(buffer));
+    expect(doc.getPageCount()).toBe(1);
+
+    const visibleText = extractVisiblePdfText(buffer);
+    expect(visibleText).toContain("Estimated Cost");
+    expect(visibleText).toContain("All prices shown are before HST.");
+  });
 });
