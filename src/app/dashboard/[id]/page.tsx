@@ -6,6 +6,7 @@ import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { auth } from "@/auth";
 import { redirectToSignIn } from "lib/auth-redirect";
+import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
@@ -148,10 +149,6 @@ export default async function ProjectDetailPage({
             lastManualSyncAt: true,
           },
         },
-        projectAccess: {
-          where: { userId: session.user.id },
-          select: { userId: true },
-        },
       },
     });
   } catch {
@@ -172,16 +169,16 @@ export default async function ProjectDetailPage({
             declaredModificationCodes: ["GRAB_BARS", "WALK_IN_SHOWER", "STAIR_LIFT"],
           }
         ],
-        projectAccess: [
-          { userId: "dev-user-id" }
-        ],
         grantDocumentKey: "mock-key",
       };
     }
   }
 
   if (!project) return notFound();
-  if (project.projectAccess.length === 0) return notFound();
+  if (!usingDevFallbackProject) {
+    const canAccess = await hasProjectAccess(session.user.id, project.id);
+    if (!canAccess) return notFound();
+  }
 
   const modificationItems = aggregateDeclaredModificationCodes(project.photos);
 

@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { redirectToSignIn } from "lib/auth-redirect";
+import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { EstimateClientComponent } from "./EstimateClientComponent";
 import { AskQuestionPanel } from "@/frontend/components/AskQuestionPanel";
 import { ProjectTimeline } from "@/frontend/components/ProjectTimeline";
@@ -58,7 +59,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
     redirectToSignIn(`/projects/${params.id}/estimate`);
   }
 
-  // Find the project and ensure user has access (either OWNER or admin-like)
+  // Find the project; access is checked below via hasProjectAccess (admins bypass ProjectAccess rows)
   let project = null;
   try {
     project = await prisma.project.findUnique({
@@ -67,9 +68,6 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
         quotes: {
           orderBy: { generatedAt: 'desc' },
           take: 1,
-        },
-        projectAccess: {
-          where: { userId: session.user.id },
         },
         photos: {
           select: { declaredModificationCodes: true },
@@ -143,20 +141,14 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
             },
           },
         ],
-        projectAccess: [
-          {
-            userId: "dev-user-id",
-            role: "OWNER",
-          },
-        ],
       };
     }
   }
 
   if (!project) return notFound();
 
-  // Basic access check: Must have access record (bypassed in development mode)
-  if (project.projectAccess.length === 0 && process.env.NODE_ENV !== "development") {
+  // Basic access check: admins bypass; everyone else needs a ProjectAccess row (bypassed in development mode)
+  if (process.env.NODE_ENV !== "development" && !(await hasProjectAccess(session.user.id, project.id))) {
     await logAuditEventNonBlocking({
       category: "SENSITIVE_ACCESS",
       action: "ESTIMATE_VIEW",

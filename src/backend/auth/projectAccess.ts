@@ -1,5 +1,6 @@
 import { ProjectAccessRole } from "@prisma/client";
 import { prisma } from "lib/prisma";
+import { isAdminUser } from "@/backend/auth/requireRole";
 
 const ROLE_RANK: Record<ProjectAccessRole, number> = {
   VIEWER: 1,
@@ -18,6 +19,8 @@ export async function hasProjectAccess(
   projectId: string,
   minimumRole: ProjectAccessRole = ProjectAccessRole.VIEWER
 ): Promise<boolean> {
+  if (await isAdminUser(userId)) return true;
+
   const access = await prisma.projectAccess.findUnique({
     where: {
       projectId_userId: {
@@ -39,6 +42,11 @@ export async function getAccessibleProjectIds(
   userId: string,
   minimumRole: ProjectAccessRole = ProjectAccessRole.VIEWER
 ): Promise<string[]> {
+  if (await isAdminUser(userId)) {
+    const allProjects = await prisma.project.findMany({ select: { id: true } });
+    return allProjects.map((project) => project.id);
+  }
+
   const rows = await prisma.projectAccess.findMany({
     where: {
       userId,
