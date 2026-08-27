@@ -18,7 +18,19 @@ export function buildTotpProvisioningUri(secret: string, accountLabel: string): 
   return generateURI({ issuer: ISSUER, label: accountLabel, secret });
 }
 
+/**
+ * otplib's guardrails throw (TokenFormatError/TokenLengthError) rather than
+ * returning invalid for a token that isn't a plain digit string — e.g. one
+ * with an internal space. Sanitizing and pre-validating here means a
+ * malformed token resolves to "invalid code" instead of an unhandled
+ * exception bubbling up to callers as a 500.
+ */
 export async function verifyTotpToken(secret: string, token: string): Promise<boolean> {
-  const result = await verify({ secret, token, epochTolerance: EPOCH_TOLERANCE_SECONDS });
+  const sanitizedToken = token.replace(/\s+/g, "");
+  if (!/^\d+$/.test(sanitizedToken)) {
+    return false;
+  }
+
+  const result = await verify({ secret, token: sanitizedToken, epochTolerance: EPOCH_TOLERANCE_SECONDS });
   return result.valid;
 }
