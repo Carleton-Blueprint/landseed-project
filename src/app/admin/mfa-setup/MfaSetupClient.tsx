@@ -127,7 +127,7 @@ export function MfaSetupClient({ initialMfaEnabled, initialEnrolledAt }: MfaSetu
             inputMode="numeric"
             autoComplete="one-time-code"
             value={token}
-            onChange={(e) => setToken(e.target.value)}
+            onChange={(e) => setToken(e.target.value.replace(/\D/g, ""))}
             className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
             placeholder="123456"
           />
