@@ -23,6 +23,20 @@ describe("totp", () => {
     expect(await verifyTotpToken(secret, wrongToken)).toBe(false);
   });
 
+  it("accepts a correct token containing an internal space", async () => {
+    const secret = generateTotpSecret();
+    const token = await generate({ secret });
+    const spacedToken = `${token.slice(0, 3)} ${token.slice(3)}`;
+
+    expect(await verifyTotpToken(secret, spacedToken)).toBe(true);
+  });
+
+  it("resolves non-digit input to invalid rather than throwing", async () => {
+    const secret = generateTotpSecret();
+
+    await expect(verifyTotpToken(secret, "12x 456")).resolves.toBe(false);
+  });
+
   it("builds an otpauth:// URI with the LandSeed issuer and account label", () => {
     const secret = generateTotpSecret();
     const uri = buildTotpProvisioningUri(secret, "admin@example.com");
