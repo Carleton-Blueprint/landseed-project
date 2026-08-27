@@ -17,17 +17,21 @@ import { HttpError } from "@/backend/auth/httpError";
  * directly — middleware's cached check is only a fast preliminary filter,
  * never the authoritative one.
  */
+export async function isAdminUser(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+
+  return user?.role === "ADMIN";
+}
+
 export async function hasMinimumRole(session: Session | null | undefined, requiredRole: "USER" | "ADMIN"): Promise<boolean> {
   if (!session?.user?.id) return false;
 
   if (requiredRole === "USER") return true;
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true },
-  });
-
-  return user?.role === "ADMIN";
+  return isAdminUser(session.user.id);
 }
 
 /**
