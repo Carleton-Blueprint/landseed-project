@@ -56,6 +56,7 @@ function baseInput(overrides: Partial<AssembledEstimateInput> = {}): AssembledEs
     },
     incompleteFields: [],
     preparedAtIso: new Date().toISOString(),
+    wasOverridden: false,
     ...overrides,
   };
 }
@@ -173,5 +174,45 @@ describe("generateEstimatePdf", () => {
     const visibleText = await extractVisiblePdfText(buffer);
     expect(visibleText).toContain("Incomplete Fields:");
     expect(visibleText).toContain("client name");
+  });
+
+  it("omits Markup Total and Estimate Range, and shows the override note, once overridden", async () => {
+    const buffer = await generateEstimatePdf(
+      baseInput({
+        wasOverridden: true,
+        pricing: {
+          selectedTier: null,
+          lineItems: [
+            {
+              description: "Grab bar install",
+              quantity: 2,
+              pricingQuery: "Grab bar install",
+              materialUnitCost: 40,
+              materialTotal: 80,
+              laborHours: 0,
+              laborRate: 0,
+              laborTotal: 270,
+              markupPercentage: 0,
+              markupTotal: 0,
+              lineTotal: 350,
+            },
+          ],
+          subtotal: 350,
+          laborTotal: 270,
+          markupTotal: 0,
+          total: 400,
+          estimateMin: 400,
+          estimateMax: 400,
+        },
+      })
+    );
+
+    const visibleText = await extractVisiblePdfText(buffer);
+    expect(visibleText).toContain("Subtotal");
+    expect(visibleText).toContain("Labor Total");
+    expect(visibleText).toContain("$400.00");
+    expect(visibleText).toContain("This estimate was manually adjusted by our advisory team.");
+    expect(visibleText).not.toContain("Markup Total");
+    expect(visibleText).not.toContain("Estimate Range");
   });
 });

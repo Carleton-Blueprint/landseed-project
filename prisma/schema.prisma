@@ -8,39 +8,40 @@ datasource db {
 }
 
 model User {
-  id                            String                          @id @default(cuid())
+  id                            String                   @id @default(cuid())
   name                          String?
-  email                         String?                         @unique
+  email                         String?                  @unique
   phone                         String?
   emailVerified                 DateTime?
   passwordHash                  String?
   image                         String?
-  mfaEnabled                    Boolean                         @default(false)
+  mfaEnabled                    Boolean                  @default(false)
   mfaEnrolledAt                 DateTime?
   mfaSecretCiphertext           String?
-  role                          SystemRole                      @default(USER)
-  createdAt                     DateTime                        @default(now())
-  updatedAt                     DateTime                        @updatedAt
+  role                          SystemRole               @default(USER)
+  createdAt                     DateTime                 @default(now())
+  updatedAt                     DateTime                 @updatedAt
   auditEvents                   AuditEvent[]
   projectStatusHistory          ProjectStatusHistory[]
   manualFallbackExports         ManualFallbackExport[]
   notifications                 NotificationDelivery[]
   projects                      Project[]
-  grantedProjectAccess          ProjectAccess[]                 @relation("ProjectAccessGrantedBy")
-  projectAccess                 ProjectAccess[]                 @relation("ProjectAccessUser")
-  sentCommunications            CommunicationHistory[]          @relation("CommunicationHistorySender")
-  receivedCommunications        CommunicationHistory[]          @relation("CommunicationHistoryRecipient")
-  accountDeletionRequests       AccountDeletionRequest[]        @relation("AccountDeletionTarget")
-  accountDeletionRequestIssuers AccountDeletionRequest[]        @relation("AccountDeletionRequestedBy")
+  grantedProjectAccess          ProjectAccess[]          @relation("ProjectAccessGrantedBy")
+  projectAccess                 ProjectAccess[]          @relation("ProjectAccessUser")
+  sentCommunications            CommunicationHistory[]   @relation("CommunicationHistorySender")
+  receivedCommunications        CommunicationHistory[]   @relation("CommunicationHistoryRecipient")
+  accountDeletionRequests       AccountDeletionRequest[] @relation("AccountDeletionTarget")
+  accountDeletionRequestIssuers AccountDeletionRequest[] @relation("AccountDeletionRequestedBy")
   intakeDraft                   IntakeDraft?
   authEmailTokens               AuthEmailToken[]
   projectStaffNotes             ProjectStaffNote[]
-  informationRequestsMade       InformationRequest[]            @relation("InformationRequestRequestedBy")
-  grantSignatures               GrantSignature[]                @relation("GrantSignatureSigner")
+  informationRequestsMade       InformationRequest[]     @relation("InformationRequestRequestedBy")
+  grantSignatures               GrantSignature[]         @relation("GrantSignatureSigner")
   manualModeSubmissions         ManualModeSubmission[]
   createdManualQuotes           Quote[]
   builderTrendManualSyncs       BuilderTrendTransfer[]
   alertThresholdUpdates         AlertThresholdConfig[]
+  quoteOverrides                QuoteOverride[]
 }
 
 model Project {
@@ -287,10 +288,40 @@ model Quote {
   createdByUser           User?                  @relation(fields: [createdByUserId], references: [id])
   manualModeSubmission    ManualModeSubmission?  @relation(fields: [manualModeSubmissionId], references: [id])
   questions               QuoteQuestion[]
+  override                QuoteOverride?
 
   @@index([projectId])
   @@index([eligibilityAssessmentId])
   @@index([manualModeSubmissionId])
+}
+
+/**
+ * FR-4.3: post-estimate admin override, layered on top of an existing Quote
+ * rather than mutating it. Quote rows and EligibilityAssessment rows are both
+ * immutable/AI-generated (one row per generation event), so overrides live
+ * here as a 1:1 satellite that read paths merge in via
+ * resolveEffectiveQuoteView. Full before/after audit history lives in
+ * AuditEvent (action QUOTE_POST_ESTIMATE_OVERRIDE) - this table only holds
+ * current effective state.
+ */
+model QuoteOverride {
+  id                  String              @id @default(cuid())
+  quoteId             String              @unique
+  overriddenByUserId  String
+  reason              String
+  subtotal            Decimal             @db.Decimal(10, 2)
+  total               Decimal             @db.Decimal(10, 2)
+  previousTotal       Decimal             @db.Decimal(10, 2)
+  lineItems           Json
+  modificationCodes   Json
+  eligibilityDecision EligibilityDecision
+  grantOverrides      Json
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  quote               Quote               @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  overriddenByUser    User                @relation(fields: [overriddenByUserId], references: [id])
+
+  @@index([quoteId])
 }
 
 model DeclineSurveyResponse {
@@ -881,6 +912,7 @@ model AuthEmailToken {
 enum NotificationEventType {
   SUBMISSION_RECEIPT
   ESTIMATE_READY
+  ESTIMATE_UPDATED
   ESTIMATE_EXPIRED
   ESTIMATE_REACTIVATED
   MANUAL_FALLBACK_EXPORT_READY

@@ -34,6 +34,35 @@ describe("renderEmailTemplate", () => {
     expect(template.text).not.toContain("View your estimate:");
   });
 
+  it("renders estimate updated template with the previous and new total", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.ESTIMATE_UPDATED,
+      recipientName: "Alex",
+      projectAddress: "100 Main St",
+      estimateLink: "https://example.com/projects/p-1/estimate",
+      previousTotal: 1200,
+      newTotal: 1450,
+    });
+
+    expect(template.templateName).toBe("estimate-updated-v1");
+    expect(template.subject).toBe("Your Landseed estimate for 100 Main St has been updated");
+    expect(template.html).toContain("Hi Alex");
+    expect(template.html).toContain("$1200.00");
+    expect(template.html).toContain("$1450.00");
+    expect(template.html).toContain("View your updated estimate");
+    expect(template.text).toContain("changed from $1200.00 to $1450.00");
+  });
+
+  it("renders a generic estimate updated message when no totals are provided", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.ESTIMATE_UPDATED,
+      recipientName: "Alex",
+    });
+
+    expect(template.html).toContain("has been updated");
+    expect(template.html).not.toContain("$");
+  });
+
   it("renders estimate expired template", () => {
     const template = renderEmailTemplate({
       eventType: NotificationEventType.ESTIMATE_EXPIRED,

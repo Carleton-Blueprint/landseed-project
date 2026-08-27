@@ -61,6 +61,7 @@ describe("enqueueNotification", () => {
   describe("priority assignment", () => {
     it.each([
       NotificationEventType.ESTIMATE_READY,
+      NotificationEventType.ESTIMATE_UPDATED,
       NotificationEventType.ESTIMATE_EXPIRED,
       NotificationEventType.ESTIMATE_REACTIVATED,
     ])("assigns priority 1 for estimate-lifecycle event %s", async (eventType) => {
@@ -153,6 +154,25 @@ describe("enqueueNotification", () => {
       informationRequestMessage: "please upload",
       newEmail: "new@example.com",
     });
+  });
+
+  it("maps previousTotal/newTotal onto the queued job data for ESTIMATE_UPDATED", async () => {
+    await enqueueNotification(
+      basePayload({
+        eventType: NotificationEventType.ESTIMATE_UPDATED,
+        previousTotal: 1200,
+        newTotal: 1450,
+      })
+    );
+
+    const [, jobData] = mockedEmailQueueAdd.mock.calls[0];
+    expect(jobData).toEqual(
+      expect.objectContaining({
+        eventType: NotificationEventType.ESTIMATE_UPDATED,
+        previousTotal: 1200,
+        newTotal: 1450,
+      })
+    );
   });
 
   it("propagates a rejection from queueNotification without adding to the email queue", async () => {

@@ -11,6 +11,7 @@ import {
   type ProjectStatusHistoryEntry,
 } from "@/frontend/components/ProjectStatusPanel";
 import { ProjectAdminDocuments } from "@/app/admin/ProjectAdminDocuments";
+import { ProjectEstimateReview } from "@/app/admin/ProjectEstimateReview";
 import { MODIFICATION_CODES } from "@/backend/eligibility/types";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 import {
@@ -57,6 +58,17 @@ export interface SerializedProject {
     estimateMin?: string | null;
     estimateMax?: string | null;
     refinedEstimate?: unknown;
+    effectiveLineItems?: Array<{
+      description: string;
+      quantity: number;
+      materialTotal: number;
+      laborTotal: number;
+    }>;
+    override?: {
+      reason: string;
+      overriddenAt: string;
+      previousTotal: string;
+    } | null;
   } | null;
   eligibility: {
     id: string;
@@ -65,13 +77,18 @@ export interface SerializedProject {
       grantId: string;
       title: string;
       scope: string;
+      jurisdiction?: string;
       decision: string;
-      relevanceScore: number;
-      confidence: string;
-      summary: string;
+      source?: "ai" | "admin_added";
+      relevanceScore?: number;
+      confidence?: string;
+      summary?: string;
+      note?: string | null;
     }>;
+    allGrantIds?: string[];
     provider: string;
     assessedAt: string;
+    isOverridden?: boolean;
   } | null;
   builderTrendTransfer: {
     id: string;
@@ -268,7 +285,7 @@ function bestConfidence(p: SerializedProject): number {
   return Math.max(
     0,
     ...p.eligibility.discoveredGrants.map(
-      (g) => CONFIDENCE_RANK[g.confidence] ?? 0
+      (g) => CONFIDENCE_RANK[g.confidence ?? ""] ?? 0
     )
   );
 }
@@ -278,7 +295,7 @@ function topRelevanceScore(p: SerializedProject): number {
   if (!p.eligibility) return 0;
   return Math.max(
     0,
-    ...p.eligibility.discoveredGrants.map((g) => g.relevanceScore)
+    ...p.eligibility.discoveredGrants.map((g) => g.relevanceScore ?? 0)
   );
 }
 
@@ -309,11 +326,11 @@ function fmtMoney(value: string) {
 // Per-photo tag picker options, mirroring IntakeForm.tsx's derivation from the
 // same canonical modification-code list, so admin overrides offer exactly
 // the same tags a client could have chosen at intake.
-const photoModificationOptions = Object.values(MODIFICATION_CODES).map((code) => ({
+export const photoModificationOptions = Object.values(MODIFICATION_CODES).map((code) => ({
   code,
   label: MODIFICATION_COST_CATALOG[code].label,
 }));
-const MODIFICATION_LABEL_BY_CODE: Record<string, string> = Object.fromEntries(
+export const MODIFICATION_LABEL_BY_CODE: Record<string, string> = Object.fromEntries(
   photoModificationOptions.map(({ code, label }) => [code, label])
 );
 
@@ -677,6 +694,8 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
           )}
         </div>
       )}
+
+      {quote && <ProjectEstimateReview project={project} />}
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
         {/* ── AI Estimation ── */}

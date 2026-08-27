@@ -2,9 +2,10 @@
  * FR-4.10: pre-estimate admin override of a project's modification scope.
  * Only valid while a project is "submitted" and no quote has been generated
  * yet (the delayed estimate-generation window from FR-4.10 phase 1). Once a
- * quote exists, this is rejected with ESTIMATE_ALREADY_GENERATED — the
- * post-estimate override (FR-4.3) that would otherwise handle that case
- * hasn't been built, so there's no redirect target to offer.
+ * quote exists, this is rejected with ESTIMATE_ALREADY_GENERATED — admins
+ * should use the post-estimate override (FR-4.3, see
+ * src/backend/services/quoteOverride.ts) instead, which covers scope,
+ * pricing, and grant eligibility together once a quote exists.
  *
  * Operates on per-photo declaredModificationCodes (the source of truth for
  * a project's modification scope) rather than a project-level list.
@@ -14,7 +15,8 @@ import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import {
   aggregateDeclaredModificationCodes,
-  parseDeclaredModificationCodes,
+  InvalidPhotoModificationsError,
+  validatePhotoModifications,
 } from "@/backend/eligibility/modificationNormalization";
 import type { ModificationCode } from "@/backend/eligibility/types";
 import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
@@ -65,83 +67,18 @@ function projectNotSubmittedError(): ModificationOverrideError {
   );
 }
 
-function validatePhotoModifications(
+function validatePhotoModificationsOrThrow(
   input: unknown,
   projectPhotoIds: Set<string>
 ): PhotoModificationOverrideResult[] {
-  if (!Array.isArray(input) || input.length === 0) {
-    throw new ModificationOverrideError(
-      "photoModifications must be a non-empty array",
-      400,
-      "INVALID_PHOTO_MODIFICATIONS"
-    );
+  try {
+    return validatePhotoModifications(input, projectPhotoIds);
+  } catch (error) {
+    if (error instanceof InvalidPhotoModificationsError) {
+      throw new ModificationOverrideError(error.message, 400, "INVALID_PHOTO_MODIFICATIONS");
+    }
+    throw error;
   }
-
-  const seenPhotoIds = new Set<string>();
-  const entries: PhotoModificationOverrideResult[] = [];
-
-  for (const raw of input) {
-    const photoId =
-      raw && typeof raw === "object" ? (raw as { photoId?: unknown }).photoId : undefined;
-    const codesRaw =
-      raw && typeof raw === "object"
-        ? (raw as { declaredModificationCodes?: unknown }).declaredModificationCodes
-        : undefined;
-
-    if (typeof photoId !== "string" || !photoId.trim() || !Array.isArray(codesRaw)) {
-      throw new ModificationOverrideError(
-        "Each photoModifications entry must have a photoId and a declaredModificationCodes array",
-        400,
-        "INVALID_PHOTO_MODIFICATIONS"
-      );
-    }
-
-    if (!projectPhotoIds.has(photoId)) {
-      throw new ModificationOverrideError(
-        `Photo ${photoId} does not belong to this project`,
-        400,
-        "INVALID_PHOTO_MODIFICATIONS"
-      );
-    }
-
-    if (seenPhotoIds.has(photoId)) {
-      throw new ModificationOverrideError(
-        `Duplicate photoId in photoModifications: ${photoId}`,
-        400,
-        "INVALID_PHOTO_MODIFICATIONS"
-      );
-    }
-    seenPhotoIds.add(photoId);
-
-    if (!codesRaw.every((c): c is string => typeof c === "string")) {
-      throw new ModificationOverrideError(
-        "declaredModificationCodes must contain only strings",
-        400,
-        "INVALID_PHOTO_MODIFICATIONS"
-      );
-    }
-
-    const { codes, invalidCodes } = parseDeclaredModificationCodes(codesRaw);
-    if (invalidCodes.length > 0) {
-      throw new ModificationOverrideError(
-        `Unrecognized modification code(s): ${invalidCodes.join(", ")}`,
-        400,
-        "INVALID_PHOTO_MODIFICATIONS"
-      );
-    }
-
-    if (codes.length === 0) {
-      throw new ModificationOverrideError(
-        `Photo ${photoId} must have at least one modification tag`,
-        400,
-        "INVALID_PHOTO_MODIFICATIONS"
-      );
-    }
-
-    entries.push({ photoId, declaredModificationCodes: codes });
-  }
-
-  return entries;
 }
 
 export interface OverridePreEstimateModificationsInput {
@@ -179,7 +116,7 @@ export async function overridePreEstimateModifications(
   }
 
   const photosById = new Map(project.photos.map((p) => [p.id, p]));
-  const entries = validatePhotoModifications(input.photoModifications, new Set(photosById.keys()));
+  const entries = validatePhotoModificationsOrThrow(input.photoModifications, new Set(photosById.keys()));
 
   const originalCodes = aggregateDeclaredModificationCodes(project.photos);
 

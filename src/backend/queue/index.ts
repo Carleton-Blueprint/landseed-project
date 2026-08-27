@@ -31,6 +31,8 @@ export const emailQueue = new Queue<{
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
+  previousTotal?: number;
+  newTotal?: number;
   manualFallbackExportLink?: string | null;
   manualFallbackExportRetentionDays?: number;
   subject?: string | null;
@@ -130,6 +132,8 @@ export function createEmailWorker(
       estimateLink?: string | null;
       estimateMin?: number;
       estimateMax?: number;
+      previousTotal?: number;
+      newTotal?: number;
       subject?: string | null;
       html?: string | null;
       text?: string | null;

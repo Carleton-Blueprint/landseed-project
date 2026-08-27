@@ -15,8 +15,14 @@ type ProjectPdfRecord = {
   userId: string;
   photos: Array<{ declaredModificationCodes: string[] }>;
   user: { name: string | null; email: string | null; phone: string | null };
-  quotes: Array<{ estimateMin: { toNumber(): number }; estimateMax: { toNumber(): number } }>;
-  eligibilityAssessments: Array<{ overallDecision: string; discoveredGrants: unknown }>;
+  quotes: Array<{
+    estimateMin: { toNumber(): number } | null;
+    estimateMax: { toNumber(): number } | null;
+    total?: number;
+    eligibilityAssessmentId?: string | null;
+    override?: { eligibilityDecision: string; total: number; grantOverrides: unknown } | null;
+  }>;
+  eligibilityAssessments: Array<{ id?: string; overallDecision: string; discoveredGrants: unknown }>;
   manualModeSubmission?: { modificationType: string | null } | null;
 };
 
@@ -214,6 +220,74 @@ describe("assembleGrantPdfInput", () => {
 
     expect(result.modificationItems).toEqual(["Custom stair lift install"]);
     expect(result.incompleteFields).not.toContain("modification type");
+  });
+
+  it("shows a single overridden total instead of the AI estimate range, and the overridden grant program", async () => {
+    prisma.project.findUnique.mockResolvedValue({
+      id: "proj-7",
+      address: "10 Override Ln",
+      draftData: { ownershipStatus: "owner" },
+      userId: "user-7",
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      user: { name: "Override User", email: "override@example.com", phone: "555-4444" },
+      quotes: [
+        {
+          estimateMin: decimal(1000),
+          estimateMax: decimal(2000),
+          eligibilityAssessmentId: "assess-7",
+          override: {
+            eligibilityDecision: "ELIGIBLE",
+            total: 1500,
+            grantOverrides: {
+              removedGrantIds: ["hatc_canada"],
+              decisionOverrides: [],
+              addedGrants: [
+                { id: "manual-1", title: "Manual Grant", scope: "MUNICIPAL", jurisdiction: "Toronto", decision: "ELIGIBLE", note: "Confirmed by phone" },
+              ],
+            },
+          },
+        },
+      ],
+      eligibilityAssessments: [
+        {
+          id: "assess-7",
+          overallDecision: "NEEDS_MORE_INFO",
+          discoveredGrants: [{ grantId: "hatc_canada", title: "Home Accessibility Grant" }],
+        },
+      ],
+    });
+
+    const result = await assembleGrantPdfInput("proj-7");
+
+    expect(result.estimatedCost).toBe("$1,500");
+    expect(result.grantProgramName).toBe("Manual Grant");
+  });
+
+  it("ignores the override when the quote points at a different (stale) assessment", async () => {
+    prisma.project.findUnique.mockResolvedValue({
+      id: "proj-8",
+      address: "20 Stale Ln",
+      draftData: { ownershipStatus: "owner" },
+      userId: "user-8",
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      user: { name: "Stale User", email: "stale@example.com", phone: "555-5555" },
+      quotes: [
+        {
+          estimateMin: decimal(1000),
+          estimateMax: decimal(2000),
+          eligibilityAssessmentId: "assess-8-old",
+          override: { eligibilityDecision: "INELIGIBLE", total: 1500, grantOverrides: null },
+        },
+      ],
+      eligibilityAssessments: [
+        { id: "assess-8-new", overallDecision: "ELIGIBLE", discoveredGrants: [{ title: "Home Accessibility Grant" }] },
+      ],
+    });
+
+    const result = await assembleGrantPdfInput("proj-8");
+
+    expect(result.estimatedCost).toBe("$1,000 – $2,000");
+    expect(result.grantProgramName).toBe("Home Accessibility Grant");
   });
 
   it("throws when the project does not exist", async () => {

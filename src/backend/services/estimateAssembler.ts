@@ -13,6 +13,7 @@ import {
   type BuilderTrendWorkOrderPricingBreakdown,
 } from '@/backend/integrations/builderTrendPayload';
 import type { PromoteIntakeData } from '@/backend/schemas/intakeDraft';
+import type { RefinedEstimateLineItem } from './refinedEstimate';
 
 export interface AssembledEstimateInput {
   projectId: string;
@@ -24,6 +25,63 @@ export interface AssembledEstimateInput {
   pricing: BuilderTrendWorkOrderPricingBreakdown;
   incompleteFields: string[];
   preparedAtIso: string;
+  // FR-4.3: true once an admin has overridden this quote's pricing post-estimate.
+  // Markup/estimate-range have no override-tracked equivalent (the admin only
+  // enters material + labor per line and one final total), so consumers of
+  // this input should omit those fields rather than show fabricated values.
+  wasOverridden: boolean;
+}
+
+/**
+ * Builds a BuilderTrendWorkOrderPricingBreakdown from a post-estimate
+ * override's simplified {description, quantity, materialTotal, laborTotal}
+ * line items. Markup/unit-cost/labor-hours/rate/pricing-source have no
+ * override-tracked value, so they're zeroed/nulled rather than fabricated -
+ * only description/quantity/materialTotal/laborTotal (and the derived
+ * lineTotal) reflect real admin-entered numbers.
+ */
+function buildOverriddenPricingBreakdown(override: {
+  subtotal: unknown;
+  total: unknown;
+  lineItems: unknown;
+}): BuilderTrendWorkOrderPricingBreakdown {
+  const overrideLineItems = (override.lineItems ?? []) as Array<{
+    description: string;
+    quantity: number;
+    materialTotal: number;
+    laborTotal: number;
+  }>;
+
+  const lineItems: RefinedEstimateLineItem[] = overrideLineItems.map((item) => ({
+    description: item.description,
+    quantity: item.quantity,
+    pricingQuery: item.description,
+    pricingSource: null,
+    pricingLink: null,
+    modificationCode: null,
+    modificationLabel: null,
+    materialUnitCost: item.quantity > 0 ? item.materialTotal / item.quantity : 0,
+    materialTotal: item.materialTotal,
+    laborHours: 0,
+    laborRate: 0,
+    laborTotal: item.laborTotal,
+    markupPercentage: 0,
+    markupTotal: 0,
+    lineTotal: item.materialTotal + item.laborTotal,
+  }));
+
+  const total = Number(override.total);
+
+  return {
+    selectedTier: null,
+    lineItems,
+    subtotal: Number(override.subtotal),
+    laborTotal: lineItems.reduce((sum, item) => sum + item.laborTotal, 0),
+    markupTotal: 0,
+    total,
+    estimateMin: total,
+    estimateMax: total,
+  };
 }
 
 interface DraftIntakeFields {
@@ -45,6 +103,7 @@ export async function assembleEstimateInput(quoteId: string): Promise<AssembledE
       estimateMin: true,
       estimateMax: true,
       refinedEstimate: true,
+      override: true,
       project: {
         select: {
           id: true,
@@ -110,21 +169,28 @@ export async function assembleEstimateInput(quoteId: string): Promise<AssembledE
 
   const refinedEstimate = quote.refinedEstimate as unknown as AnyRefinedEstimate | null;
   const quoteIsTiered = !!refinedEstimate && isTieredEstimate(refinedEstimate);
-  const selectedTier: PricingTierKey | null = quoteIsTiered
+
+  // A post-estimate override (FR-4.3) collapses tiered AI pricing to one flat
+  // figure - the tier breakdown it replaced is no longer what was approved.
+  const selectedTier: PricingTierKey | null = quote.override
+    ? null
+    : quoteIsTiered
     ? (refinedEstimate as TieredRefinedEstimate).selectedTier ?? null
     : null;
 
-  const pricing = resolveBuilderTrendPricingBreakdown({
-    quote: {
-      subtotal: quote.subtotal,
-      total: quote.total,
-      estimateMin: quote.estimateMin,
-      estimateMax: quote.estimateMax,
-    },
-    refinedEstimate,
-    quoteIsTiered,
-    acceptedTier: selectedTier,
-  });
+  const pricing = quote.override
+    ? buildOverriddenPricingBreakdown(quote.override)
+    : resolveBuilderTrendPricingBreakdown({
+        quote: {
+          subtotal: quote.subtotal,
+          total: quote.total,
+          estimateMin: quote.estimateMin,
+          estimateMax: quote.estimateMax,
+        },
+        refinedEstimate,
+        quoteIsTiered,
+        acceptedTier: selectedTier,
+      });
 
   return {
     projectId: project.id,
@@ -136,5 +202,6 @@ export async function assembleEstimateInput(quoteId: string): Promise<AssembledE
     pricing,
     incompleteFields,
     preparedAtIso: new Date().toISOString(),
+    wasOverridden: !!quote.override,
   };
 }

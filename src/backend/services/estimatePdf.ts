@@ -180,13 +180,27 @@ export async function generateEstimatePdf(input: AssembledEstimateInput): Promis
   cursor.y -= 4;
   drawHeaderField(cursor, 'Subtotal', formatCurrency(input.pricing.subtotal));
   drawHeaderField(cursor, 'Labor Total', formatCurrency(input.pricing.laborTotal));
-  drawHeaderField(cursor, 'Markup Total', formatCurrency(input.pricing.markupTotal));
+  // Markup Total and Estimate Range have no equivalent once an admin has
+  // overridden pricing (material + labor only, one final total) - omitted
+  // rather than showing a fabricated $0.00 or a fake single-point "range".
+  if (!input.wasOverridden) {
+    drawHeaderField(cursor, 'Markup Total', formatCurrency(input.pricing.markupTotal));
+  }
   drawHeaderField(cursor, 'Total', formatCurrency(input.pricing.total));
-  drawHeaderField(
-    cursor,
-    'Estimate Range',
-    `${formatCurrency(input.pricing.estimateMin)} - ${formatCurrency(input.pricing.estimateMax)}`
-  );
+  if (!input.wasOverridden) {
+    drawHeaderField(
+      cursor,
+      'Estimate Range',
+      `${formatCurrency(input.pricing.estimateMin)} - ${formatCurrency(input.pricing.estimateMax)}`
+    );
+  } else {
+    cursor.y -= 4;
+    cursor.drawLine('This estimate was manually adjusted by our advisory team.', {
+      size: 9,
+      font: bodyFont,
+      color: rgb(0.4, 0.4, 0.4),
+    });
+  }
 
   if (input.incompleteFields.length > 0) {
     cursor.y -= 12;

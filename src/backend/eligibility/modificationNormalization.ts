@@ -102,6 +102,79 @@ export interface ModificationCodeSource {
   declaredModificationCodes: string[];
 }
 
+export interface PhotoModificationOverrideEntry {
+  photoId: string;
+  declaredModificationCodes: ModificationCode[];
+}
+
+export class InvalidPhotoModificationsError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/**
+ * Validates a client-supplied photoModifications payload (photoId +
+ * declaredModificationCodes pairs) against the project's actual photos and
+ * the modification-code taxonomy. Shared by the pre-estimate (FR-4.10) and
+ * post-estimate (FR-4.3) override services so both reject malformed input
+ * the same way instead of drifting.
+ */
+export function validatePhotoModifications(
+  input: unknown,
+  projectPhotoIds: Set<string>
+): PhotoModificationOverrideEntry[] {
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new InvalidPhotoModificationsError("photoModifications must be a non-empty array");
+  }
+
+  const seenPhotoIds = new Set<string>();
+  const entries: PhotoModificationOverrideEntry[] = [];
+
+  for (const raw of input) {
+    const photoId =
+      raw && typeof raw === "object" ? (raw as { photoId?: unknown }).photoId : undefined;
+    const codesRaw =
+      raw && typeof raw === "object"
+        ? (raw as { declaredModificationCodes?: unknown }).declaredModificationCodes
+        : undefined;
+
+    if (typeof photoId !== "string" || !photoId.trim() || !Array.isArray(codesRaw)) {
+      throw new InvalidPhotoModificationsError(
+        "Each photoModifications entry must have a photoId and a declaredModificationCodes array"
+      );
+    }
+
+    if (!projectPhotoIds.has(photoId)) {
+      throw new InvalidPhotoModificationsError(`Photo ${photoId} does not belong to this project`);
+    }
+
+    if (seenPhotoIds.has(photoId)) {
+      throw new InvalidPhotoModificationsError(`Duplicate photoId in photoModifications: ${photoId}`);
+    }
+    seenPhotoIds.add(photoId);
+
+    if (!codesRaw.every((c): c is string => typeof c === "string")) {
+      throw new InvalidPhotoModificationsError("declaredModificationCodes must contain only strings");
+    }
+
+    const { codes, invalidCodes } = parseDeclaredModificationCodes(codesRaw);
+    if (invalidCodes.length > 0) {
+      throw new InvalidPhotoModificationsError(
+        `Unrecognized modification code(s): ${invalidCodes.join(", ")}`
+      );
+    }
+
+    if (codes.length === 0) {
+      throw new InvalidPhotoModificationsError(`Photo ${photoId} must have at least one modification tag`);
+    }
+
+    entries.push({ photoId, declaredModificationCodes: codes });
+  }
+
+  return entries;
+}
+
 /**
  * Unions and dedupes each photo's already-validated declaredModificationCodes
  * into a single, canonically-ordered list — the project-level "list of
