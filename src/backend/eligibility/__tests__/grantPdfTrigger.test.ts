@@ -2,16 +2,21 @@
  * @jest-environment node
  *
  * Verifies FR-3.2 wiring: evaluateProjectEligibility triggers grant PDF
- * generation when the overall decision is ELIGIBLE, and does not when it
- * is not ELIGIBLE. Uses the node test environment because the code under
- * test relies on the Node `setImmediate` global, which jsdom (this repo's
- * default test environment) does not provide.
+ * generation once the overall decision is final (ELIGIBLE or INELIGIBLE -
+ * see isFinalEligibilityDecision), regardless of whether a quote already
+ * existed for the project (the normal intake order) or had to be created
+ * here (the pre-estimate/FR-4.10 order) - see service.ts Step 6. Uses the
+ * node test environment because the code under test relies on the Node
+ * `setImmediate` global, which jsdom (this repo's default test
+ * environment) does not provide.
  */
+
+const findFirstMock = jest.fn().mockResolvedValue(null);
 
 jest.mock('lib/prisma', () => ({
   prisma: {
     quote: {
-      findFirst: jest.fn().mockResolvedValue(null),
+      findFirst: (...args: unknown[]) => findFirstMock(...args),
     },
   },
 }));
@@ -107,6 +112,7 @@ async function flushBackgroundJobs() {
 describe('evaluateProjectEligibility grant PDF trigger', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    findFirstMock.mockResolvedValue(null);
     (assembleEligibilityInput as jest.Mock).mockReturnValue({});
     (createEligibilityAssessmentSnapshot as jest.Mock).mockResolvedValue({
       id: 'assessment-1',
@@ -162,7 +168,7 @@ describe('evaluateProjectEligibility grant PDF trigger', () => {
     );
   });
 
-  it('does not generate the grant PDF when overallDecision is INELIGIBLE', async () => {
+  it('generates the grant PDF when overallDecision is INELIGIBLE (a final decision, per isFinalEligibilityDecision)', async () => {
     (discoverAndEvaluateGrants as jest.Mock).mockResolvedValue(baseEvaluation('INELIGIBLE'));
 
     const result = await evaluateProjectEligibility(baseProject);
@@ -170,6 +176,55 @@ describe('evaluateProjectEligibility grant PDF trigger', () => {
 
     await flushBackgroundJobs();
 
-    expect(generateAndStoreGrantDocument).not.toHaveBeenCalled();
+    expect(generateAndStoreGrantDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj-1' })
+    );
+  });
+
+  it('generates the grant PDF when a quote already exists (the normal intake order)', async () => {
+    // Regression test: previously the existingQuote early-return exited the whole
+    // setImmediate callback, skipping grant PDF generation entirely whenever a
+    // quote already existed - the default order for every normal intake.
+    findFirstMock.mockResolvedValue({ id: 'existing-quote-1' });
+    (discoverAndEvaluateGrants as jest.Mock).mockResolvedValue(baseEvaluation('ELIGIBLE'));
+    const { generateQuote } = require('@/backend/services/quote');
+
+    const result = await evaluateProjectEligibility(baseProject);
+    expect('code' in (result as object)).toBe(false);
+
+    await flushBackgroundJobs();
+
+    expect(generateQuote).not.toHaveBeenCalled();
+    expect(generateAndStoreGrantDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj-1' })
+    );
+  });
+
+  it('generates the grant PDF after the auto-created quote commits, in the pre-estimate order', async () => {
+    // The grant application PDF depends on the latest quote for its estimatedCost
+    // field (assembleGrantPdfInput), so when eligibility runs before a quote
+    // exists, quote creation must resolve before PDF generation is invoked.
+    findFirstMock.mockResolvedValue(null);
+    (discoverAndEvaluateGrants as jest.Mock).mockResolvedValue(baseEvaluation('ELIGIBLE'));
+    const { generateQuote } = require('@/backend/services/quote');
+
+    const callOrder: string[] = [];
+    (generateQuote as jest.Mock).mockImplementation(async () => {
+      callOrder.push('generateQuote');
+      return { quoteId: 'quote-1', estimateMin: 1000, estimateMax: 2000 };
+    });
+    (generateAndStoreGrantDocument as jest.Mock).mockImplementation(async () => {
+      callOrder.push('generateAndStoreGrantDocument');
+      return {
+        projectId: 'proj-1',
+        grantDocumentKey: 'projects/proj-1/grant/grant-application-v1.pdf',
+        previousGrantDocumentKey: null,
+      };
+    });
+
+    await evaluateProjectEligibility(baseProject);
+    await flushBackgroundJobs();
+
+    expect(callOrder).toEqual(['generateQuote', 'generateAndStoreGrantDocument']);
   });
 });
