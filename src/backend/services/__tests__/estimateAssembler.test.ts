@@ -16,6 +16,11 @@ type QuoteRecord = {
   estimateMin: number | null;
   estimateMax: number | null;
   refinedEstimate: unknown;
+  override?: {
+    subtotal: number;
+    total: number;
+    lineItems: Array<{ description: string; quantity: number; materialTotal: number; laborTotal: number }>;
+  } | null;
   project: {
     id: string;
     address: string | null;
@@ -55,6 +60,7 @@ const { assembleEstimateInput } = require("../estimateAssembler") as {
     };
     incompleteFields: string[];
     preparedAtIso: string;
+    wasOverridden: boolean;
   }>;
 };
 
@@ -215,6 +221,61 @@ describe("assembleEstimateInput", () => {
     const result = await assembleEstimateInput("quote-4");
 
     expect(result.modificationType).toBe("Custom ramp install");
+  });
+
+  it("uses the override's pricing, collapses tiering, and synthesizes real line items when overridden", async () => {
+    prisma.quote.findUnique.mockResolvedValue({
+      id: "quote-5",
+      projectId: "proj-5",
+      subtotal: 350,
+      total: 350,
+      estimateMin: 332.5,
+      estimateMax: 367.5,
+      refinedEstimate: {
+        tiers: {
+          economy: NON_TIERED_REFINED_ESTIMATE,
+          standard: NON_TIERED_REFINED_ESTIMATE,
+          premium: NON_TIERED_REFINED_ESTIMATE,
+        },
+        selectedTier: "premium",
+      },
+      override: {
+        subtotal: 400,
+        total: 480,
+        lineItems: [{ description: "Grab bar install (adjusted)", quantity: 2, materialTotal: 100, laborTotal: 300 }],
+      },
+      project: {
+        id: "proj-5",
+        address: "10 Override Ln",
+        draftData: {},
+        user: { name: "Override User" },
+        photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      },
+    });
+
+    const result = await assembleEstimateInput("quote-5");
+
+    expect(result.selectedTier).toBeNull();
+    expect(result.wasOverridden).toBe(true);
+    expect(result.pricing).toMatchObject({
+      selectedTier: null,
+      subtotal: 400,
+      total: 480,
+      laborTotal: 300,
+      markupTotal: 0,
+      estimateMin: 480,
+      estimateMax: 480,
+    });
+    expect(result.pricing.lineItems).toEqual([
+      expect.objectContaining({
+        description: "Grab bar install (adjusted)",
+        quantity: 2,
+        materialTotal: 100,
+        laborTotal: 300,
+        markupTotal: 0,
+        lineTotal: 400,
+      }),
+    ]);
   });
 
   it("throws when the quote does not exist", async () => {

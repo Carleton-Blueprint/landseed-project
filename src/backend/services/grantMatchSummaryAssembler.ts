@@ -7,6 +7,7 @@ import { DiscoveredGrant, GrantDiscoveryMetadata } from '@/backend/eligibility/d
 import { EligibilityDecision } from '@/backend/eligibility/types';
 import type { AiOutputSource } from '@/backend/audit/aiProvenance';
 import type { PromoteIntakeData } from '@/backend/schemas/intakeDraft';
+import { applyGrantOverridesToRawGrants, type GrantOverrides } from '@/backend/services/quoteOverride';
 
 export interface AssembledMatchedGrant {
   programName: string;
@@ -61,6 +62,11 @@ export async function assembleGrantMatchSummaryInput(
         where: { isLatest: true },
         take: 1,
         select: { id: true, createdAt: true, discoveredGrants: true, discoveryProvider: true },
+      },
+      quotes: {
+        orderBy: { generatedAt: 'desc' },
+        take: 1,
+        select: { eligibilityAssessmentId: true, override: true },
       },
     },
   });
@@ -119,7 +125,18 @@ export async function assembleGrantMatchSummaryInput(
       : project.manualModeSubmission?.modificationType ?? '[Incomplete]';
   if (modificationType === '[Incomplete]') incompleteFields.push('modification type');
 
-  const discoveredGrants = (assessment.discoveredGrants ?? []) as unknown as DiscoveredGrant[];
+  // A post-estimate override (FR-4.3) may have added/removed/re-decided
+  // grants since this assessment ran; only apply it when the project's
+  // latest quote still points at this exact assessment (a manual AI re-run
+  // after the quote would otherwise mismatch the override's grant ids).
+  const latestQuote = project.quotes?.[0];
+  const override = latestQuote?.eligibilityAssessmentId === assessment.id ? latestQuote.override : null;
+
+  const rawDiscoveredGrants = (assessment.discoveredGrants ?? []) as unknown as DiscoveredGrant[];
+  const discoveredGrants = applyGrantOverridesToRawGrants(
+    rawDiscoveredGrants,
+    (override?.grantOverrides as unknown as GrantOverrides) ?? null
+  );
   const matchedGrants: AssembledMatchedGrant[] = discoveredGrants
     .filter((grant) => grant.decision === EligibilityDecision.ELIGIBLE)
     .map((grant) => ({

@@ -21,6 +21,10 @@ type ProjectSummaryRecord = {
     discoveredGrants: unknown;
     discoveryProvider: string | null;
   }>;
+  quotes?: Array<{
+    eligibilityAssessmentId: string | null;
+    override: { eligibilityDecision: string; grantOverrides: unknown } | null;
+  }>;
 };
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -194,6 +198,108 @@ describe("assembleGrantMatchSummaryInput", () => {
     expect(result.incompleteFields).toEqual(
       expect.arrayContaining(["client name", "project address", "modification type"])
     );
+  });
+
+  it("reflects an override's removed/added grants when the latest quote matches the latest assessment", async () => {
+    prisma.project.findUnique.mockResolvedValue({
+      id: "proj-5",
+      address: "10 Override Ln",
+      draftData: {},
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      user: { name: "Override User" },
+      eligibilityAssessments: [
+        {
+          id: "assess-5",
+          createdAt: ASSESSED_AT,
+          discoveryProvider: "OPENAI",
+          discoveredGrants: [
+            {
+              grantId: "hatc_canada",
+              title: "Home Accessibility Tax Credit",
+              decision: "ELIGIBLE",
+              confidence: "HIGH",
+              estimatedFundingAmount: "Up to $20,000",
+              summary: "Federal tax credit for eligible accessibility renovations.",
+            },
+          ],
+        },
+      ],
+      quotes: [
+        {
+          eligibilityAssessmentId: "assess-5",
+          override: {
+            eligibilityDecision: "ELIGIBLE",
+            grantOverrides: {
+              removedGrantIds: ["hatc_canada"],
+              decisionOverrides: [],
+              addedGrants: [
+                { id: "manual-1", title: "Manual Grant", scope: "MUNICIPAL", jurisdiction: "Toronto", decision: "ELIGIBLE", note: "Confirmed by phone" },
+              ],
+            },
+          },
+        },
+      ],
+    });
+
+    const result = await assembleGrantMatchSummaryInput("proj-5");
+
+    expect(result.matchedGrants).toEqual([
+      {
+        programName: "Manual Grant",
+        eligibilityStatus: "ELIGIBLE",
+        confidence: "HIGH",
+        estimatedFunding: null,
+        scopeDescription: "Confirmed by phone",
+      },
+    ]);
+  });
+
+  it("ignores the override when the latest quote points at a different (stale) assessment", async () => {
+    prisma.project.findUnique.mockResolvedValue({
+      id: "proj-6",
+      address: "20 Stale Ln",
+      draftData: {},
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      user: { name: "Stale User" },
+      eligibilityAssessments: [
+        {
+          id: "assess-6-new",
+          createdAt: ASSESSED_AT,
+          discoveryProvider: "OPENAI",
+          discoveredGrants: [
+            {
+              grantId: "hatc_canada",
+              title: "Home Accessibility Tax Credit",
+              decision: "ELIGIBLE",
+              confidence: "HIGH",
+              estimatedFundingAmount: "Up to $20,000",
+              summary: "Federal tax credit for eligible accessibility renovations.",
+            },
+          ],
+        },
+      ],
+      quotes: [
+        {
+          eligibilityAssessmentId: "assess-6-old",
+          override: {
+            eligibilityDecision: "INELIGIBLE",
+            grantOverrides: { removedGrantIds: ["hatc_canada"], decisionOverrides: [], addedGrants: [] },
+          },
+        },
+      ],
+    });
+
+    const result = await assembleGrantMatchSummaryInput("proj-6");
+
+    expect(result.matchedGrants).toEqual([
+      {
+        programName: "Home Accessibility Tax Credit",
+        eligibilityStatus: "ELIGIBLE",
+        confidence: "HIGH",
+        estimatedFunding: "Up to $20,000",
+        scopeDescription: "Federal tax credit for eligible accessibility renovations.",
+      },
+    ]);
   });
 
   it("throws when the project does not exist", async () => {

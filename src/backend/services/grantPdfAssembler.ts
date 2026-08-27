@@ -3,6 +3,8 @@ import { deriveAddressFromIntakeData } from './intakeDraft';
 import { MODIFICATION_COST_CATALOG } from './modificationCostCatalog';
 import { aggregateDeclaredModificationCodes } from '@/backend/eligibility/modificationNormalization';
 import type { PromoteIntakeData } from "@/backend/schemas/intakeDraft";
+import { applyGrantOverridesToRawGrants, type GrantOverrides } from '@/backend/services/quoteOverride';
+import type { DiscoveredGrant } from '@/backend/eligibility/discoverySearchProvider';
 
 export interface AssembledGrantPdfInput {
   applicantName: string;
@@ -29,10 +31,6 @@ interface DraftIntakeFields {
   ownershipStatus?: string;
 }
 
-interface DiscoveredGrant {
-  title?: string;
-}
-
 export async function assembleGrantPdfInput(projectId: string): Promise<AssembledGrantPdfInput> {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
@@ -43,8 +41,16 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
       userId: true,
       photos: { select: { declaredModificationCodes: true } },
       user: { select: { name: true, email: true, phone: true } },
-      quotes: { orderBy: { createdAt: 'desc' }, take: 1, select: { estimateMin: true, estimateMax: true } },
-      eligibilityAssessments: { orderBy: { createdAt: 'desc' }, take: 1, select: { overallDecision: true, discoveredGrants: true } },
+      quotes: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { estimateMin: true, estimateMax: true, total: true, eligibilityAssessmentId: true, override: true },
+      },
+      eligibilityAssessments: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { id: true, overallDecision: true, discoveredGrants: true },
+      },
       manualModeSubmission: { select: { modificationType: true } },
     },
   });
@@ -129,10 +135,20 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
       : [];
   if (modificationItemsRaw.length === 0) incompleteFields.push('modification type');
 
-  // Estimated cost: try latest quote
-  let estimatedCost: string | null = null;
+  // A post-estimate override (FR-4.3) may have adjusted pricing and/or grant
+  // eligibility since this quote/assessment were generated; only apply it
+  // when the latest quote still points at the latest assessment (a manual AI
+  // re-run after the quote would otherwise mismatch the override's grant ids).
   const latestQuote = project.quotes[0];
-  if (latestQuote?.estimateMin != null && latestQuote?.estimateMax != null) {
+  const assessment = project.eligibilityAssessments[0];
+  const override = latestQuote?.eligibilityAssessmentId === assessment?.id ? latestQuote?.override : null;
+
+  // Estimated cost: the override tracks one final total, not a range, so show
+  // a single figure once overridden rather than the AI's now-stale range.
+  let estimatedCost: string | null = null;
+  if (override) {
+    estimatedCost = `$${Number(override.total).toLocaleString()}`;
+  } else if (latestQuote?.estimateMin != null && latestQuote?.estimateMax != null) {
     const min = latestQuote.estimateMin.toNumber();
     const max = latestQuote.estimateMax.toNumber();
     if (!Number.isNaN(min) && !Number.isNaN(max)) {
@@ -143,17 +159,21 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
     incompleteFields.push('estimated cost');
   }
 
-  // Grant program: pick top ELIGIBLE discovered grant title if assessment says ELIGIBLE; make the
-  // zero-matches case explicit rather than falling through to a generic placeholder.
+  // Grant program: pick top ELIGIBLE discovered grant title if the effective decision is
+  // ELIGIBLE; make the zero-matches case explicit rather than falling through to a
+  // generic placeholder.
   let grantProgramName = 'Landseed Grant Application';
-  const assessment = project.eligibilityAssessments[0];
-  if (assessment?.overallDecision === 'ELIGIBLE') {
-    // discoveredGrants is Json?; route through unknown rather than any.
-    const discovered = assessment.discoveredGrants as unknown as DiscoveredGrant[] | null | undefined;
-    if (Array.isArray(discovered) && discovered.length > 0 && discovered[0]?.title) {
+  const effectiveDecision = override?.eligibilityDecision ?? assessment?.overallDecision;
+  if (effectiveDecision === 'ELIGIBLE') {
+    const rawDiscovered = assessment?.discoveredGrants as unknown as DiscoveredGrant[] | null | undefined;
+    const discovered = applyGrantOverridesToRawGrants(
+      Array.isArray(rawDiscovered) ? rawDiscovered : [],
+      (override?.grantOverrides as unknown as GrantOverrides) ?? null
+    );
+    if (discovered.length > 0 && discovered[0]?.title) {
       grantProgramName = discovered[0].title;
     }
-  } else if (assessment?.overallDecision === 'INELIGIBLE') {
+  } else if (effectiveDecision === 'INELIGIBLE') {
     grantProgramName = 'No matching grants found';
   }
 
