@@ -8,7 +8,6 @@ export type PricingTierKey = (typeof PRICING_TIER_KEYS)[number];
 export const DEFAULT_PRICING_TIER: PricingTierKey = "standard";
 
 export interface PricingTierAdjustment {
-  laborMultiplier: number;
   markupPercentage: number;
 }
 
@@ -21,10 +20,14 @@ export interface PricingTierAdjustment {
 // product directly from the same fetched SerpAPI candidate list (see
 // refinedEstimate.ts's selectTierPrices) instead of marking up one fetched
 // price, so a material-price multiplier would be redundant.
+//
+// No laborMultiplier either: labor is billed at a flat LABOR_RATE_PER_HOUR
+// (see laborRates.ts) regardless of tier — tiers differ only by material
+// selection.
 export const PRICING_TIER_CONFIG: Record<PricingTierKey, PricingTierAdjustment> = {
-  economy: { laborMultiplier: 0.9, markupPercentage: 0 },
-  standard: { laborMultiplier: 1, markupPercentage: 0 },
-  premium: { laborMultiplier: 1.15, markupPercentage: 0 },
+  economy: { markupPercentage: 0 },
+  standard: { markupPercentage: 0 },
+  premium: { markupPercentage: 0 },
 };
 
 export const PRICING_TIER_LABELS: Record<PricingTierKey, string> = {

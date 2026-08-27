@@ -37,6 +37,12 @@ describe("pricingTiers config", () => {
     expect(PRICING_TIER_CONFIG.standard.markupPercentage).toBe(0);
     expect(PRICING_TIER_CONFIG.premium.markupPercentage).toBe(0);
   });
+
+  it("no longer varies labor rate by tier — labor is billed at a flat rate (see laborRates.ts)", () => {
+    expect(PRICING_TIER_CONFIG.economy).not.toHaveProperty("laborMultiplier");
+    expect(PRICING_TIER_CONFIG.standard).not.toHaveProperty("laborMultiplier");
+    expect(PRICING_TIER_CONFIG.premium).not.toHaveProperty("laborMultiplier");
+  });
 });
 
 describe("projectSupportsTieredPricing / getApplicableTiers", () => {
