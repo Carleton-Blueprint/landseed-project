@@ -70,6 +70,18 @@ function getModLabel(item: string) {
   };
 }
 
+function resolveModCodeBadges(codes: string[]) {
+  return codes.map((code) => ({ code, ...getModLabel(code) }));
+}
+
+// Mirrors sameCodeSet() in photoAnalysis.ts — kept local since that one's
+// module-private and this is a 3-line set-equality check.
+function sameCodeSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setA = new Set(a);
+  return b.every((code) => setA.has(code));
+}
+
 /* ------------------------------------------------------------------ */
 /* Page Component                                                      */
 /* ------------------------------------------------------------------ */
@@ -182,7 +194,18 @@ export default async function ProjectDetailPage({
     console.warn("Failed to load information requests:", error);
   }
 
-  let photosWithSignedUrls: { id: string; imageUrl: string | null; generatedImageUrl: string | null }[] = [];
+  type PhotoWithSignedUrl = {
+    id: string;
+    imageUrl: string | null;
+    generatedImageUrl: string | null;
+    declaredModCodes: { code: string; label: string; icon: string }[];
+    aiModCodes: { code: string; label: string; icon: string }[];
+    aiConfidence: string | null;
+    analysisStatus: string;
+    mismatch: boolean;
+  };
+
+  let photosWithSignedUrls: PhotoWithSignedUrl[] = [];
   try {
     photosWithSignedUrls = await Promise.all(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -209,23 +232,47 @@ export default async function ProjectDetailPage({
           ? await getSignedDownloadUrlFromS3Url(generatedImageUrl, 900)
           : generatedImageUrl;
 
+        const declaredModificationCodes: string[] = photo.declaredModificationCodes ?? [];
+        const aiModificationCodes: string[] = photo.aiModificationCodes ?? [];
+        const analysisStatus: string = photo.analysisStatus ?? "PENDING";
+
         return {
           id: photo.id,
           imageUrl: signedImageUrl,
           generatedImageUrl: signedGeneratedImageUrl,
+          declaredModCodes: resolveModCodeBadges(declaredModificationCodes),
+          aiModCodes: resolveModCodeBadges(aiModificationCodes),
+          aiConfidence: photo.aiConfidence ?? null,
+          analysisStatus,
+          mismatch:
+            analysisStatus === "READY" &&
+            !sameCodeSet(declaredModificationCodes, aiModificationCodes),
         };
       })
     );
   } catch {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    photosWithSignedUrls = project.photos.map((photo: any) => ({
-      id: photo.id,
-      imageUrl: photo.url,
-      generatedImageUrl:
-        photo.generationStatus === "READY" && "generatedImageUrl" in photo && photo.generatedImageUrl
-          ? photo.generatedImageUrl
-          : null,
-    }));
+    photosWithSignedUrls = project.photos.map((photo: any) => {
+      const declaredModificationCodes: string[] = photo.declaredModificationCodes ?? [];
+      const aiModificationCodes: string[] = photo.aiModificationCodes ?? [];
+      const analysisStatus: string = photo.analysisStatus ?? "PENDING";
+
+      return {
+        id: photo.id,
+        imageUrl: photo.url,
+        generatedImageUrl:
+          photo.generationStatus === "READY" && "generatedImageUrl" in photo && photo.generatedImageUrl
+            ? photo.generatedImageUrl
+            : null,
+        declaredModCodes: resolveModCodeBadges(declaredModificationCodes),
+        aiModCodes: resolveModCodeBadges(aiModificationCodes),
+        aiConfidence: photo.aiConfidence ?? null,
+        analysisStatus,
+        mismatch:
+          analysisStatus === "READY" &&
+          !sameCodeSet(declaredModificationCodes, aiModificationCodes),
+      };
+    });
   }
 
   return (

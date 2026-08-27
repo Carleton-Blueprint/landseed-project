@@ -8,10 +8,17 @@ import { CameraIcon, HourglassIcon } from "@/frontend/components/icons";
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
 
+type ModCodeBadge = { code: string; label: string; icon: string };
+
 type PhotoItem = {
   id: string;
   imageUrl: string | null;
   generatedImageUrl?: string | null;
+  declaredModCodes?: ModCodeBadge[];
+  aiModCodes?: ModCodeBadge[];
+  aiConfidence?: string | null;
+  analysisStatus?: string;
+  mismatch?: boolean;
 };
 
 type ViewMode = "original" | "generated" | "compare";
