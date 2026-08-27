@@ -11,6 +11,9 @@ import { auth } from '@/auth';
 import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
 import { hasProjectAccess } from '@/backend/auth/projectAccess';
 import { prisma } from 'lib/prisma';
+import { applyGrantOverridesToRawGrants } from '@/backend/services/quoteOverride';
+import type { GrantOverrides } from '@/backend/services/quoteOverride';
+import type { DiscoveredGrant } from '@/backend/eligibility/discoverySearchProvider';
 
 export async function GET(
   request: Request,
@@ -124,16 +127,34 @@ export async function GET(
       );
     }
 
+    // A post-estimate override (FR-4.3) may have adjusted the overall
+    // decision and/or the discovered-grants list since this assessment ran;
+    // merge it in so clients and staff see the same "effective" eligibility
+    // the admin dashboard shows, not the untouched AI output.
+    const latestQuote = await prisma.quote.findFirst({
+      where: { projectId },
+      orderBy: { generatedAt: 'desc' },
+      include: { override: true },
+    });
+    const override = latestQuote?.override ?? null;
+    const effectiveOverallDecision = override?.eligibilityDecision ?? assessment.overallDecision;
+    const effectiveDiscoveredGrants = override
+      ? applyGrantOverridesToRawGrants(
+          Array.isArray(assessment.discoveredGrants) ? (assessment.discoveredGrants as unknown as DiscoveredGrant[]) : [],
+          override.grantOverrides as unknown as GrantOverrides
+        )
+      : assessment.discoveredGrants;
+
     // Return based on user type
     const response = {
       assessmentId: assessment.assessmentId,
       projectId: assessment.projectId,
-      overallDecision: assessment.overallDecision,
+      overallDecision: effectiveOverallDecision,
       createdAt: assessment.createdAt,
       discovery: {
         provider: assessment.discoveryProvider,
         metadata: assessment.discoveryMetadata,
-        discoveredGrants: assessment.discoveredGrants,
+        discoveredGrants: effectiveDiscoveredGrants,
         version: {
           engineVersion: assessment.discoveryEngineVersion,
           promptVersion: assessment.discoveryPromptVersion,

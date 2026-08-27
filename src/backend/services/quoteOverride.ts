@@ -306,6 +306,52 @@ export function mapAiGrantsToEffectiveGrants(grants: DiscoveredGrant[]): Effecti
 }
 
 /**
+ * Applies removedGrantIds/decisionOverrides/addedGrants on top of a raw
+ * DiscoveredGrant[] list while preserving every AI-only field (sourceUrl,
+ * summary, matchedCriteria, missingCriteria, rationale, ...) that richer
+ * client-facing consumers (e.g. GrantDiscoverySummary.tsx) render but the
+ * admin-facing EffectiveGrant projection deliberately drops. Admin-added
+ * grants get safe placeholder values for the AI-only fields since they have
+ * no discovery data behind them.
+ */
+export function applyGrantOverridesToRawGrants(
+  grants: DiscoveredGrant[],
+  grantOverrides: GrantOverrides | null | undefined
+): DiscoveredGrant[] {
+  if (!grantOverrides) return grants;
+
+  const removedGrantIds = new Set(grantOverrides.removedGrantIds ?? []);
+  const decisionOverridesByGrantId = new Map(
+    (grantOverrides.decisionOverrides ?? []).map((d) => [d.grantId, d.decision])
+  );
+
+  const kept: DiscoveredGrant[] = grants
+    .filter((grant) => !removedGrantIds.has(grant.grantId))
+    .map((grant) => ({
+      ...grant,
+      decision: (decisionOverridesByGrantId.get(grant.grantId) ?? grant.decision) as DiscoveredGrant["decision"],
+    }));
+
+  const added: DiscoveredGrant[] = (grantOverrides.addedGrants ?? []).map((grant) => ({
+    grantId: grant.id,
+    title: grant.title,
+    scope: grant.scope,
+    jurisdiction: grant.jurisdiction,
+    sourceUrl: null,
+    summary: grant.note ?? "Added by the advisory team.",
+    decision: grant.decision as DiscoveredGrant["decision"],
+    relevanceScore: 100,
+    confidence: "HIGH",
+    matchedCriteria: [],
+    missingCriteria: [],
+    rationale: grant.note ?? "Manually added by the advisory team.",
+    estimatedFundingAmount: null,
+  }));
+
+  return [...kept, ...added];
+}
+
+/**
  * Merges a Quote's raw AI-generated pricing/eligibility with any
  * QuoteOverride layered on top of it. This is the single place every read
  * path (admin dashboard, client estimate page, eligibility API) should call

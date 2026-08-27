@@ -25,6 +25,7 @@ import {
 } from "@/backend/services/pricingTiers";
 import type { EstimateLineItemGroup, EstimateTierOption } from "./EstimateClientComponent";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
+import { resolveEffectiveQuoteView } from "@/backend/services/quoteOverride";
 
 // Presentational grouping only — never persisted. modificationTotals (already computed
 // and persisted on RefinedEstimate) supplies the totals and group order; this just
@@ -68,6 +69,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
         quotes: {
           orderBy: { generatedAt: 'desc' },
           take: 1,
+          include: { override: true },
         },
         photos: {
           select: { declaredModificationCodes: true },
@@ -93,6 +95,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
             subtotal: 12500,
             total: 14375,
             status: "PENDING",
+            override: null,
             generatedAt: new Date(),
             declinedReason: null,
             refinedEstimate: {
@@ -175,7 +178,20 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
   const refinedEstimate = quoteIsTiered ? null : (refinedEstimateRaw as RefinedEstimate | null);
   const tieredEstimate = quoteIsTiered ? (refinedEstimateRaw as TieredRefinedEstimate) : null;
 
-  const tierOptions: EstimateTierOption[] | undefined = tieredEstimate
+  // A post-estimate override (FR-4.3) always writes flat pricing, so an
+  // overridden quote is shown as a single figure rather than a tier picker —
+  // the AI's per-tier breakdown no longer reflects what the admin approved.
+  const effective = latestQuote
+    ? resolveEffectiveQuoteView(
+        latestQuote,
+        latestQuote.override ?? null,
+        null,
+        aggregateDeclaredModificationCodes(project.photos)
+      )
+    : null;
+  const isOverridden = effective?.isOverridden ?? false;
+
+  const tierOptions: EstimateTierOption[] | undefined = tieredEstimate && !isOverridden
     ? PRICING_TIER_KEYS.map((tierKey) => {
         const tier = tieredEstimate.tiers[tierKey];
         return {
@@ -196,7 +212,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
       })
     : undefined;
 
-  const initialSelectedTier = tieredEstimate?.selectedTier ?? null;
+  const initialSelectedTier = isOverridden ? null : (tieredEstimate?.selectedTier ?? null);
 
   if (!latestQuote) {
     await logAuditEventNonBlocking({
@@ -245,8 +261,8 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
     ...requestContext,
   });
 
-  const formattedSubtotal = Number(latestQuote.subtotal).toLocaleString("en-US", { style: "currency", currency: "CAD" });
-  const formattedTotal = Number(latestQuote.total).toLocaleString("en-US", { style: "currency", currency: "CAD" });
+  const formattedSubtotal = (effective?.subtotal ?? Number(latestQuote.subtotal)).toLocaleString("en-US", { style: "currency", currency: "CAD" });
+  const formattedTotal = (effective?.total ?? Number(latestQuote.total)).toLocaleString("en-US", { style: "currency", currency: "CAD" });
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -294,7 +310,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
               <span className="text-gray-500">Subtotal</span>
               <span className="font-medium text-gray-800">{formattedSubtotal}</span>
             </div>
-            {refinedEstimate ? (
+            {refinedEstimate && !isOverridden ? (
               <>
                 <div className="flex justify-between py-2 border-b border-gray-200">
                   <span className="text-gray-600">Labor</span>
@@ -310,13 +326,35 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
                 </div>
               </>
             ) : null}
+            {isOverridden ? (
+              <p className="pt-2 text-xs text-gray-500">
+                This estimate was updated by our advisory team after your initial estimate was generated.
+              </p>
+            ) : null}
             <div className="flex justify-between py-4 mt-1">
               <span className="text-lg font-bold text-indigo-700">Total Estimate</span>
               <span className="text-lg font-bold text-indigo-700">{formattedTotal}</span>
             </div>
           </div>
         </div>
-        {refinedEstimate ? (
+        {isOverridden && effective!.lineItems.length > 0 ? (
+          <div className="bg-white shadow rounded-lg p-6 mb-8">
+            <h3 className="text-xl font-semibold mb-4">Itemized Estimate</h3>
+            <div className="space-y-3">
+              {effective!.lineItems.map((item, index) => (
+                <div key={index} className="rounded-lg border border-gray-200 p-4 flex justify-between items-start">
+                  <div>
+                    <p className="font-semibold text-gray-900">{item.description}</p>
+                    <p className="text-sm text-gray-600">Qty: {item.quantity}</p>
+                  </div>
+                  <p className="text-right text-sm text-gray-600">
+                    Material: ${item.materialTotal.toFixed(2)} &middot; Labor: ${item.laborTotal.toFixed(2)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : refinedEstimate ? (
           <div className="bg-white shadow rounded-lg p-6 mb-8">
             <h3 className="text-xl font-semibold mb-4">Itemized Refined Estimate</h3>
             <div className="space-y-6">

@@ -1,8 +1,11 @@
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { EligibilityDecision } from "@/backend/eligibility/types";
+import type { DiscoveredGrant } from "@/backend/eligibility/discoverySearchProvider";
 import {
   overridePostEstimateQuote,
   resolveEffectiveQuoteView,
+  applyGrantOverridesToRawGrants,
   QuoteOverrideError,
 } from "../quoteOverride";
 
@@ -307,5 +310,66 @@ describe("resolveEffectiveQuoteView", () => {
     expect(view.discoveredGrants.find((g) => g.grantId === "grant-ai-2")).toBeUndefined();
     const manualGrant = view.discoveredGrants.find((g) => g.grantId === "manual-1");
     expect(manualGrant).toMatchObject({ title: "Manual Grant", source: "admin_added" });
+  });
+});
+
+describe("applyGrantOverridesToRawGrants", () => {
+  const rawGrants: DiscoveredGrant[] = [
+    {
+      grantId: "grant-ai-1",
+      title: "AI Found Grant",
+      scope: "PROVINCIAL",
+      jurisdiction: "Ontario",
+      sourceUrl: "https://example.com",
+      summary: "summary",
+      decision: EligibilityDecision.ELIGIBLE,
+      relevanceScore: 90,
+      confidence: "HIGH",
+      matchedCriteria: ["criterion a"],
+      missingCriteria: [],
+      rationale: "meets all criteria",
+      estimatedFundingAmount: "5000",
+    },
+  ];
+
+  it("returns the raw grants unchanged when there is no override", () => {
+    expect(applyGrantOverridesToRawGrants(rawGrants, null)).toBe(rawGrants);
+  });
+
+  it("preserves AI-only fields (rationale, matchedCriteria, sourceUrl) while applying a decision override", () => {
+    const result = applyGrantOverridesToRawGrants(rawGrants, {
+      removedGrantIds: [],
+      decisionOverrides: [{ grantId: "grant-ai-1", decision: "INELIGIBLE" }],
+      addedGrants: [],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      decision: "INELIGIBLE",
+      rationale: "meets all criteria",
+      matchedCriteria: ["criterion a"],
+      sourceUrl: "https://example.com",
+    });
+  });
+
+  it("drops removed grants and fills safe placeholders for admin-added ones", () => {
+    const result = applyGrantOverridesToRawGrants(rawGrants, {
+      removedGrantIds: ["grant-ai-1"],
+      decisionOverrides: [],
+      addedGrants: [
+        { id: "manual-1", title: "Manual Grant", scope: "MUNICIPAL", jurisdiction: "Toronto", decision: "ELIGIBLE", note: "Confirmed by phone" },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      grantId: "manual-1",
+      title: "Manual Grant",
+      decision: "ELIGIBLE",
+      rationale: "Confirmed by phone",
+      matchedCriteria: [],
+      missingCriteria: [],
+      sourceUrl: null,
+    });
   });
 });
