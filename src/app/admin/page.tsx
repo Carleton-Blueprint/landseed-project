@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { AdminDashboardClient, SerializedProject } from "./AdminDashboardClient";
 import { hasMinimumRole } from "@/backend/auth/requireRole";
+import { signPhotosForDisplay } from "lib/photoUrls";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 
@@ -130,7 +131,7 @@ export default async function AdminDashboardPage() {
       statusHistoryByProject.set(h.projectId, arr);
     }
 
-    serialized = rawProjects.map((p) => {
+    serialized = await Promise.all(rawProjects.map(async (p) => {
       const docs = docsByProject.get(p.id) ?? [];
       const latestQuote = quotesByProject.get(p.id) ?? null;
       const latestAssessment = assessmentsByProject.get(p.id) ?? null;
@@ -235,7 +236,7 @@ export default async function AdminDashboardPage() {
           urgency: typeof mergedData.urgency === "string" && mergedData.urgency ? mergedData.urgency : null,
           submittedAt: p.createdAt.toISOString(),
         },
-        photos: p.photos.map((photo: {
+        photos: await signPhotosForDisplay(p.photos.map((photo: {
           id: string;
           url?: string;
           virus_scan_status?: string;
@@ -249,9 +250,9 @@ export default async function AdminDashboardPage() {
           createdAt: photo.createdAt ? photo.createdAt.toISOString() : p.createdAt.toISOString(),
           declaredModificationCodes: photo.declaredModificationCodes ?? [],
           aiModificationCodes: photo.aiModificationCodes ?? [],
-        })),
+        }))),
       };
-    });
+    }));
   } catch {
     // No DB connection in dev — fallback to dev mock injector
   }
