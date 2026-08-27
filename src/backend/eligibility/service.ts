@@ -165,12 +165,13 @@ export async function evaluateProjectEligibility(
       }
     });
 
-    // Step 6: Trigger quote generation in background (non-blocking)
+    // Step 6: Trigger quote generation, then grant application PDF generation,
+    // in background (non-blocking).
     //
-    // In the normal intake flow this is a no-op: the real, catalog-priced quote
-    // (estimateGeneration.ts -> processScheduledEstimateGeneration -> generateQuote)
-    // already exists by the time eligibility evaluation runs, so `existingQuote`
-    // below is set and this returns early.
+    // Quote creation is a no-op in the normal intake flow: the real,
+    // catalog-priced quote (estimateGeneration.ts -> processScheduledEstimateGeneration
+    // -> generateQuote) already exists by the time eligibility evaluation runs, so
+    // `existingQuote` below is set and quote creation is skipped.
     //
     // It only actually creates a quote here when eligibility evaluation runs
     // *before* that real quote exists, which happens via:
@@ -186,6 +187,12 @@ export async function evaluateProjectEligibility(
     // real one - this uses the same catalog-priced buildQuoteItems path (built
     // from the project's actual declared modification codes) as the normal flow,
     // not a placeholder.
+    //
+    // The grant application PDF generation below runs unconditionally after the
+    // quote-creation-or-skip branch (not nested inside an early return), so it
+    // fires whether the quote pre-existed (normal flow) or was just created
+    // (pre-estimate flow) — in both cases assembleGrantPdfInput sees a committed
+    // quote, since this step only runs after that branch resolves.
     setImmediate(async () => {
       try {
         const existingQuote = await prisma.quote.findFirst({
@@ -196,20 +203,20 @@ export async function evaluateProjectEligibility(
           console.log(
             `Skipping auto-quote for project ${project.id}: quote ${existingQuote.id} already exists`
           );
-          return;
+        } else {
+          const modificationCodes = aggregateDeclaredModificationCodes(project.photos);
+          const quoteItems = buildQuoteItems(modificationCodes);
+
+          // Dynamically import to avoid circular dependencies
+          const { generateQuote } = await import('@/backend/services/quote');
+          await generateQuote({
+            projectId: project.id,
+            items: quoteItems,
+            modificationCodes,
+          });
+          console.log(`Auto-generated quote after eligibility assessment for project ${project.id}`);
         }
 
-        const modificationCodes = aggregateDeclaredModificationCodes(project.photos);
-        const quoteItems = buildQuoteItems(modificationCodes);
-
-        // Dynamically import to avoid circular dependencies
-        const { generateQuote } = await import('@/backend/services/quote');
-        await generateQuote({
-          projectId: project.id,
-          items: quoteItems,
-          modificationCodes,
-        });
-        console.log(`Auto-generated quote after eligibility assessment for project ${project.id}`);
         // Auto-generate the grant eligibility summary PDF once the assessment reaches a final
         // decision, so clients can always download a summary (including zero-matches/INELIGIBLE).
         if (isFinalEligibilityDecision(evaluation.overallDecision)) {
@@ -232,11 +239,11 @@ export async function evaluateProjectEligibility(
 
     // Step 7: Queue Grant Match Summary PDF generation in background (non-blocking).
     //
-    // Unlike the pre-filled grant application PDF (Step 6, ELIGIBLE-only), this
-    // summary is generated for every assessment outcome — it must render a clean
-    // "no matching grants found" message rather than skip generation entirely.
-    // It doesn't depend on the quote above, so it's queued independently rather
-    // than nested inside that block.
+    // Unlike the pre-filled grant application PDF (Step 6, gated on a final
+    // decision), this summary is generated for every assessment outcome — it must
+    // render a clean "no matching grants found" message rather than skip
+    // generation entirely. It has no cost/quote-dependent fields, so it's queued
+    // independently rather than nested inside that block.
     grantMatchSummaryQueue
       .add(`grant-match-summary:${project.id}:${assessment.id}`, {
         projectId: project.id,
