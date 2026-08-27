@@ -1,5 +1,6 @@
 import { MODIFICATION_CODES } from "@/backend/eligibility/types";
 import { isTieredEstimate } from "@/backend/services/pricingTiers";
+import { CALL_OUT_FEE } from "@/backend/services/laborRates";
 
 jest.mock("@/backend/services/pricing", () => {
   const actual = jest.requireActual("@/backend/services/pricing");
@@ -145,7 +146,8 @@ describe("generateMockRefinedEstimate", () => {
     expect(isTieredEstimate(result)).toBe(true);
     if (isTieredEstimate(result)) {
       expect(Object.keys(result.tiers).sort()).toEqual(["economy", "premium", "standard"]);
-      expect(result.tiers.standard.lineItems).toHaveLength(1);
+      // The one modification line item, plus the always-added call-out fee line.
+      expect(result.tiers.standard.lineItems).toHaveLength(2);
       expect(result.tiers.standard.total).toBeGreaterThan(0);
     }
   });
@@ -159,6 +161,18 @@ describe("generateMockRefinedEstimate", () => {
   });
 
   it("returns three itemized tiers when a modification code supports tiering", async () => {
+    // Needs a genuine 3-way material price spread: with labor now billed flat
+    // across tiers (see the "labor rate and minimum call-out fee" describe block
+    // below), only two usable candidates would make economy and standard land on
+    // the same product/price, collapsing the distinction this test checks for.
+    mockedGetMaterialPriceCandidates.mockResolvedValue(
+      candidatesResult("Walk-in shower", [
+        candidate(1500, "AliExpress"),
+        candidate(2000, "Amazon"),
+        candidate(2500, "Wayfair"),
+      ])
+    );
+
     const result = await generateMockRefinedEstimate(
       [{ description: "Walk-in shower", quantity: 1, unitPrice: 2000 }],
       [MODIFICATION_CODES.WALK_IN_SHOWER]
@@ -278,6 +292,74 @@ describe("generateMockRefinedEstimate", () => {
   });
 });
 
+describe("labor rate and call-out fee", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedGetMaterialPriceCandidates.mockResolvedValue(okResult);
+  });
+
+  it("charges labor at a flat $150/hr on every tier, since tiers no longer vary the labor rate", async () => {
+    const result = await generateMockRefinedEstimate(
+      [{ description: "Walk-in shower", quantity: 1, unitPrice: 2000 }],
+      [MODIFICATION_CODES.WALK_IN_SHOWER]
+    );
+
+    expect(isTieredEstimate(result)).toBe(true);
+    if (!isTieredEstimate(result)) return;
+
+    expect(result.tiers.economy.lineItems[0].laborRate).toBe(150);
+    expect(result.tiers.standard.lineItems[0].laborRate).toBe(150);
+    expect(result.tiers.premium.lineItems[0].laborRate).toBe(150);
+  });
+
+  it("adds a $150 Service Call-Out Fee line item stacked on top of material + labor, even on a sizable job", async () => {
+    const result = await generateMockRefinedEstimate([
+      { description: "Grab bars", quantity: 1, unitPrice: 150 },
+    ]);
+
+    expect(isTieredEstimate(result)).toBe(false);
+    if (isTieredEstimate(result)) return;
+
+    const calloutFeeLine = result.lineItems.find((item) => item.isCalloutFee);
+    expect(calloutFeeLine).toBeDefined();
+    expect(calloutFeeLine?.lineTotal).toBe(150);
+
+    const materialAndLaborTotal = result.lineItems
+      .filter((item) => !item.isCalloutFee)
+      .reduce((sum, item) => sum + item.materialTotal + item.laborTotal, 0);
+    expect(result.total).toBe(Number((materialAndLaborTotal + 150).toFixed(2)));
+  });
+
+  it("still adds the $150 call-out fee even when there are no billable line items", async () => {
+    const result = await generateMockRefinedEstimate([]);
+
+    expect(isTieredEstimate(result)).toBe(false);
+    if (isTieredEstimate(result)) return;
+
+    expect(result.lineItems).toHaveLength(1);
+    const [calloutFeeLine] = result.lineItems;
+    expect(calloutFeeLine.isCalloutFee).toBe(true);
+    expect(calloutFeeLine.lineTotal).toBe(150);
+    expect(result.total).toBe(150);
+  });
+
+  it("adds the call-out fee once per tier when tiered", async () => {
+    const result = await generateMockRefinedEstimate(
+      [{ description: "Walk-in shower", quantity: 1, unitPrice: 2000 }],
+      [MODIFICATION_CODES.WALK_IN_SHOWER]
+    );
+
+    expect(isTieredEstimate(result)).toBe(true);
+    if (!isTieredEstimate(result)) return;
+
+    for (const tierKey of ["economy", "standard", "premium"] as const) {
+      const calloutFeeLines = result.tiers[tierKey].lineItems.filter((item) => item.isCalloutFee);
+      expect(calloutFeeLines).toHaveLength(1);
+      expect(calloutFeeLines[0].lineTotal).toBe(150);
+    }
+  });
+});
+
 describe("modificationTotals", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -297,12 +379,14 @@ describe("modificationTotals", () => {
     const codes = result.modificationTotals.map((t) => t.modificationCode);
     expect(codes).toEqual(["GRAB_BARS", "HANDRAILS", "UNSPECIFIED"]);
 
+    // "UNSPECIFIED" here is only the Ramp item — the call-out fee is excluded
+    // from modificationTotals entirely, since it isn't tied to a modification.
     const unspecified = result.modificationTotals.find((t) => t.modificationCode === "UNSPECIFIED");
     const rampItem = result.lineItems.find((i) => i.description === "Ramp");
     expect(unspecified?.total).toBe(rampItem?.lineTotal);
 
     const summedTotal = result.modificationTotals.reduce((sum, t) => sum + t.total, 0);
-    expect(Number(summedTotal.toFixed(2))).toBe(result.total);
+    expect(Number((summedTotal + CALL_OUT_FEE).toFixed(2))).toBe(result.total);
   });
 
   it("rolls up a newly added modification code (WALK_IN_TUB) the same as an established one", async () => {
@@ -318,7 +402,7 @@ describe("modificationTotals", () => {
     expect(codes).toEqual(["GRAB_BARS", "WALK_IN_TUB"]);
 
     const summedTotal = result.modificationTotals.reduce((sum, t) => sum + t.total, 0);
-    expect(Number(summedTotal.toFixed(2))).toBe(result.total);
+    expect(Number((summedTotal + CALL_OUT_FEE).toFixed(2))).toBe(result.total);
   });
 
   it("keeps each tier's modificationTotals consistent with that tier's own total", async () => {
@@ -336,7 +420,7 @@ describe("modificationTotals", () => {
     for (const tierKey of ["economy", "standard", "premium"] as const) {
       const tier = result.tiers[tierKey];
       const summedTotal = tier.modificationTotals.reduce((sum, t) => sum + t.total, 0);
-      expect(Number(summedTotal.toFixed(2))).toBe(tier.total);
+      expect(Number((summedTotal + CALL_OUT_FEE).toFixed(2))).toBe(tier.total);
       expect(tier.modificationTotals.map((t) => t.modificationCode)).toEqual(["GRAB_BARS", "WALK_IN_SHOWER"]);
     }
   });

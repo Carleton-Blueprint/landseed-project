@@ -12,9 +12,7 @@ import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getAuditContextFromHeaders } from "@/backend/audit/requestContext";
 import {
   computeModificationTotals,
-  type ModificationSubtotal,
   type RefinedEstimate,
-  type RefinedEstimateLineItem,
 } from "@/backend/services/refinedEstimate";
 import {
   isTieredEstimate,
@@ -23,32 +21,10 @@ import {
   type AnyRefinedEstimate,
   type TieredRefinedEstimate,
 } from "@/backend/services/pricingTiers";
-import type { EstimateLineItemGroup, EstimateTierOption } from "./EstimateClientComponent";
+import type { EstimateTierOption } from "./EstimateClientComponent";
+import { groupForDisplay } from "./groupForDisplay";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 import { resolveEffectiveQuoteView } from "@/backend/services/quoteOverride";
-
-// Presentational grouping only — never persisted. modificationTotals (already computed
-// and persisted on RefinedEstimate) supplies the totals and group order; this just
-// buckets the already-tagged flat lineItems into arrays for rendering.
-function groupForDisplay(
-  lineItems: RefinedEstimateLineItem[],
-  modificationTotals: ModificationSubtotal[]
-): EstimateLineItemGroup[] {
-  const buckets = new Map<string, RefinedEstimateLineItem[]>();
-  for (const item of lineItems) {
-    const key = item.modificationCode ?? "UNSPECIFIED";
-    const bucket = buckets.get(key) ?? [];
-    bucket.push(item);
-    buckets.set(key, bucket);
-  }
-
-  return modificationTotals.map((t) => ({
-    modificationCode: t.modificationCode,
-    modificationLabel: t.modificationLabel,
-    lineItems: buckets.get(t.modificationCode) ?? [],
-    total: t.total,
-  }));
-}
 
 export default async function EstimatePage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;

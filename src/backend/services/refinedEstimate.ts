@@ -18,6 +18,7 @@ import {
   type PricingTierKey,
   type TieredRefinedEstimate,
 } from "@/backend/services/pricingTiers";
+import { LABOR_RATE_PER_HOUR, CALL_OUT_FEE } from "@/backend/services/laborRates";
 
 const REFINED_ESTIMATE_DEBUG = (process.env.PRICING_DEBUG ?? "true").toLowerCase() !== "false";
 
@@ -61,6 +62,11 @@ export interface RefinedEstimateLineItem {
   markupTotal: number;
   lineTotal: number;
   fallbackReason?: PricingFallbackReason | null;
+  // True only for the synthetic "Service Call-Out Fee" line item buildEstimateForTier
+  // appends when a tier's total labor falls short of MINIMUM_CALL_OUT_FEE (see
+  // laborRates.ts) — lets downstream consumers (audit, PDF, UI) tell it apart from
+  // a real modification line item.
+  isCalloutFee?: boolean;
 }
 
 export interface ModificationSubtotal {
@@ -85,10 +91,15 @@ const MODIFICATION_GROUP_ORDER: (ModificationCode | "UNSPECIFIED")[] = [
   "UNSPECIFIED",
 ];
 
+// Excludes call-out fee line items: the fee is a flat per-visit dispatch
+// charge, not tied to any modification, so it doesn't belong in a per-
+// modification breakdown (and would otherwise inflate the "UNSPECIFIED"
+// bucket on every quote, since it also carries no modificationCode).
 export function computeModificationTotals(lineItems: RefinedEstimateLineItem[]): ModificationSubtotal[] {
   const totals = new Map<ModificationCode | "UNSPECIFIED", number>();
 
   for (const item of lineItems) {
+    if (item.isCalloutFee) continue;
     const key = item.modificationCode ?? "UNSPECIFIED";
     totals.set(key, (totals.get(key) ?? 0) + item.lineTotal);
   }
@@ -108,8 +119,7 @@ function buildLaborForItem(quantity: number, materialUnitCost: number): { laborH
   const baseHours = Math.max(1, Math.round(quantity * 1.5));
   const complexityBonus = Math.min(5, Math.floor(materialUnitCost / 500));
   const laborHours = baseHours + complexityBonus;
-  const laborRate = roundToCents(80 + Math.min(70, materialUnitCost / 25));
-  return { laborHours, laborRate };
+  return { laborHours, laborRate: LABOR_RATE_PER_HOUR };
 }
 
 function formatQuery(item: QuoteItem): string {
@@ -246,8 +256,7 @@ function buildLineItemForTier(
   }
 
   const materialUnitCost = roundToCents(usedSerpPrice ? selectedCandidate!.price : fallbackUnitPrice);
-  const { laborHours, laborRate: baseLaborRate } = buildLaborForItem(item.quantity, materialUnitCost);
-  const laborRate = roundToCents(baseLaborRate * tierAdjustment.laborMultiplier);
+  const { laborHours, laborRate } = buildLaborForItem(item.quantity, materialUnitCost);
   const materialTotal = roundToCents(materialUnitCost * item.quantity);
   const laborTotalForLine = roundToCents(laborHours * laborRate);
   const lineBase = materialTotal + laborTotalForLine;
@@ -272,6 +281,32 @@ function buildLineItemForTier(
     markupTotal: markupTotalForLine,
     lineTotal,
     fallbackReason: usedSerpPrice ? null : fallbackReason,
+  };
+}
+
+// Synthetic line item buildEstimateForTier appends, unconditionally, to every
+// tier's estimate — a flat dispatch fee (CALL_OUT_FEE) stacked on top of the
+// computed material + labor total, visible and auditable on its own line
+// rather than folded into a modification's labor total.
+function buildCalloutFeeLineItem(): RefinedEstimateLineItem {
+  return {
+    description: "Service Call-Out Fee",
+    quantity: 1,
+    pricingQuery: "",
+    pricingSource: null,
+    pricingLink: null,
+    modificationCode: null,
+    modificationLabel: null,
+    materialUnitCost: 0,
+    materialTotal: 0,
+    laborHours: 0,
+    laborRate: 0,
+    laborTotal: CALL_OUT_FEE,
+    markupPercentage: 0,
+    markupTotal: 0,
+    lineTotal: CALL_OUT_FEE,
+    fallbackReason: null,
+    isCalloutFee: true,
   };
 }
 
@@ -301,6 +336,10 @@ function buildEstimateForTier(
     laborTotal += lineItem.laborTotal;
     markupTotal += lineItem.markupTotal;
   }
+
+  lineItems.push(buildCalloutFeeLineItem());
+  subtotal += CALL_OUT_FEE;
+  laborTotal += CALL_OUT_FEE;
 
   subtotal = roundToCents(subtotal);
   laborTotal = roundToCents(laborTotal);

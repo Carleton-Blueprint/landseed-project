@@ -126,6 +126,9 @@ export async function generateQuote(
   }));
 
   const pricingSource = getPricingSourceFromRefinedEstimate(primaryEstimate);
+  const calloutFeeAmount = primaryEstimate.lineItems
+    .filter((item) => item.isCalloutFee)
+    .reduce((sum, item) => sum + item.lineTotal, 0);
   const fallbackLineItems = primaryEstimate.lineItems
     .filter((item) => item.pricingSource === 'fallback')
     .map((item) => ({
@@ -168,6 +171,7 @@ export async function generateQuote(
     actorUserId: projectWithUser.user.id,
     subtotal: primaryEstimate.subtotal,
     total: primaryEstimate.total,
+    calloutFeeAmount,
     pricingSource,
     fallbackLineItems,
     eligibilityAssessmentId: latestEligibility?.assessmentId,

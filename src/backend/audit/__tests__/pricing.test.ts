@@ -45,7 +45,7 @@ describe("normalizePricingDecisionAuditMetadata", () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result!.pricing).toEqual({ subtotal: 0, total: 0 });
+    expect(result!.pricing).toEqual({ subtotal: 0, total: 0, calloutFeeAmount: 0 });
   });
 
   it("preserves numeric subtotal/total", () => {
@@ -53,7 +53,24 @@ describe("normalizePricingDecisionAuditMetadata", () => {
       pricing: { subtotal: 150.5, total: 200 },
     });
 
-    expect(result!.pricing).toEqual({ subtotal: 150.5, total: 200 });
+    expect(result!.pricing).toEqual({ subtotal: 150.5, total: 200, calloutFeeAmount: 0 });
+  });
+
+  it("defaults calloutFeeAmount to 0 when not a number, and preserves it when valid", () => {
+    const missing = normalizePricingDecisionAuditMetadata({
+      pricing: { subtotal: 100, total: 250 },
+    });
+    expect(missing!.pricing.calloutFeeAmount).toBe(0);
+
+    const nonNumber = normalizePricingDecisionAuditMetadata({
+      pricing: { subtotal: 100, total: 250, calloutFeeAmount: "150" },
+    });
+    expect(nonNumber!.pricing.calloutFeeAmount).toBe(0);
+
+    const valid = normalizePricingDecisionAuditMetadata({
+      pricing: { subtotal: 100, total: 250, calloutFeeAmount: 150 },
+    });
+    expect(valid!.pricing.calloutFeeAmount).toBe(150);
   });
 
   it("defaults eligibilityAssessmentId to null when missing or non-string", () => {
@@ -174,7 +191,7 @@ describe("normalizePricingDecisionAuditMetadata", () => {
 
   it("normalizes a fully valid, fully populated metadata object", () => {
     const input = {
-      pricing: { subtotal: 100, total: 120 },
+      pricing: { subtotal: 100, total: 120, calloutFeeAmount: 150 },
       eligibilityAssessmentId: "assessment-1",
       discoveryVersion: { engineVersion: "v1" },
       aiOutput: { provider: "HEURISTIC" },
@@ -234,7 +251,7 @@ describe("logPricingDecisionAuditNonBlocking", () => {
         resourceType: "Quote",
         resourceId: "quote-1",
         metadata: expect.objectContaining({
-          pricing: { subtotal: 100, total: 120 },
+          pricing: { subtotal: 100, total: 120, calloutFeeAmount: 0 },
           eligibilityAssessmentId: "assessment-1",
         }),
       })
@@ -349,6 +366,25 @@ describe("logPricingDecisionAuditNonBlocking", () => {
           fallbackLineItems: [
             { description: "Grab bars", query: "grab bars", fallbackUnitPrice: 153, reason: "implausible_tier_spread" },
           ],
+        }),
+      })
+    );
+  });
+
+  it("records the call-out fee amount charged on the quote, defaulting to 0 when not provided", async () => {
+    await logPricingDecisionAuditNonBlocking({
+      projectId: "project-1",
+      quoteId: "quote-1",
+      subtotal: 500,
+      total: 650,
+      calloutFeeAmount: 150,
+      pricingSource: "serp_api",
+    });
+
+    expect(logAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          pricing: { subtotal: 500, total: 650, calloutFeeAmount: 150 },
         }),
       })
     );

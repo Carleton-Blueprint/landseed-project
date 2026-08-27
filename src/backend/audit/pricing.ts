@@ -31,6 +31,10 @@ export interface PricingDecisionAuditInput {
   actorUserId?: string | null;
   subtotal: number;
   total: number;
+  // Flat call-out (dispatch) fee amount charged on this quote — a fixed
+  // baseline (see laborRates.ts's CALL_OUT_FEE), not SerpAPI/AI-derived, so
+  // it's recorded separately for audit clarity. Defaults to 0.
+  calloutFeeAmount?: number;
   eligibilityAssessmentId?: string;
   discoveryVersion?: {
     engineVersion?: string;
@@ -49,6 +53,7 @@ export interface PricingDecisionAuditMetadata {
   pricing: {
     subtotal: number;
     total: number;
+    calloutFeeAmount: number;
   };
   eligibilityAssessmentId: string | null;
   discoveryVersion: {
@@ -90,6 +95,7 @@ export function normalizePricingDecisionAuditMetadata(
     pricing: {
       subtotal: typeof pricing.subtotal === 'number' ? pricing.subtotal : 0,
       total: typeof pricing.total === 'number' ? pricing.total : 0,
+      calloutFeeAmount: typeof pricing.calloutFeeAmount === 'number' ? pricing.calloutFeeAmount : 0,
     },
     eligibilityAssessmentId:
       typeof record.eligibilityAssessmentId === 'string'
@@ -160,6 +166,7 @@ export async function logPricingDecisionAuditNonBlocking(
       pricing: {
         subtotal: input.subtotal,
         total: input.total,
+        calloutFeeAmount: input.calloutFeeAmount ?? 0,
       },
       eligibilityAssessmentId: input.eligibilityAssessmentId ?? null,
       discoveryVersion: input.discoveryVersion ?? null,
