@@ -30,6 +30,7 @@ jest.mock("lib/prisma", () => ({
     },
     eligibilityAssessment: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     $transaction: jest.fn(async (callback: (tx: unknown) => unknown) =>
       callback({
@@ -59,7 +60,7 @@ const baseQuote = {
 describe("overridePostEstimateQuote", () => {
   const mockedPrisma = prisma as unknown as {
     project: { findUnique: jest.Mock };
-    eligibilityAssessment: { findUnique: jest.Mock };
+    eligibilityAssessment: { findUnique: jest.Mock; findFirst: jest.Mock };
   };
   const mockedAudit = logAuditEventNonBlocking as jest.MockedFunction<typeof logAuditEventNonBlocking>;
   const mockedNotify = notifyEstimateUpdated as jest.MockedFunction<typeof notifyEstimateUpdated>;
@@ -224,6 +225,43 @@ describe("overridePostEstimateQuote", () => {
         newTotal: 120,
       })
     );
+  });
+
+  it("falls back to the project's latest eligibility assessment when quote.eligibilityAssessmentId is unset", async () => {
+    mockProject({ eligibilityAssessmentId: null });
+    mockedPrisma.eligibilityAssessment.findUnique.mockResolvedValue(null);
+    mockedPrisma.eligibilityAssessment.findFirst.mockResolvedValue({
+      overallDecision: "MANUAL_REVIEW",
+      discoveredGrants: [
+        {
+          grantId: "grant-ai-1",
+          title: "AI Found Grant",
+          scope: "PROVINCIAL",
+          jurisdiction: "Ontario",
+          sourceUrl: null,
+          summary: "summary",
+          decision: "ELIGIBLE",
+          relevanceScore: 80,
+          confidence: "HIGH",
+          matchedCriteria: [],
+          missingCriteria: [],
+          rationale: "",
+          estimatedFundingAmount: null,
+        },
+      ],
+    });
+
+    const result = await overridePostEstimateQuote({
+      ...validInput,
+      grantChanges: { decisionOverrides: [{ grantId: "grant-ai-1", decision: "INELIGIBLE" }] },
+    });
+
+    expect(mockedPrisma.eligibilityAssessment.findUnique).not.toHaveBeenCalled();
+    expect(mockedPrisma.eligibilityAssessment.findFirst).toHaveBeenCalledWith({
+      where: { projectId: "proj-1", isLatest: true },
+      select: { overallDecision: true, discoveredGrants: true },
+    });
+    expect(result.effective.discoveredGrants[0]).toMatchObject({ grantId: "grant-ai-1", decision: "INELIGIBLE" });
   });
 
   it("reports totalChanged false when the new total equals the prior effective total, and does not notify", async () => {

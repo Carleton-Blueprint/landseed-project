@@ -485,12 +485,21 @@ export async function overridePostEstimateQuote(
     throw quoteNotFoundError();
   }
 
-  const assessment = quote.eligibilityAssessmentId
-    ? await prisma.eligibilityAssessment.findUnique({
-        where: { id: quote.eligibilityAssessmentId },
-        select: { overallDecision: true, discoveredGrants: true },
-      })
-    : null;
+  // quote.eligibilityAssessmentId is frequently unset (quote generation doesn't always
+  // backfill it) — every other read path (admin dashboard, eligibility API, PDF
+  // assemblers) resolves "this project's AI eligibility" via projectId + isLatest, so
+  // fall back to that here too rather than treating the project as having zero grants.
+  const assessment =
+    (quote.eligibilityAssessmentId
+      ? await prisma.eligibilityAssessment.findUnique({
+          where: { id: quote.eligibilityAssessmentId },
+          select: { overallDecision: true, discoveredGrants: true },
+        })
+      : null) ??
+    (await prisma.eligibilityAssessment.findFirst({
+      where: { projectId: project.id, isLatest: true },
+      select: { overallDecision: true, discoveredGrants: true },
+    }));
 
   const photosById = new Map(project.photos.map((p) => [p.id, p]));
   let photoEntries;
