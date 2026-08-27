@@ -484,6 +484,15 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
               <label className="text-xs font-semibold text-gray-700">Line Items</label>
               <Button size="sm" variant="ghost" onClick={addLineItem}>+ Add Item</Button>
             </div>
+            {lineItems.length > 0 && (
+              <div className="flex items-center gap-2 px-2 text-xs font-medium text-gray-500">
+                <span className="flex-1">Description</span>
+                <span className="w-20">Qty</span>
+                <span className="w-24">Material ($)</span>
+                <span className="w-24">Labor ($)</span>
+                <span className="w-11 shrink-0" aria-hidden="true" />
+              </div>
+            )}
             <div className="space-y-2">
               {lineItems.map((item, i) => (
                 <div key={i} className="flex items-center gap-2 bg-gray-50 p-2 rounded border">
@@ -496,23 +505,26 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
                   />
                   <input
                     type="number"
+                    min={0}
                     className="w-20 border rounded p-1.5 text-base sm:text-sm"
                     value={item.quantity}
-                    onChange={(e) => handleLineItemChange(i, "quantity", Number(e.target.value))}
+                    onChange={(e) => handleLineItemChange(i, "quantity", Math.max(0, Number(e.target.value)))}
                     placeholder="Qty"
                   />
                   <input
                     type="number"
+                    min={0}
                     className="w-24 border rounded p-1.5 text-base sm:text-sm"
                     value={item.materialTotal}
-                    onChange={(e) => handleLineItemChange(i, "materialTotal", Number(e.target.value))}
+                    onChange={(e) => handleLineItemChange(i, "materialTotal", Math.max(0, Number(e.target.value)))}
                     placeholder="Material $"
                   />
                   <input
                     type="number"
+                    min={0}
                     className="w-24 border rounded p-1.5 text-base sm:text-sm"
                     value={item.laborTotal}
-                    onChange={(e) => handleLineItemChange(i, "laborTotal", Number(e.target.value))}
+                    onChange={(e) => handleLineItemChange(i, "laborTotal", Math.max(0, Number(e.target.value)))}
                     placeholder="Labor $"
                   />
                   <button
@@ -536,18 +548,20 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
               <label className="text-xs font-semibold text-gray-700">Subtotal Override ($)</label>
               <input
                 type="number"
+                min={0}
                 className="w-full border rounded p-2 text-base sm:text-sm"
                 value={subtotal}
-                onChange={(e) => setSubtotal(Number(e.target.value))}
+                onChange={(e) => setSubtotal(Math.max(0, Number(e.target.value)))}
               />
             </div>
             <div>
               <label className="text-xs font-semibold text-gray-700">Total Override ($)</label>
               <input
                 type="number"
+                min={0}
                 className="w-full border rounded p-2 text-base sm:text-sm"
                 value={total}
-                onChange={(e) => setTotal(Number(e.target.value))}
+                onChange={(e) => setTotal(Math.max(0, Number(e.target.value)))}
               />
             </div>
           </div>
