@@ -5,15 +5,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/frontend/components/ui/button";
 import { EditIcon } from "@/frontend/components/icons";
 import type { SerializedProject } from "./AdminDashboardClient";
-import { isTieredEstimate, DEFAULT_PRICING_TIER, type AnyRefinedEstimate } from "@/backend/services/pricingTiers";
-import type { RefinedEstimateLineItem } from "@/backend/services/refinedEstimate";
+import { photoModificationOptions } from "./AdminDashboardClient";
 
 interface ProjectEstimateReviewProps {
   project: SerializedProject;
 }
 
-// placeholder markup for manual recalculation until this uses real tiered pricing (see PRICING_TIER_CONFIG)
-const PROVISIONAL_MARKUP_MULTIPLIER = 1.2;
+const GRANT_SCOPE_OPTIONS = ["MUNICIPAL", "PROVINCIAL", "NATIONAL"] as const;
+const BINARY_DECISIONS = ["ELIGIBLE", "INELIGIBLE"] as const;
 
 interface LineItem {
   description: string;
@@ -22,42 +21,96 @@ interface LineItem {
   laborTotal: number;
 }
 
+interface EditableGrant {
+  grantId: string;
+  title: string;
+  scope: string;
+  jurisdiction: string;
+  decision: string;
+  source: "ai" | "admin_added";
+  note?: string | null;
+}
+
+let localGrantIdCounter = 0;
+function nextLocalGrantId(): string {
+  localGrantIdCounter += 1;
+  return `local-${localGrantIdCounter}`;
+}
+
 export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
   const router = useRouter();
-
-  // grab the correct estimate structure since it can be either tiered or flat
-  const rawRefinedEstimate = project.quote?.refinedEstimate as AnyRefinedEstimate | null | undefined;
-  const initialEstimate = isTieredEstimate(rawRefinedEstimate)
-    ? rawRefinedEstimate.tiers[rawRefinedEstimate.selectedTier ?? DEFAULT_PRICING_TIER]
-    : rawRefinedEstimate;
 
   const [isEditing, setIsEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const [lineItems, setLineItems] = useState<LineItem[]>(
-    initialEstimate?.lineItems ?? []
-  );
-  const [subtotal, setSubtotal] = useState<number>(
-    initialEstimate?.subtotal ?? parseFloat(project.quote?.subtotal ?? "0")
-  );
-  const [total, setTotal] = useState<number>(
-    initialEstimate?.total ?? parseFloat(project.quote?.total ?? "0")
-  );
+  const [lineItems, setLineItems] = useState<LineItem[]>(project.quote?.effectiveLineItems ?? []);
+  const [subtotal, setSubtotal] = useState<number>(parseFloat(project.quote?.subtotal ?? "0"));
+  const [total, setTotal] = useState<number>(parseFloat(project.quote?.total ?? "0"));
 
-  const [modificationScope, setModificationScope] = useState<string[]>(
-    project.modificationType ? [project.modificationType] : []
-  );
-
+  const [scopeDraft, setScopeDraft] = useState<Record<string, string[]>>({});
   const [eligibilityDecision, setEligibilityDecision] = useState<string>(
     project.eligibility?.overallDecision ?? "MANUAL_REVIEW"
   );
+  const [grants, setGrants] = useState<EditableGrant[]>(
+    (project.eligibility?.discoveredGrants ?? []).map((g) => ({
+      grantId: g.grantId,
+      title: g.title,
+      scope: g.scope,
+      jurisdiction: g.jurisdiction ?? "",
+      decision: g.decision,
+      source: g.source ?? "ai",
+      note: g.note ?? null,
+    }))
+  );
+  const [newGrantTitle, setNewGrantTitle] = useState("");
+  const [newGrantScope, setNewGrantScope] = useState<string>(GRANT_SCOPE_OPTIONS[0]);
+  const [newGrantJurisdiction, setNewGrantJurisdiction] = useState("");
+  const [newGrantDecision, setNewGrantDecision] = useState<string>("ELIGIBLE");
+  const [newGrantNote, setNewGrantNote] = useState("");
+
   const [overrideReason, setOverrideReason] = useState("");
 
   if (!project.quote) {
     return null;
   }
+
+  function startEditing() {
+    const seed: Record<string, string[]> = {};
+    for (const photo of project.photos ?? []) {
+      seed[photo.id] = [...photo.declaredModificationCodes];
+    }
+    setScopeDraft(seed);
+    setLineItems(project.quote!.effectiveLineItems ?? []);
+    setSubtotal(parseFloat(project.quote!.subtotal));
+    setTotal(parseFloat(project.quote!.total));
+    setEligibilityDecision(project.eligibility?.overallDecision ?? "MANUAL_REVIEW");
+    setGrants(
+      (project.eligibility?.discoveredGrants ?? []).map((g) => ({
+        grantId: g.grantId,
+        title: g.title,
+        scope: g.scope,
+        jurisdiction: g.jurisdiction ?? "",
+        decision: g.decision,
+        source: g.source ?? "ai",
+        note: g.note ?? null,
+      }))
+    );
+    setOverrideReason("");
+    setErrorMsg(null);
+    setIsEditing(true);
+  }
+
+  function toggleScopeCode(photoId: string, code: string, checked: boolean) {
+    setScopeDraft((prev) => {
+      const current = prev[photoId] ?? [];
+      const next = checked ? Array.from(new Set([...current, code])) : current.filter((c) => c !== code);
+      return { ...prev, [photoId]: next };
+    });
+  }
+
+  const scopeHasUntaggedPhoto = Object.values(scopeDraft).some((codes) => codes.length === 0);
 
   const handleLineItemChange = <K extends keyof LineItem>(index: number, field: K, value: LineItem[K]) => {
     const newItems = [...lineItems];
@@ -78,25 +131,75 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
       return acc + (item.materialTotal || 0) + (item.laborTotal || 0);
     }, 0);
     setSubtotal(newSubtotal);
-    setTotal(newSubtotal * PROVISIONAL_MARKUP_MULTIPLIER);
+    setTotal(newSubtotal);
   };
+
+  function removeGrant(grantId: string) {
+    setGrants((prev) => prev.filter((g) => g.grantId !== grantId));
+  }
+
+  function setGrantDecision(grantId: string, decision: string) {
+    setGrants((prev) => prev.map((g) => (g.grantId === grantId ? { ...g, decision } : g)));
+  }
+
+  function addManualGrant() {
+    if (!newGrantTitle.trim() || !newGrantJurisdiction.trim()) return;
+    setGrants((prev) => [
+      ...prev,
+      {
+        grantId: nextLocalGrantId(),
+        title: newGrantTitle.trim(),
+        scope: newGrantScope,
+        jurisdiction: newGrantJurisdiction.trim(),
+        decision: newGrantDecision,
+        source: "admin_added",
+        note: newGrantNote.trim() || null,
+      },
+    ]);
+    setNewGrantTitle("");
+    setNewGrantJurisdiction("");
+    setNewGrantNote("");
+    setNewGrantDecision("ELIGIBLE");
+  }
+
+  const addedGrantsMissingFields = grants.some(
+    (g) => g.source === "admin_added" && (!g.title.trim() || !g.jurisdiction.trim())
+  );
+  const canSubmit = overrideReason.trim().length > 0 && !scopeHasUntaggedPhoto && !addedGrantsMissingFields;
 
   const handleSubmit = async () => {
     setSubmitting(true);
     setErrorMsg(null);
     try {
+      const originalAiGrantIds = new Set(project.eligibility?.allGrantIds ?? []);
+      const currentAiGrants = grants.filter((g) => g.source === "ai");
+      const currentAiGrantIds = new Set(currentAiGrants.map((g) => g.grantId));
+      const removedGrantIds = Array.from(originalAiGrantIds).filter((id) => !currentAiGrantIds.has(id));
+      const decisionOverrides = currentAiGrants
+        .filter((g) => (BINARY_DECISIONS as readonly string[]).includes(g.decision))
+        .map((g) => ({ grantId: g.grantId, decision: g.decision }));
+      const addedGrants = grants
+        .filter((g) => g.source === "admin_added")
+        .map((g) => ({
+          title: g.title.trim(),
+          scope: g.scope,
+          jurisdiction: g.jurisdiction.trim(),
+          decision: g.decision,
+          note: g.note ?? undefined,
+        }));
+
       const payload = {
-        modificationItems: modificationScope,
-        reason: overrideReason,
-        pricing: {
-          lineItems,
-          subtotal,
-          total,
-        },
-        grantEligibilityOverride: eligibilityDecision,
+        photoModifications: Object.entries(scopeDraft).map(([photoId, declaredModificationCodes]) => ({
+          photoId,
+          declaredModificationCodes,
+        })),
+        pricing: { lineItems, subtotal, total },
+        eligibilityDecision,
+        grantChanges: { removedGrantIds, decisionOverrides, addedGrants },
+        reason: overrideReason.trim(),
       };
 
-      const res = await fetch(`/api/admin/projects/${project.id}/modification-override`, {
+      const res = await fetch(`/api/admin/projects/${project.id}/quote-override`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -122,10 +225,10 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
       <div className="flex justify-between items-center">
         <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
           <EditIcon size={16} strokeWidth={1.5} className="text-indigo-500" />
-          AI Estimate Review & Override
+          Estimate Review & Override
         </h4>
         {!isEditing && (
-          <Button size="sm" variant="outline" onClick={() => setIsEditing(true)}>
+          <Button size="sm" variant="outline" onClick={startEditing}>
             Edit Estimate
           </Button>
         )}
@@ -133,17 +236,26 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
 
       {!isEditing ? (
         <div className="space-y-4">
+          {project.quote.override && (
+            <div className="rounded border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+              <p className="font-semibold">Manually overridden</p>
+              <p>{project.quote.override.reason}</p>
+              <p className="text-amber-600 mt-0.5">
+                Last updated {new Date(project.quote.override.overriddenAt).toLocaleString()}
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-50 p-3 rounded border">
-              <p className="text-xs font-semibold text-gray-500 mb-1">AI Generated Total</p>
+              <p className="text-xs font-semibold text-gray-500 mb-1">Total</p>
               <p className="text-lg font-bold">${parseFloat(project.quote.total).toFixed(2)}</p>
             </div>
             <div className="bg-gray-50 p-3 rounded border">
-              <p className="text-xs font-semibold text-gray-500 mb-1">AI Grant Eligibility</p>
+              <p className="text-xs font-semibold text-gray-500 mb-1">Grant Eligibility</p>
               <p className="text-sm font-medium">{project.eligibility?.overallDecision || "N/A"}</p>
             </div>
           </div>
-          {initialEstimate?.lineItems && (
+          {lineItems.length > 0 && (
             <div className="border rounded overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-gray-50 text-xs text-gray-500 border-b">
@@ -155,7 +267,7 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {initialEstimate.lineItems.map((item: RefinedEstimateLineItem, i: number) => (
+                  {lineItems.map((item, i) => (
                     <tr key={i} className="hover:bg-gray-50">
                       <td className="px-3 py-2">{item.description}</td>
                       <td className="px-3 py-2">{item.quantity}</td>
@@ -172,17 +284,42 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
         <div className="space-y-5 border-t pt-4">
           <div className="space-y-2">
             <label className="text-xs font-semibold text-gray-700">Modification Scope</label>
-            <input
-              type="text"
-              className="w-full border rounded p-2 text-base sm:text-sm"
-              value={modificationScope.join(", ")}
-              onChange={(e) => setModificationScope(e.target.value.split(",").map(s => s.trim()))}
-              placeholder="e.g. GRAB_BARS, RAMPS"
-            />
+            <div className="space-y-3">
+              {(project.photos ?? []).map((photo) => (
+                <div key={photo.id} className="rounded border p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photo.url} alt="" className="h-10 w-10 rounded object-cover border" />
+                    <span className="text-xs text-gray-500">Photo {photo.id.slice(0, 8)}</span>
+                  </div>
+                  <div className="grid gap-1.5 sm:grid-cols-2">
+                    {photoModificationOptions.map(({ code, label }) => (
+                      <label key={code} className="flex items-center gap-2 rounded border border-input px-2 py-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={(scopeDraft[photo.id] ?? []).includes(code)}
+                          onChange={(e) => toggleScopeCode(photo.id, code, e.target.checked)}
+                          className="rounded border-input"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  {(scopeDraft[photo.id] ?? []).length === 0 && (
+                    <p className="text-xs text-destructive" role="alert">
+                      Tag at least one modification for this photo
+                    </p>
+                  )}
+                </div>
+              ))}
+              {(project.photos ?? []).length === 0 && (
+                <p className="text-xs text-gray-400 italic">No photos on this project.</p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-gray-700">Grant Eligibility Override</label>
+            <label className="text-xs font-semibold text-gray-700">Overall Grant Eligibility</label>
             <select
               className="w-full border rounded p-2 text-base sm:text-sm"
               value={eligibilityDecision}
@@ -193,6 +330,153 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
               <option value="MANUAL_REVIEW">Manual Review</option>
               <option value="NEEDS_MORE_INFO">Needs More Info</option>
             </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-gray-700">Discovered Grants</label>
+            <div className="space-y-2">
+              {grants.map((grant) => (
+                <div key={grant.grantId} className="rounded border p-2.5 space-y-1.5 bg-gray-50">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-gray-900 truncate">{grant.title || "(untitled)"}</p>
+                      <p className="text-[11px] text-gray-500">
+                        {grant.scope} · {grant.jurisdiction || "unspecified"} ·{" "}
+                        <span className={grant.source === "admin_added" ? "text-indigo-600" : "text-gray-500"}>
+                          {grant.source === "admin_added" ? "Added by admin" : "AI discovered"}
+                        </span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeGrant(grant.grantId)}
+                      aria-label="Remove grant"
+                      className="text-red-500 hover:text-red-700 font-bold h-8 w-8 flex items-center justify-center shrink-0"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {grant.source === "admin_added" ? (
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      <input
+                        type="text"
+                        className="border rounded p-1.5 text-xs"
+                        value={grant.title}
+                        placeholder="Title"
+                        onChange={(e) =>
+                          setGrants((prev) =>
+                            prev.map((g) => (g.grantId === grant.grantId ? { ...g, title: e.target.value } : g))
+                          )
+                        }
+                      />
+                      <input
+                        type="text"
+                        className="border rounded p-1.5 text-xs"
+                        value={grant.jurisdiction}
+                        placeholder="Jurisdiction"
+                        onChange={(e) =>
+                          setGrants((prev) =>
+                            prev.map((g) => (g.grantId === grant.grantId ? { ...g, jurisdiction: e.target.value } : g))
+                          )
+                        }
+                      />
+                      <select
+                        className="border rounded p-1.5 text-xs"
+                        value={grant.scope}
+                        onChange={(e) =>
+                          setGrants((prev) =>
+                            prev.map((g) => (g.grantId === grant.grantId ? { ...g, scope: e.target.value } : g))
+                          )
+                        }
+                      >
+                        {GRANT_SCOPE_OPTIONS.map((scope) => (
+                          <option key={scope} value={scope}>
+                            {scope}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="border rounded p-1.5 text-xs"
+                        value={grant.decision}
+                        onChange={(e) => setGrantDecision(grant.grantId, e.target.value)}
+                      >
+                        <option value="ELIGIBLE">Eligible</option>
+                        <option value="INELIGIBLE">Ineligible</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <select
+                      className="border rounded p-1.5 text-xs"
+                      value={grant.decision}
+                      onChange={(e) => setGrantDecision(grant.grantId, e.target.value)}
+                    >
+                      {!(BINARY_DECISIONS as readonly string[]).includes(grant.decision) && (
+                        <option value={grant.decision}>{grant.decision} (AI, unchanged)</option>
+                      )}
+                      <option value="ELIGIBLE">Eligible</option>
+                      <option value="INELIGIBLE">Ineligible</option>
+                    </select>
+                  )}
+                </div>
+              ))}
+              {grants.length === 0 && <p className="text-xs text-gray-400 italic">No grants listed.</p>}
+            </div>
+
+            <div className="rounded border border-dashed p-2.5 space-y-1.5">
+              <p className="text-[11px] font-semibold text-gray-600">Add a grant</p>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                <input
+                  type="text"
+                  className="border rounded p-1.5 text-xs"
+                  value={newGrantTitle}
+                  placeholder="Title"
+                  onChange={(e) => setNewGrantTitle(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="border rounded p-1.5 text-xs"
+                  value={newGrantJurisdiction}
+                  placeholder="Jurisdiction"
+                  onChange={(e) => setNewGrantJurisdiction(e.target.value)}
+                />
+                <select
+                  className="border rounded p-1.5 text-xs"
+                  value={newGrantScope}
+                  onChange={(e) => setNewGrantScope(e.target.value)}
+                >
+                  {GRANT_SCOPE_OPTIONS.map((scope) => (
+                    <option key={scope} value={scope}>
+                      {scope}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="border rounded p-1.5 text-xs"
+                  value={newGrantDecision}
+                  onChange={(e) => setNewGrantDecision(e.target.value)}
+                >
+                  <option value="ELIGIBLE">Eligible</option>
+                  <option value="INELIGIBLE">Ineligible</option>
+                </select>
+                <input
+                  type="text"
+                  className="border rounded p-1.5 text-xs sm:col-span-2"
+                  value={newGrantNote}
+                  placeholder="Note (optional)"
+                  onChange={(e) => setNewGrantNote(e.target.value)}
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs"
+                disabled={!newGrantTitle.trim() || !newGrantJurisdiction.trim()}
+                onClick={addManualGrant}
+              >
+                + Add grant
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -269,7 +553,7 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-gray-700">Reason for Override</label>
+            <label className="text-xs font-semibold text-gray-700">Reason for Override (required)</label>
             <textarea
               className="w-full border rounded p-2 text-base sm:text-sm"
               rows={3}
@@ -283,7 +567,7 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
 
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
-            <Button onClick={() => setShowConfirm(true)}>Review & Submit</Button>
+            <Button disabled={!canSubmit} onClick={() => setShowConfirm(true)}>Review & Submit</Button>
           </div>
         </div>
       )}
@@ -293,10 +577,10 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
           <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-lg space-y-4">
             <h2 className="text-lg font-bold text-gray-900">Confirm Estimate Override</h2>
             <div className="text-sm text-gray-600 space-y-3">
-              <p>You are about to override the AI-generated estimate for this project.</p>
+              <p>You are about to override this project&apos;s estimate.</p>
               <div className="grid grid-cols-2 gap-2 bg-gray-50 p-3 rounded border">
                 <div>
-                  <p className="font-semibold text-xs text-gray-500">Original Total</p>
+                  <p className="font-semibold text-xs text-gray-500">Current Total</p>
                   <p className="font-bold line-through">${parseFloat(project.quote.total).toFixed(2)}</p>
                 </div>
                 <div>
@@ -304,7 +588,7 @@ export function ProjectEstimateReview({ project }: ProjectEstimateReviewProps) {
                   <p className="font-bold text-indigo-700">${total.toFixed(2)}</p>
                 </div>
               </div>
-              <p>This action will record an audit trail and update the client's visible estimate.</p>
+              <p>This action will record an audit trail and update the client&apos;s visible estimate.</p>
             </div>
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button variant="outline" onClick={() => setShowConfirm(false)} disabled={submitting}>

@@ -8,6 +8,7 @@ import { hasMinimumRole } from "@/backend/auth/requireRole";
 import { signPhotosForDisplay } from "lib/photoUrls";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
+import { mapAiGrantsToEffectiveGrants, resolveEffectiveQuoteView } from "@/backend/services/quoteOverride";
 
 export const metadata: Metadata = {
   title: "Advisor Panel — Landseed Project",
@@ -70,6 +71,7 @@ export default async function AdminDashboardPage() {
           status: true, generatedAt: true,
           estimateMin: true, estimateMax: true, refinedEstimate: true,
           questions: { select: { id: true, status: true } },
+          override: true,
         },
       }),
       prisma.eligibilityAssessment.findMany({
@@ -150,6 +152,14 @@ export default async function AdminDashboardPage() {
       else if (addressLower.includes("shower") || addressLower.includes("bath")) inferredModType = "SHOWER";
       else if (addressLower.includes("door") || addressLower.includes("hall")) inferredModType = "DOORS";
 
+      const rawModificationCodes = aggregateDeclaredModificationCodes(p.photos);
+      const effective = latestQuote
+        ? resolveEffectiveQuoteView(latestQuote, latestQuote.override, aExtended, rawModificationCodes)
+        : null;
+      const rawAiGrants = Array.isArray(aExtended?.discoveredGrants)
+        ? (aExtended!.discoveredGrants as unknown as Parameters<typeof mapAiGrantsToEffectiveGrants>[0])
+        : [];
+
       const rawDraft = (p.draftData && typeof p.draftData === "object" && !Array.isArray(p.draftData)) ? (p.draftData as Record<string, unknown>) : {};
       const rawIntake = (p.intakeDraft?.intakeData && typeof p.intakeDraft.intakeData === "object" && !Array.isArray(p.intakeDraft.intakeData)) ? (p.intakeDraft.intakeData as Record<string, unknown>) : {};
       const rawGuided = (p.intakeDraft?.guidedData && typeof p.intakeDraft.guidedData === "object" && !Array.isArray(p.intakeDraft.guidedData)) ? (p.intakeDraft.guidedData as Record<string, unknown>) : {};
@@ -175,23 +185,29 @@ export default async function AdminDashboardPage() {
         documentsPendingReview: docs.filter((d: { reviewStatus: string }) => d.reviewStatus === "PENDING").length,
         quote: latestQuote ? {
           id: latestQuote.id,
-          subtotal: latestQuote.subtotal.toString(),
-          total: latestQuote.total.toString(),
+          subtotal: (effective?.subtotal ?? Number(latestQuote.subtotal)).toFixed(2),
+          total: (effective?.total ?? Number(latestQuote.total)).toFixed(2),
           status: latestQuote.status,
           generatedAt: latestQuote.generatedAt.toISOString(),
           openQuestions: latestQuote.questions.filter((q: { status: string }) => q.status === "OPEN").length,
           estimateMin: latestQuote.estimateMin ? latestQuote.estimateMin.toString() : null,
           estimateMax: latestQuote.estimateMax ? latestQuote.estimateMax.toString() : null,
           refinedEstimate: latestQuote.refinedEstimate,
+          effectiveLineItems: effective?.lineItems ?? [],
+          override: latestQuote.override ? {
+            reason: latestQuote.override.reason,
+            overriddenAt: latestQuote.override.updatedAt.toISOString(),
+            previousTotal: latestQuote.override.previousTotal.toString(),
+          } : null,
         } : null,
         eligibility: aExtended ? {
           id: aExtended.id,
-          overallDecision: aExtended.overallDecision,
-          discoveredGrants: Array.isArray(aExtended.discoveredGrants)
-            ? (aExtended.discoveredGrants as SerializedProject["eligibility"] extends null ? never : NonNullable<SerializedProject["eligibility"]>["discoveredGrants"])
-            : [],
+          overallDecision: effective?.eligibilityDecision ?? aExtended.overallDecision,
+          discoveredGrants: effective ? effective.discoveredGrants : mapAiGrantsToEffectiveGrants(rawAiGrants),
+          allGrantIds: rawAiGrants.map((g) => g.grantId),
           provider: aExtended.discoveryProvider ?? "HEURISTIC",
           assessedAt: aExtended.createdAt.toISOString(),
+          isOverridden: effective?.isOverridden ?? false,
         } : null,
         builderTrendTransfer: latestTransfer ? {
           id: latestTransfer.id, status: latestTransfer.status,

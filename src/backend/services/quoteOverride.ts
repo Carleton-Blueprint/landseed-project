@@ -284,6 +284,28 @@ function cuid(): string {
 }
 
 /**
+ * Normalizes raw AI-discovered grants into the EffectiveGrant shape, with no
+ * override applied. Exported so callers with an EligibilityAssessment but no
+ * Quote yet (grant discovery can complete before pricing does) can render
+ * the same shape as resolveEffectiveQuoteView's output instead of a
+ * differently-shaped ad hoc projection.
+ */
+export function mapAiGrantsToEffectiveGrants(grants: DiscoveredGrant[]): EffectiveGrant[] {
+  return grants.map((grant) => ({
+    grantId: grant.grantId,
+    title: grant.title,
+    scope: grant.scope,
+    jurisdiction: grant.jurisdiction,
+    decision: grant.decision,
+    source: "ai" as const,
+    sourceUrl: grant.sourceUrl,
+    summary: grant.summary,
+    relevanceScore: grant.relevanceScore,
+    confidence: grant.confidence,
+  }));
+}
+
+/**
  * Merges a Quote's raw AI-generated pricing/eligibility with any
  * QuoteOverride layered on top of it. This is the single place every read
  * path (admin dashboard, client estimate page, eligibility API) should call
@@ -321,18 +343,7 @@ export function resolveEffectiveQuoteView(
       lineItems: refined?.lineItems ?? [],
       modificationCodes: rawModificationCodes,
       eligibilityDecision: assessment?.overallDecision ?? null,
-      discoveredGrants: aiGrants.map((grant) => ({
-        grantId: grant.grantId,
-        title: grant.title,
-        scope: grant.scope,
-        jurisdiction: grant.jurisdiction,
-        decision: grant.decision,
-        source: "ai" as const,
-        sourceUrl: grant.sourceUrl,
-        summary: grant.summary,
-        relevanceScore: grant.relevanceScore,
-        confidence: grant.confidence,
-      })),
+      discoveredGrants: mapAiGrantsToEffectiveGrants(aiGrants),
       isOverridden: false,
     };
   }
@@ -343,20 +354,12 @@ export function resolveEffectiveQuoteView(
     (grantOverrides?.decisionOverrides ?? []).map((d) => [d.grantId, d.decision])
   );
 
-  const effectiveAiGrants: EffectiveGrant[] = aiGrants
-    .filter((grant) => !removedGrantIds.has(grant.grantId))
-    .map((grant) => ({
-      grantId: grant.grantId,
-      title: grant.title,
-      scope: grant.scope,
-      jurisdiction: grant.jurisdiction,
-      decision: decisionOverridesByGrantId.get(grant.grantId) ?? grant.decision,
-      source: "ai" as const,
-      sourceUrl: grant.sourceUrl,
-      summary: grant.summary,
-      relevanceScore: grant.relevanceScore,
-      confidence: grant.confidence,
-    }));
+  const effectiveAiGrants: EffectiveGrant[] = mapAiGrantsToEffectiveGrants(
+    aiGrants.filter((grant) => !removedGrantIds.has(grant.grantId))
+  ).map((grant) => ({
+    ...grant,
+    decision: decisionOverridesByGrantId.get(grant.grantId) ?? grant.decision,
+  }));
 
   const addedGrants: EffectiveGrant[] = (grantOverrides?.addedGrants ?? []).map((grant) => ({
     grantId: grant.id,
