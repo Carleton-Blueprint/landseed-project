@@ -214,6 +214,96 @@ function LightboxModal({
 }
 
 /* ------------------------------------------------------------------ */
+/* Per-Photo Modification Codes (declared vs. AI-inferred)             */
+/* ------------------------------------------------------------------ */
+
+function ModCodeChip({ mod, tone }: { mod: ModCodeBadge; tone: "neutral" | "ai" | "mismatch" }) {
+  const toneClasses =
+    tone === "mismatch"
+      ? "bg-amber-100 text-amber-800 border border-amber-300"
+      : tone === "ai"
+      ? "bg-violet-50 text-violet-700 border border-violet-200"
+      : "bg-gray-100 text-gray-700 border border-gray-200";
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${toneClasses}`}>
+      <span className="font-bold">{mod.icon}</span>
+      {mod.label}
+    </span>
+  );
+}
+
+function hasModCodeContent(photo: PhotoItem): boolean {
+  const status = photo.analysisStatus ?? "PENDING";
+  return (
+    (photo.declaredModCodes?.length ?? 0) > 0 ||
+    status === "READY" ||
+    status === "ANALYZING" ||
+    status === "FAILED"
+  );
+}
+
+function ModificationCodesSection({ photo }: { photo: PhotoItem }) {
+  const declared = photo.declaredModCodes ?? [];
+  const ai = photo.aiModCodes ?? [];
+  const status = photo.analysisStatus ?? "PENDING";
+  const showAiRow = status === "READY" || status === "ANALYZING" || status === "FAILED";
+
+  if (!hasModCodeContent(photo)) return null;
+
+  return (
+    <div className="space-y-2">
+      {declared.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+            Declared:
+          </span>
+          {declared.map((mod) => (
+            <ModCodeChip key={mod.code} mod={mod} tone="neutral" />
+          ))}
+        </div>
+      )}
+
+      {showAiRow && (
+        <div
+          className={`flex flex-wrap items-center gap-1.5 ${
+            photo.mismatch ? "rounded-md border border-amber-300 bg-amber-50/60 p-1.5" : ""
+          }`}
+        >
+          {status === "READY" ? (
+            <>
+              <span
+                className={`text-[10px] font-bold uppercase tracking-wider ${
+                  photo.mismatch ? "text-amber-700" : "text-gray-500"
+                }`}
+              >
+                AI-Inferred{photo.aiConfidence ? ` (${photo.aiConfidence.toLowerCase()} confidence)` : ""}:
+              </span>
+              {ai.length > 0 ? (
+                ai.map((mod) => (
+                  <ModCodeChip key={mod.code} mod={mod} tone={photo.mismatch ? "mismatch" : "ai"} />
+                ))
+              ) : (
+                <span className="text-[11px] italic text-gray-400">None detected</span>
+              )}
+              {photo.mismatch && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
+                  ⚠ Mismatch with declared codes
+                </span>
+              )}
+            </>
+          ) : status === "ANALYZING" ? (
+            <span className="text-[11px] italic text-gray-400">AI modification analysis in progress…</span>
+          ) : (
+            <span className="text-[11px] italic text-gray-400">AI modification analysis unavailable</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Main Gallery Component                                              */
 /* ------------------------------------------------------------------ */
 
@@ -335,6 +425,11 @@ export function ProjectVisualizationGallery({
                       <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
                       Generating InPlace AI View
                     </span>
+                    {hasModCodeContent(photo) && (
+                      <div className="mt-4 w-full text-left">
+                        <ModificationCodesSection photo={photo} />
+                      </div>
+                    )}
                   </div>
                 );
               }
@@ -362,6 +457,12 @@ export function ProjectVisualizationGallery({
                       InPlace AI Rendition Active
                     </span>
                   </div>
+
+                  {hasModCodeContent(photo) && (
+                    <div className="mb-6 border-b border-gray-100 pb-5">
+                      <ModificationCodesSection photo={photo} />
+                    </div>
+                  )}
 
                   {/* Side-by-Side Display Section */}
                   <div className="mb-6">
@@ -553,6 +654,12 @@ export function ProjectVisualizationGallery({
                   )}
                   {label}
                 </div>
+
+                {hasModCodeContent(photo) && (
+                  <div className="border-t bg-white px-3 py-2">
+                    <ModificationCodesSection photo={photo} />
+                  </div>
+                )}
               </div>
             );
           })}
