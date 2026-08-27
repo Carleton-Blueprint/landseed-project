@@ -7,6 +7,7 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
 
   const isEstimateLifecycleEvent =
     payload.eventType === NotificationEventType.ESTIMATE_READY ||
+    payload.eventType === NotificationEventType.ESTIMATE_UPDATED ||
     payload.eventType === NotificationEventType.ESTIMATE_EXPIRED ||
     payload.eventType === NotificationEventType.ESTIMATE_REACTIVATED;
 
@@ -29,6 +30,8 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
       estimateLink: payload.estimateLink,
       estimateMin: payload.estimateMin,
       estimateMax: payload.estimateMax,
+      previousTotal: payload.previousTotal,
+      newTotal: payload.newTotal,
       subject: payload.subject,
       html: payload.html,
       text: payload.text,

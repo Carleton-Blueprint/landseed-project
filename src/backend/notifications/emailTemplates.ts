@@ -7,7 +7,9 @@ type TemplateInput = {
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
-  questionCategory?: string;   
+  previousTotal?: number;
+  newTotal?: number;
+  questionCategory?: string;
   questionSubject?: string;
   fileName?: string;
   documentType?: string;
@@ -93,6 +95,33 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
       subject: `Your Landseed estimate${subjectAddressSuffix} is ready`,
       html: `<p>Hi ${recipientName},</p><p>Your estimate${addressLine} is now ready for review.</p>${rangeHtml}<p>Your advisory specialist has completed preparation and the next step is to review the estimate details.</p>${linkHtml}<p>If you have questions, reply to this email and our team can help.</p><p>Landseed Team</p>`,
       text: `Hi ${recipientName},\n\nYour estimate${addressLine} is now ready for review.\n${rangeText}\nYour advisory specialist has completed preparation and the next step is to review the estimate details.${linkText}\nIf you have questions, reply to this email and our team can help.\n\nLandseed Team`,
+    };
+  }
+
+  if (input.eventType === NotificationEventType.ESTIMATE_UPDATED) {
+    const recipientName = safeName(input.recipientName);
+    const estimateLink = input.estimateLink?.trim();
+    const addressLine = input.projectAddress ? ` for ${input.projectAddress}` : "";
+    const subjectAddressSuffix = input.projectAddress ? ` for ${input.projectAddress}` : "";
+    const linkHtml = estimateLink
+      ? `<p><a href="${estimateLink}">View your updated estimate</a></p>`
+      : "";
+    const linkText = estimateLink ? `\nView your updated estimate: ${estimateLink}\n` : "";
+    // A post-estimate override always carries one specific total, not a range
+    // (see quoteOverride.ts) - both previousTotal and newTotal are single figures.
+    const hasTotals = input.previousTotal != null && input.newTotal != null;
+    const totalsHtml = hasTotals
+      ? `<p>Your estimate${addressLine} has changed from <strong>$${input.previousTotal!.toFixed(2)}</strong> to <strong>$${input.newTotal!.toFixed(2)}</strong>.</p>`
+      : `<p>Your estimate${addressLine} has been updated.</p>`;
+    const totalsText = hasTotals
+      ? `\nYour estimate${addressLine} has changed from $${input.previousTotal!.toFixed(2)} to $${input.newTotal!.toFixed(2)}.\n`
+      : `\nYour estimate${addressLine} has been updated.\n`;
+
+    return {
+      templateName: "estimate-updated-v1",
+      subject: `Your Landseed estimate${subjectAddressSuffix} has been updated`,
+      html: `<p>Hi ${recipientName},</p>${totalsHtml}<p>Our advisory team reviewed and adjusted your estimate after it was first generated.</p>${linkHtml}<p>If you have questions, reply to this email and our team can help.</p><p>Landseed Team</p>`,
+      text: `Hi ${recipientName},\n${totalsText}\nOur advisory team reviewed and adjusted your estimate after it was first generated.${linkText}\nIf you have questions, reply to this email and our team can help.\n\nLandseed Team`,
     };
   }
 

@@ -26,6 +26,8 @@ export type NotificationJobPayload = {
   estimateLink?: string | null;
   estimateMin?: number;
   estimateMax?: number;
+  previousTotal?: number;
+  newTotal?: number;
   questionCategory?: string;
   questionSubject?: string;
   fileName?: string;
@@ -158,6 +160,8 @@ export async function queueNotification(payload: NotificationJobPayload): Promis
     estimateLink: payload.estimateLink,
     estimateMin: payload.estimateMin,
     estimateMax: payload.estimateMax,
+    previousTotal: payload.previousTotal,
+    newTotal: payload.newTotal,
     questionCategory: payload.questionCategory,
     questionSubject: payload.questionSubject,
     fileName: payload.fileName,
@@ -230,6 +234,8 @@ export async function processNotification(payload: NotificationJobPayload): Prom
     estimateLink: payload.estimateLink,
     estimateMin: payload.estimateMin,
     estimateMax: payload.estimateMax,
+    previousTotal: payload.previousTotal,
+    newTotal: payload.newTotal,
     questionCategory: payload.questionCategory,
     questionSubject: payload.questionSubject,
     fileName: payload.fileName,

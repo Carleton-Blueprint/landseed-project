@@ -2,6 +2,7 @@ import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { EligibilityDecision } from "@/backend/eligibility/types";
 import type { DiscoveredGrant } from "@/backend/eligibility/discoverySearchProvider";
+import { notifyEstimateUpdated } from "@/backend/services/estimateUpdatedNotification";
 import {
   overridePostEstimateQuote,
   resolveEffectiveQuoteView,
@@ -11,6 +12,10 @@ import {
 
 jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
+}));
+
+jest.mock("@/backend/services/estimateUpdatedNotification", () => ({
+  notifyEstimateUpdated: jest.fn(),
 }));
 
 const mockedTxProjectFindUnique = jest.fn();
@@ -57,6 +62,7 @@ describe("overridePostEstimateQuote", () => {
     eligibilityAssessment: { findUnique: jest.Mock };
   };
   const mockedAudit = logAuditEventNonBlocking as jest.MockedFunction<typeof logAuditEventNonBlocking>;
+  const mockedNotify = notifyEstimateUpdated as jest.MockedFunction<typeof notifyEstimateUpdated>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -64,6 +70,13 @@ describe("overridePostEstimateQuote", () => {
     mockedTxPhotoUpdate.mockReset();
     mockedTxPhotoFindMany.mockReset();
     mockedTxQuoteOverrideUpsert.mockReset();
+    mockedTxQuoteOverrideUpsert.mockResolvedValue({ id: "override-1", updatedAt: new Date("2026-08-27T00:00:00Z") });
+    mockedNotify.mockResolvedValue({
+      projectId: "proj-1",
+      quoteId: "quote-1",
+      notificationIdempotencyKey: "estimate-updated:override-1-1",
+      notified: true,
+    });
   });
 
   function mockProject(overrides: Partial<typeof baseQuote> = {}, photos = [{ id: "photo-1", declaredModificationCodes: ["GRAB_BARS"] }]) {
@@ -200,9 +213,20 @@ describe("overridePostEstimateQuote", () => {
     expect(result.effective.total).toBe(120);
     expect(result.effective.discoveredGrants).toHaveLength(1);
     expect(result.effective.discoveredGrants[0]).toMatchObject({ title: "Manual Grant", source: "admin_added" });
+
+    expect(mockedNotify).toHaveBeenCalledTimes(1);
+    expect(mockedNotify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "proj-1",
+        quoteId: "quote-1",
+        overrideId: "override-1",
+        previousTotal: 110,
+        newTotal: 120,
+      })
+    );
   });
 
-  it("reports totalChanged false when the new total equals the prior effective total", async () => {
+  it("reports totalChanged false when the new total equals the prior effective total, and does not notify", async () => {
     mockProject();
 
     const result = await overridePostEstimateQuote({
@@ -211,6 +235,17 @@ describe("overridePostEstimateQuote", () => {
     });
 
     expect(result.totalChanged).toBe(false);
+    expect(mockedNotify).not.toHaveBeenCalled();
+  });
+
+  it("does not fail the override when notifyEstimateUpdated throws", async () => {
+    mockProject();
+    mockedNotify.mockRejectedValue(new Error("email provider down"));
+
+    const result = await overridePostEstimateQuote(validInput);
+
+    expect(result.totalChanged).toBe(true);
+    expect(result.effective.total).toBe(120);
   });
 
   it("throws QUOTE_NOT_FOUND if a newer quote was generated between read and write (race)", async () => {

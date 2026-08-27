@@ -23,6 +23,8 @@ const worker = createEmailWorker(async (job) => {
     estimateLink: job.data.estimateLink,
     estimateMin: job.data.estimateMin,
     estimateMax: job.data.estimateMax,
+    previousTotal: job.data.previousTotal,
+    newTotal: job.data.newTotal,
     // pass through optional overrides and account-deletion linkage
     subject: job.data.subject,
     html: job.data.html,

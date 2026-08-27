@@ -16,6 +16,7 @@ export function getCategoryFromEventType(eventType: NotificationEventType): Comm
     case NotificationEventType.SUBMISSION_RECEIPT:
       return CommunicationCategory.SUBMISSION_RECEIPT;
     case NotificationEventType.ESTIMATE_READY:
+    case NotificationEventType.ESTIMATE_UPDATED:
     case NotificationEventType.ESTIMATE_EXPIRED:
     case NotificationEventType.ESTIMATE_REACTIVATED:
       return CommunicationCategory.ESTIMATE;
@@ -61,6 +62,10 @@ export function generateContentSummary(
     lines.push(`Estimate Range: $${payload.estimateMin} - $${payload.estimateMax}`);
   }
 
+  if (payload.previousTotal != null && payload.newTotal != null) {
+    lines.push(`Total Changed: $${payload.previousTotal} -> $${payload.newTotal}`);
+  }
+
   if (payload.questionCategory) {
     lines.push(`Question Category: ${payload.questionCategory}`);
   }
@@ -90,6 +95,7 @@ export function generateContentSummary(
 export function getLinkedResourceType(eventType: NotificationEventType): string | undefined {
   switch (eventType) {
     case NotificationEventType.ESTIMATE_READY:
+    case NotificationEventType.ESTIMATE_UPDATED:
     case NotificationEventType.ESTIMATE_EXPIRED:
     case NotificationEventType.ESTIMATE_REACTIVATED:
       return "Quote";

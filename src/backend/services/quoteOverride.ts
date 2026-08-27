@@ -22,6 +22,7 @@ import {
 import type { ModificationCode } from "@/backend/eligibility/types";
 import type { DiscoveredGrant, GrantDiscoveryScope } from "@/backend/eligibility/discoverySearchProvider";
 import { DEFAULT_PRICING_TIER, isTieredEstimate, type AnyRefinedEstimate } from "@/backend/services/pricingTiers";
+import { notifyEstimateUpdated } from "@/backend/services/estimateUpdatedNotification";
 
 export const QUOTE_OVERRIDE_AUDIT_ACTION = "QUOTE_POST_ESTIMATE_OVERRIDE";
 
@@ -523,6 +524,8 @@ export async function overridePostEstimateQuote(
 
   let raceLost = false;
   let newModificationCodes: ModificationCode[] = [];
+  let overrideRowId = "";
+  let overriddenAt = new Date();
   await prisma.$transaction(async (tx) => {
     const current = await tx.project.findUnique({
       where: { id: project.id },
@@ -559,11 +562,13 @@ export async function overridePostEstimateQuote(
       grantOverrides: grantChanges as unknown as Prisma.InputJsonValue,
     };
 
-    await tx.quoteOverride.upsert({
+    const overrideRow = await tx.quoteOverride.upsert({
       where: { quoteId: quote.id },
       create: { quoteId: quote.id, ...overrideFields },
       update: overrideFields,
     });
+    overrideRowId = overrideRow.id;
+    overriddenAt = overrideRow.updatedAt;
   });
 
   if (raceLost) {
@@ -611,6 +616,26 @@ export async function overridePostEstimateQuote(
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
   });
+
+  // The override itself already succeeded (committed above) - a notification
+  // failure shouldn't fail the admin's request, so this is best-effort.
+  if (totalChanged) {
+    try {
+      await notifyEstimateUpdated({
+        projectId: project.id,
+        quoteId: quote.id,
+        overrideId: overrideRowId,
+        overriddenAt,
+        previousTotal,
+        newTotal: afterView.total,
+        actorUserId: input.actorUserId,
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+      });
+    } catch (error) {
+      console.error("Failed to send estimate-updated notification:", error);
+    }
+  }
 
   return {
     projectId: project.id,
