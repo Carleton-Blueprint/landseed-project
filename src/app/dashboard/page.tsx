@@ -185,44 +185,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirectToSignIn("/dashboard");
   }
 
-  let accountEmail: string | null = null;
-  let needsEmailVerification = false;
-
-  try {
-    const account = await prisma.user.findUnique({
+  // account, projects, and reminders are independent of each other — only
+  // the eligibility lookup below depends on projectIds from the projects
+  // query. Run these three concurrently instead of one round trip at a time,
+  // and keep them in separate settled results so a failure in one (e.g. no
+  // DB in dev) doesn't blank out data the others already fetched.
+  const [accountResult, projectsResult, remindersResult] = await Promise.allSettled([
+    prisma.user.findUnique({
       where: { id: session.user.id },
       select: { email: true, emailVerified: true },
-    });
-    accountEmail = account?.email ?? null;
-    needsEmailVerification = Boolean(accountEmail && !account?.emailVerified);
-  } catch {
-    // No DB in dev — skip verification banner
-  }
-
-  let projects: Awaited<
-    ReturnType<
-      typeof prisma.project.findMany<{
-        include: {
-          photos: true;
-          documents: true;
-          quotes: {
-            orderBy: { createdAt: "desc" };
-            take: 1;
-            select: {
-              estimateMin: true;
-              estimateMax: true;
-              generatedAt: true;
-            };
-          };
-        };
-      }>
-    >
-  > = [];
-  const eligibilityByProject = new Map<string, ProjectEligibility>();
-  let reminders: NotificationItem[] = [];
-
-  try {
-    projects = await prisma.project.findMany({
+    }),
+    prisma.project.findMany({
       where: {
         projectAccess: {
           some: { userId: session.user.id },
@@ -242,39 +215,51 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           },
         },
       },
-    });
+    }),
+    import("@/backend/notifications/reminders").then(({ getDashboardReminders }) =>
+      getDashboardReminders(session.user.id)
+    ),
+  ]);
 
-    const projectIds = projects.map((p) => p.id);
-    const assessments =
-      projectIds.length > 0
-        ? await prisma.eligibilityAssessment.findMany({
-            where: { projectId: { in: projectIds }, isLatest: true },
-            orderBy: { createdAt: "desc" },
-          })
-        : [];
+  let accountEmail: string | null = null;
+  let needsEmailVerification = false;
+  if (accountResult.status === "fulfilled") {
+    accountEmail = accountResult.value?.email ?? null;
+    needsEmailVerification = Boolean(accountEmail && !accountResult.value?.emailVerified);
+  }
 
-    for (const a of assessments) {
-      if (eligibilityByProject.has(a.projectId)) continue;
-      const aExtended = a as typeof a & {
-        discoveredGrants?: unknown;
-        discoveryProvider?: string | null;
-      };
-      eligibilityByProject.set(a.projectId, {
-        overallDecision: a.overallDecision,
-        discoveredGrants: Array.isArray(aExtended.discoveredGrants)
-          ? (aExtended.discoveredGrants as DiscoveredGrantSummary[])
-          : [],
-        provider: aExtended.discoveryProvider ?? null,
-        assessedAt: a.createdAt,
+  const projects = projectsResult.status === "fulfilled" ? projectsResult.value : [];
+
+  const reminders: NotificationItem[] =
+    remindersResult.status === "fulfilled" ? remindersResult.value : [];
+
+  const eligibilityByProject = new Map<string, ProjectEligibility>();
+  if (projects.length > 0) {
+    try {
+      const projectIds = projects.map((p) => p.id);
+      const assessments = await prisma.eligibilityAssessment.findMany({
+        where: { projectId: { in: projectIds }, isLatest: true },
+        orderBy: { createdAt: "desc" },
       });
-    }
 
-    if (session?.user?.id) {
-      const { getDashboardReminders } = await import("@/backend/notifications/reminders");
-      reminders = await getDashboardReminders(session.user.id);
+      for (const a of assessments) {
+        if (eligibilityByProject.has(a.projectId)) continue;
+        const aExtended = a as typeof a & {
+          discoveredGrants?: unknown;
+          discoveryProvider?: string | null;
+        };
+        eligibilityByProject.set(a.projectId, {
+          overallDecision: a.overallDecision,
+          discoveredGrants: Array.isArray(aExtended.discoveredGrants)
+            ? (aExtended.discoveredGrants as DiscoveredGrantSummary[])
+            : [],
+          provider: aExtended.discoveryProvider ?? null,
+          assessedAt: a.createdAt,
+        });
+      }
+    } catch {
+      // No DB in dev — eligibility stays empty
     }
-  } catch {
-    // No DB in dev — renders empty dashboard
   }
 
   const notifications = [
