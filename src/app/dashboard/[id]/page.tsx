@@ -7,7 +7,7 @@ import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { auth } from "@/auth";
 import { redirectToSignIn } from "lib/auth-redirect";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
-import { getEstimateRangeFromQuote } from "@/lib/estimate-range";
+import { getEstimateSummary } from "@/lib/estimate-range";
 import { ProjectVisualizationGallery } from "./ProjectVisualizationGallery";
 import { GrantDiscoverySummary } from "./GrantDiscoverySummary";
 import { SupportingDocumentsSection } from "./SupportingDocumentsSection";
@@ -34,40 +34,6 @@ function getStatusStyle(status: string) {
   if (status === "submitted")
     return "border-blue-200 bg-blue-50 text-blue-700";
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
-}
-
-function getEstimateSummary(project: {
-  status: string;
-  quotes?: Array<{
-    estimateMin?: { toString(): string } | number | string | null;
-    estimateMax?: { toString(): string } | number | string | null;
-  }>;
-}) {
-  const latestQuote = project.quotes?.[0] ?? null;
-  const estimateRange = getEstimateRangeFromQuote(latestQuote);
-  const isFinalized = project.status !== "draft";
-
-  if (!isFinalized) {
-    return {
-      value: "Available after project finalization",
-      explanation:
-        "Your initial estimate range will appear here after your project request is finalized. Pricing is dynamically generated from real-time external retail data.",
-    };
-  }
-
-  if (estimateRange) {
-    return {
-      value: `$${estimateRange.min.toLocaleString()} – $${estimateRange.max.toLocaleString()}`,
-      explanation:
-        "This pricing is dynamically generated from real-time external retail data and may change as retailer pricing and product availability update.",
-    };
-  }
-
-  return {
-    value: "Generating estimate…",
-    explanation:
-      "We are generating your estimate using real-time external retail data.",
-  };
 }
 
 function getInformationRequestTypeLabel(requestType: string): string {
@@ -135,6 +101,7 @@ export default async function ProjectDetailPage({
             estimateMin: true,
             estimateMax: true,
             generatedAt: true,
+            override: { select: { total: true } },
           },
         },
         builderTrendTransfers: {

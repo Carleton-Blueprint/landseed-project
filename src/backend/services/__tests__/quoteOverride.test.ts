@@ -53,7 +53,7 @@ const baseQuote = {
   subtotal: 90 as unknown,
   total: 110 as unknown,
   refinedEstimate: null,
-  eligibilityAssessmentId: "assessment-1",
+  eligibilityAssessmentId: "assessment-1" as string | null,
   override: null,
 };
 
