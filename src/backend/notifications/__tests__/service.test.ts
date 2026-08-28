@@ -332,6 +332,28 @@ describe("notifications/service", () => {
       expect(call.create.payload).not.toHaveProperty("userId");
       expect(call.create.payload).not.toHaveProperty("projectId");
     });
+
+    it("passes questionCategory/questionSubject/fileName/documentType through to renderEmailTemplate", async () => {
+      mockedPrisma.notificationDelivery.findUnique.mockResolvedValue(null);
+
+      const payload = basePayload({
+        questionCategory: "Bathroom Safety",
+        questionSubject: "Grab bar placement",
+        fileName: "floorplan.pdf",
+        documentType: "Floor Plan",
+      });
+
+      await queueNotification(payload);
+
+      expect(mockedRenderEmailTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          questionCategory: "Bathroom Safety",
+          questionSubject: "Grab bar placement",
+          fileName: "floorplan.pdf",
+          documentType: "Floor Plan",
+        })
+      );
+    });
   });
 
   describe("processNotification", () => {
@@ -418,6 +440,26 @@ describe("notifications/service", () => {
           html: "<p>override</p>",
           text: "override text",
         });
+      });
+
+      it("passes questionCategory/questionSubject/fileName/documentType through to renderEmailTemplate", async () => {
+        await processNotification(
+          basePayload({
+            questionCategory: "Bathroom Safety",
+            questionSubject: "Grab bar placement",
+            fileName: "floorplan.pdf",
+            documentType: "Floor Plan",
+          })
+        );
+
+        expect(mockedRenderEmailTemplate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            questionCategory: "Bathroom Safety",
+            questionSubject: "Grab bar placement",
+            fileName: "floorplan.pdf",
+            documentType: "Floor Plan",
+          })
+        );
       });
 
       it("does not touch accountDeletionNotice when payload.noticeId is not set", async () => {
