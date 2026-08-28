@@ -33,7 +33,8 @@
     "worker:estimate-generation": "tsx src/backend/queue/estimateGenerationWorker.ts",
     "worker:ai-jobs": "tsx src/backend/queue/aiJobsWorker.ts",
     "worker:admin-digest": "tsx src/backend/queue/adminDigestWorker.ts",
-    "worker:grant-match-summary": "tsx src/backend/queue/grantMatchSummaryWorker.ts"
+    "worker:grant-match-summary": "tsx src/backend/queue/grantMatchSummaryWorker.ts",
+    "worker:all": "tsx src/backend/queue/allWorkers.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1000.0",
