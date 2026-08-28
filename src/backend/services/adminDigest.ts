@@ -1,10 +1,12 @@
 /**
  * Daily admin digest: summarizes the last 24h for the admin team —
- * new submissions, requests needing staff action, and the last 24h of
- * SecurityEvent rows (rate-limit hits + alert triggers) — emailed to every
- * ADMIN user. The security-event summary is also the
- * AC's "or the admin daily digest" alternative to the immediate
- * per-failure alerts in criticalFailureAlerts.ts.
+ * new submissions, requests needing staff action (active manual-review
+ * flags), estimates pending client review, information requests that have
+ * gone unanswered for more than STALE_INFO_REQUEST_DAYS, and the last 24h
+ * of SecurityEvent rows (rate-limit hits + alert triggers) — emailed to
+ * every ADMIN user. The security-event summary is also the AC's "or the
+ * admin daily digest" alternative to the immediate per-failure alerts in
+ * criticalFailureAlerts.ts.
  *
  * Every successful send is recorded to AdminDigestRun so a restarted
  * worker can tell whether a scheduled send was missed while it was down
@@ -34,6 +36,20 @@ export interface StaffActionItem {
   reason: string;
 }
 
+export interface PendingEstimateSummary {
+  projectId: string;
+  address: string;
+  quoteId: string;
+  pendingSince: Date;
+}
+
+export interface StaleInfoRequestSummary {
+  projectId: string;
+  address: string;
+  subject: string;
+  askedAt: Date;
+}
+
 export interface DailyDigest {
   windowStart: Date;
   windowEnd: Date;
@@ -41,7 +57,11 @@ export interface DailyDigest {
   totalEvents: number;
   newSubmissions: NewSubmissionSummary[];
   staffActionItems: StaffActionItem[];
+  estimatesPendingReview: PendingEstimateSummary[];
+  staleInformationRequests: StaleInfoRequestSummary[];
 }
+
+const STALE_INFO_REQUEST_DAYS = 7;
 
 const MANUAL_REVIEW_REASON_LABELS: Record<string, string> = {
   LOW_CONFIDENCE: "Grant discovery returned low-confidence results",
@@ -54,7 +74,11 @@ export async function buildDailyDigest(
   windowEnd: Date = new Date(),
   windowStart: Date = new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000)
 ): Promise<DailyDigest> {
-  const [grouped, newProjects, manualReviewFlags, openQuestions] = await Promise.all([
+  const staleInfoRequestCutoff = new Date(
+    windowEnd.getTime() - STALE_INFO_REQUEST_DAYS * 24 * 60 * 60 * 1000
+  );
+
+  const [grouped, newProjects, manualReviewFlags, pendingQuotes, staleQuestions] = await Promise.all([
     prisma.securityEvent.groupBy({
       by: ["eventType", "scope"],
       where: { createdAt: { gte: windowStart, lt: windowEnd } },
@@ -70,9 +94,17 @@ export async function buildDailyDigest(
       where: { isActive: true },
       select: { reason: true, project: { select: { id: true, address: true } } },
     }),
+    prisma.quote.findMany({
+      where: { status: "PENDING" },
+      select: { id: true, generatedAt: true, project: { select: { id: true, address: true } } },
+    }),
     prisma.quoteQuestion.findMany({
-      where: { status: "OPEN" },
-      select: { subject: true, quote: { select: { project: { select: { id: true, address: true } } } } },
+      where: { status: "OPEN", createdAt: { lt: staleInfoRequestCutoff } },
+      select: {
+        subject: true,
+        createdAt: true,
+        quote: { select: { project: { select: { id: true, address: true } } } },
+      },
     }),
   ]);
 
@@ -88,18 +120,25 @@ export async function buildDailyDigest(
     createdAt: project.createdAt,
   }));
 
-  const staffActionItems: StaffActionItem[] = [
-    ...manualReviewFlags.map((flag) => ({
-      projectId: flag.project.id,
-      address: flag.project.address,
-      reason: MANUAL_REVIEW_REASON_LABELS[flag.reason] ?? "Needs manual review",
-    })),
-    ...openQuestions.map((question) => ({
-      projectId: question.quote.project.id,
-      address: question.quote.project.address,
-      reason: `Open question: ${question.subject}`,
-    })),
-  ];
+  const staffActionItems: StaffActionItem[] = manualReviewFlags.map((flag) => ({
+    projectId: flag.project.id,
+    address: flag.project.address,
+    reason: MANUAL_REVIEW_REASON_LABELS[flag.reason] ?? "Needs manual review",
+  }));
+
+  const estimatesPendingReview: PendingEstimateSummary[] = pendingQuotes.map((quote) => ({
+    projectId: quote.project.id,
+    address: quote.project.address,
+    quoteId: quote.id,
+    pendingSince: quote.generatedAt,
+  }));
+
+  const staleInformationRequests: StaleInfoRequestSummary[] = staleQuestions.map((question) => ({
+    projectId: question.quote.project.id,
+    address: question.quote.project.address,
+    subject: question.subject,
+    askedAt: question.createdAt,
+  }));
 
   return {
     windowStart,
@@ -108,6 +147,8 @@ export async function buildDailyDigest(
     totalEvents: groups.reduce((sum, g) => sum + g.count, 0),
     newSubmissions,
     staffActionItems,
+    estimatesPendingReview,
+    staleInformationRequests,
   };
 }
 
@@ -152,6 +193,8 @@ function renderDigestEmail(
   const nothingToReport =
     digest.newSubmissions.length === 0 &&
     digest.staffActionItems.length === 0 &&
+    digest.estimatesPendingReview.length === 0 &&
+    digest.staleInformationRequests.length === 0 &&
     digest.groups.length === 0;
 
   const subjectParts: string[] = [];
@@ -160,6 +203,12 @@ function renderDigestEmail(
   }
   if (digest.staffActionItems.length > 0) {
     subjectParts.push(`${digest.staffActionItems.length} need${digest.staffActionItems.length === 1 ? "s" : ""} action`);
+  }
+  if (digest.estimatesPendingReview.length > 0) {
+    subjectParts.push(`${digest.estimatesPendingReview.length} pending estimate(s)`);
+  }
+  if (digest.staleInformationRequests.length > 0) {
+    subjectParts.push(`${digest.staleInformationRequests.length} stale info request(s)`);
   }
   const subject = nothingToReport
     ? `${prefix} ${dateLabel} — nothing to report`
@@ -175,6 +224,14 @@ function renderDigestEmail(
   const staffActionHtml = digest.staffActionItems.map(
     (item) => `<li>${escapeHtml(item.address)} — ${escapeHtml(item.reason)}</li>`
   );
+  const pendingEstimateHtml = digest.estimatesPendingReview.map(
+    (item) =>
+      `<li>${escapeHtml(item.address)} — pending since ${item.pendingSince.toISOString().slice(0, 10)}</li>`
+  );
+  const staleInfoRequestHtml = digest.staleInformationRequests.map(
+    (item) =>
+      `<li>${escapeHtml(item.address)} — ${escapeHtml(item.subject)} (asked ${item.askedAt.toISOString().slice(0, 10)})</li>`
+  );
   const securityEventHtml = digest.groups.map(
     (g) => `<li>${escapeHtml(SECURITY_EVENT_LABELS[g.eventType] ?? g.eventType)} (${escapeHtml(g.scope)}): <strong>${g.count}</strong></li>`
   );
@@ -182,6 +239,8 @@ function renderDigestEmail(
   const sectionsHtml = [
     htmlSection("New requests", newSubmissionsHtml),
     htmlSection("Needs staff action", staffActionHtml),
+    htmlSection("Estimates pending review", pendingEstimateHtml),
+    htmlSection("Information requests needing follow-up", staleInfoRequestHtml),
     htmlSection("Security activity", securityEventHtml),
   ]
     .filter(Boolean)
@@ -214,6 +273,24 @@ function renderDigestEmail(
   }
   if (digest.staffActionItems.length > 0) {
     textLines.push("Needs staff action:", ...digest.staffActionItems.map((item) => `- ${item.address} — ${item.reason}`), "");
+  }
+  if (digest.estimatesPendingReview.length > 0) {
+    textLines.push(
+      "Estimates pending review:",
+      ...digest.estimatesPendingReview.map(
+        (item) => `- ${item.address} — pending since ${item.pendingSince.toISOString().slice(0, 10)}`
+      ),
+      ""
+    );
+  }
+  if (digest.staleInformationRequests.length > 0) {
+    textLines.push(
+      "Information requests needing follow-up:",
+      ...digest.staleInformationRequests.map(
+        (item) => `- ${item.address} — ${item.subject} (asked ${item.askedAt.toISOString().slice(0, 10)})`
+      ),
+      ""
+    );
   }
   if (digest.groups.length > 0) {
     textLines.push(
@@ -278,6 +355,8 @@ export async function sendDailyDigest(
         eventCount: digest.totalEvents,
         newSubmissionCount: digest.newSubmissions.length,
         staffActionCount: digest.staffActionItems.length,
+        pendingEstimateCount: digest.estimatesPendingReview.length,
+        staleInfoRequestCount: digest.staleInformationRequests.length,
       },
     });
 
