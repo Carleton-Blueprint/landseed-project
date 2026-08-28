@@ -148,4 +148,33 @@ describe("renderEmailTemplate", () => {
     expect(template.text).toContain("https://example.test/api/account/email-change/verify-new?token=abc");
   });
 
+  it("renders the manual review flag created template with reason, description, and link", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.MANUAL_REVIEW_FLAG_CREATED,
+      projectAddress: "100 Main St",
+      estimateLink: "https://example.com/admin/flagged-projects",
+      manualReviewReason: "HIGH_COMPLEXITY",
+      manualReviewDescription: "Project complexity is HIGH (3 signals detected)",
+    });
+
+    expect(template.templateName).toBe("manual-review-flag-created-v1");
+    expect(template.subject).toBe("[Action Needed] Project Flagged for Manual Review — 100 Main St");
+    expect(template.html).toContain("100 Main St");
+    expect(template.html).toContain("high complexity");
+    expect(template.html).toContain("Project complexity is HIGH (3 signals detected)");
+    expect(template.html).toContain("https://example.com/admin/flagged-projects");
+    expect(template.text).toContain("Reason: high complexity");
+  });
+
+  it("renders the manual review flag created template without an address or description", () => {
+    const template = renderEmailTemplate({
+      eventType: NotificationEventType.MANUAL_REVIEW_FLAG_CREATED,
+      estimateLink: "https://example.com/admin/flagged-projects",
+      manualReviewReason: "LOW_CONFIDENCE",
+    });
+
+    expect(template.subject).toBe("[Action Needed] Project Flagged for Manual Review");
+    expect(template.html).toContain("low confidence");
+  });
+
 });

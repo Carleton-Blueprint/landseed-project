@@ -22,6 +22,8 @@ export function getCategoryFromEventType(eventType: NotificationEventType): Comm
       return CommunicationCategory.ESTIMATE;
     case NotificationEventType.QUESTION_SUBMITTED_FOR_ADVISORY_TEAM:
       return CommunicationCategory.QUESTION;
+    case NotificationEventType.MANUAL_REVIEW_FLAG_CREATED:
+      return CommunicationCategory.SYSTEM_ALERT;
     case NotificationEventType.FILE_MALWARE_DETECTED:
       return CommunicationCategory.DOCUMENT;
     case NotificationEventType.MANUAL_FALLBACK_EXPORT_READY:
@@ -74,6 +76,10 @@ export function generateContentSummary(
     lines.push(`Question: ${payload.questionSubject}`);
   }
 
+  if (payload.manualReviewReason) {
+    lines.push(`Manual Review Reason: ${payload.manualReviewReason}`);
+  }
+
   if (payload.fileName) {
     lines.push(`File: ${payload.fileName}`);
   }
@@ -101,6 +107,8 @@ export function getLinkedResourceType(eventType: NotificationEventType): string 
       return "Quote";
     case NotificationEventType.QUESTION_SUBMITTED_FOR_ADVISORY_TEAM:
       return "QuoteQuestion";
+    case NotificationEventType.MANUAL_REVIEW_FLAG_CREATED:
+      return "ProjectManualReviewFlag";
     case NotificationEventType.FILE_MALWARE_DETECTED:
       return "Document";
     case NotificationEventType.INFORMATION_REQUEST_CREATED:

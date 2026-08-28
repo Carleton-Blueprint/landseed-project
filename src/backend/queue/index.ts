@@ -37,6 +37,8 @@ export const emailQueue = new Queue<{
   questionSubject?: string;
   fileName?: string;
   documentType?: string;
+  manualReviewReason?: string;
+  manualReviewDescription?: string;
   manualFallbackExportLink?: string | null;
   manualFallbackExportRetentionDays?: number;
   subject?: string | null;

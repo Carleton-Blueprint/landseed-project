@@ -29,6 +29,8 @@ const worker = createEmailWorker(async (job) => {
     questionSubject: job.data.questionSubject,
     fileName: job.data.fileName,
     documentType: job.data.documentType,
+    manualReviewReason: job.data.manualReviewReason,
+    manualReviewDescription: job.data.manualReviewDescription,
     // pass through optional overrides and account-deletion linkage
     subject: job.data.subject,
     html: job.data.html,
