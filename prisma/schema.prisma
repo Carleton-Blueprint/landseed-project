@@ -490,14 +490,16 @@ model AlertThresholdConfig {
 // send was missed while it was down and, if so, catch up with a single
 // summary covering the gap instead of silently skipping it.
 model AdminDigestRun {
-  id                 String                       @id @default(cuid())
-  sentAt             DateTime                     @default(now())
-  windowStart        DateTime
-  windowEnd          DateTime
-  eventCount         Int
-  newSubmissionCount Int                          @default(0)
-  staffActionCount   Int                          @default(0)
-  deliveryFailures   AdminDigestDeliveryFailure[]
+  id                    String                       @id @default(cuid())
+  sentAt                DateTime                     @default(now())
+  windowStart           DateTime
+  windowEnd             DateTime
+  eventCount            Int
+  newSubmissionCount    Int                          @default(0)
+  staffActionCount      Int                          @default(0)
+  pendingEstimateCount  Int                          @default(0)
+  staleInfoRequestCount Int                          @default(0)
+  deliveryFailures      AdminDigestDeliveryFailure[]
 
   @@index([sentAt])
 }

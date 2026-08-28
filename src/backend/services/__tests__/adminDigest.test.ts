@@ -8,6 +8,7 @@ import { buildDailyDigest, sendDailyDigest, runCatchUpIfNeeded } from "../adminD
 const mockGroupBy = jest.fn();
 const mockProjectFindMany = jest.fn();
 const mockManualReviewFlagFindMany = jest.fn();
+const mockQuoteFindMany = jest.fn();
 const mockQuoteQuestionFindMany = jest.fn();
 const mockAdminDigestRunCreate = jest.fn();
 const mockAdminDigestRunFindFirst = jest.fn();
@@ -23,6 +24,9 @@ jest.mock("lib/prisma", () => ({
     },
     projectManualReviewFlag: {
       findMany: (...args: unknown[]) => mockManualReviewFlagFindMany(...args),
+    },
+    quote: {
+      findMany: (...args: unknown[]) => mockQuoteFindMany(...args),
     },
     quoteQuestion: {
       findMany: (...args: unknown[]) => mockQuoteQuestionFindMany(...args),
@@ -48,6 +52,7 @@ jest.mock("@/backend/services/transactionalEmail", () => ({
 function stubEmptyContent() {
   mockProjectFindMany.mockResolvedValue([]);
   mockManualReviewFlagFindMany.mockResolvedValue([]);
+  mockQuoteFindMany.mockResolvedValue([]);
   mockQuoteQuestionFindMany.mockResolvedValue([]);
 }
 
@@ -111,13 +116,10 @@ describe("buildDailyDigest", () => {
     expect(digest.newSubmissions).toEqual([{ projectId: "proj-1", address: "1 Main St", createdAt }]);
   });
 
-  it("includes active manual-review flags and open quote questions as staff action items", async () => {
+  it("includes active manual-review flags as staff action items", async () => {
     mockGroupBy.mockResolvedValue([]);
     mockManualReviewFlagFindMany.mockResolvedValue([
       { reason: "LOW_CONFIDENCE", project: { id: "proj-2", address: "2 Oak Ave" } },
-    ]);
-    mockQuoteQuestionFindMany.mockResolvedValue([
-      { subject: "What's included?", quote: { project: { id: "proj-3", address: "3 Elm St" } } },
     ]);
 
     const digest = await buildDailyDigest(new Date());
@@ -128,12 +130,58 @@ describe("buildDailyDigest", () => {
         address: "2 Oak Ave",
         reason: "Grant discovery returned low-confidence results",
       },
+    ]);
+  });
+
+  it("includes PENDING quotes as estimates pending review", async () => {
+    mockGroupBy.mockResolvedValue([]);
+    const generatedAt = new Date("2026-08-04T10:00:00.000Z");
+    mockQuoteFindMany.mockResolvedValue([
+      { id: "quote-1", generatedAt, project: { id: "proj-4", address: "4 Pine St" } },
+    ]);
+
+    const windowEnd = new Date("2026-08-05T13:00:00.000Z");
+    const digest = await buildDailyDigest(windowEnd);
+
+    expect(mockQuoteFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: "PENDING" } })
+    );
+    expect(digest.estimatesPendingReview).toEqual([
+      { projectId: "proj-4", address: "4 Pine St", quoteId: "quote-1", pendingSince: generatedAt },
+    ]);
+  });
+
+  it("only includes open quote questions older than 7 days as stale information requests", async () => {
+    mockGroupBy.mockResolvedValue([]);
+    const windowEnd = new Date("2026-08-05T13:00:00.000Z");
+    const askedAt = new Date("2026-07-28T09:00:00.000Z");
+    mockQuoteQuestionFindMany.mockResolvedValue([
       {
-        projectId: "proj-3",
-        address: "3 Elm St",
-        reason: "Open question: What's included?",
+        subject: "What's included?",
+        createdAt: askedAt,
+        quote: { project: { id: "proj-3", address: "3 Elm St" } },
       },
     ]);
+
+    const digest = await buildDailyDigest(windowEnd);
+
+    expect(mockQuoteQuestionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { status: "OPEN", createdAt: { lt: new Date("2026-07-29T13:00:00.000Z") } },
+      })
+    );
+    expect(digest.staleInformationRequests).toEqual([
+      { projectId: "proj-3", address: "3 Elm St", subject: "What's included?", askedAt },
+    ]);
+  });
+
+  it("returns empty estimatesPendingReview/staleInformationRequests when there is no activity", async () => {
+    mockGroupBy.mockResolvedValue([]);
+
+    const digest = await buildDailyDigest(new Date());
+
+    expect(digest.estimatesPendingReview).toEqual([]);
+    expect(digest.staleInformationRequests).toEqual([]);
   });
 });
 
@@ -217,8 +265,34 @@ describe("sendDailyDigest", () => {
         eventCount: 0,
         newSubmissionCount: 0,
         staffActionCount: 0,
+        pendingEstimateCount: 0,
+        staleInfoRequestCount: 0,
       },
     });
+  });
+
+  it("records the pending-estimate and stale-info-request counts on the run", async () => {
+    mockGroupBy.mockResolvedValue([]);
+    mockQuoteFindMany.mockResolvedValue([
+      { id: "quote-1", generatedAt: new Date("2026-08-04T10:00:00.000Z"), project: { id: "proj-4", address: "4 Pine St" } },
+    ]);
+    mockQuoteQuestionFindMany.mockResolvedValue([
+      {
+        subject: "What's included?",
+        createdAt: new Date("2026-07-28T09:00:00.000Z"),
+        quote: { project: { id: "proj-3", address: "3 Elm St" } },
+      },
+    ]);
+    (getAdminEmails as jest.Mock).mockResolvedValue(["a@landseed.test"]);
+    (sendTransactionalEmail as jest.Mock).mockResolvedValue({ provider: "resend" });
+
+    await sendDailyDigest(new Date("2026-08-05T13:00:00.000Z"));
+
+    expect(mockAdminDigestRunCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ pendingEstimateCount: 1, staleInfoRequestCount: 1 }),
+      })
+    );
   });
 
   it("does not throw when building the digest fails, and does not record a run", async () => {
