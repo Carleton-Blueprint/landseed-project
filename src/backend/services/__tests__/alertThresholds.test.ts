@@ -47,13 +47,14 @@ describe("getAllAlertThresholds", () => {
         { key: ALERT_THRESHOLD_KEYS.EMAIL_DELIVERY_FAILURE, thresholdCount: 5, windowMinutes: 15, enabled: true },
         { key: ALERT_THRESHOLD_KEYS.FILE_SCAN_FAILURE, thresholdCount: 5, windowMinutes: 15, enabled: true },
         { key: ALERT_THRESHOLD_KEYS.PRICING_TIER_FALLBACK, thresholdCount: 5, windowMinutes: 15, enabled: true },
+        { key: ALERT_THRESHOLD_KEYS.GRANT_DISCOVERY_AI_FAILURE, thresholdCount: 5, windowMinutes: 15, enabled: true },
       ]); // full read after seeding
     mockUpsert.mockResolvedValue({});
 
     const rows = await getAllAlertThresholds();
 
-    expect(mockUpsert).toHaveBeenCalledTimes(4); // the 4 defaults missing beyond AI_JOB_FAILURE
-    expect(rows).toHaveLength(5);
+    expect(mockUpsert).toHaveBeenCalledTimes(5); // the 5 defaults missing beyond AI_JOB_FAILURE
+    expect(rows).toHaveLength(6);
   });
 
   it("skips seeding once all keys already exist", async () => {
