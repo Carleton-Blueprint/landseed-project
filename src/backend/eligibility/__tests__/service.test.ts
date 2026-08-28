@@ -44,6 +44,10 @@ jest.mock('@/backend/audit/log', () => ({
   logAuditEventNonBlocking: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('@/backend/services/criticalFailureAlerts', () => ({
+  recordFailureAndMaybeAlert: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../manualReviewProducer', () => ({
   produceManualReviewFlagJob: jest.fn().mockResolvedValue(undefined),
 }));
@@ -82,6 +86,12 @@ const { discoverAndEvaluateGrants } = require('../discoverySearchProvider') as {
 };
 const { logAuditEventNonBlocking } = require('@/backend/audit/log') as {
   logAuditEventNonBlocking: jest.Mock;
+};
+const { recordFailureAndMaybeAlert } = require('@/backend/services/criticalFailureAlerts') as {
+  recordFailureAndMaybeAlert: jest.Mock;
+};
+const { ALERT_THRESHOLD_KEYS } = require('@/backend/services/alertThresholds') as {
+  ALERT_THRESHOLD_KEYS: typeof import('@/backend/services/alertThresholds').ALERT_THRESHOLD_KEYS;
 };
 
 const {
@@ -217,6 +227,27 @@ describe('Eligibility Service', () => {
           reason: 'OpenAI timeout',
         })
       );
+      expect(recordFailureAndMaybeAlert).toHaveBeenCalledWith({
+        key: ALERT_THRESHOLD_KEYS.GRANT_DISCOVERY_AI_FAILURE,
+        summary: 'Grant discovery for project proj-1 fell back to heuristic scoring',
+        details: {
+          projectId: 'proj-1',
+          assessmentId: 'assessment-1',
+          failureReason: 'OpenAI timeout',
+        },
+      });
+    });
+
+    it('does not record a grant-discovery AI failure when discovery succeeds via the live provider', async () => {
+      discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation());
+      createEligibilityAssessmentSnapshot.mockResolvedValue({
+        id: 'assessment-1',
+        createdAt: new Date(),
+      });
+
+      await evaluateProjectEligibility(baseProject);
+
+      expect(recordFailureAndMaybeAlert).not.toHaveBeenCalled();
     });
 
     it('logs an ELIGIBILITY_EVALUATED audit event when performedBy is provided', async () => {

@@ -20,6 +20,8 @@ import {
 import { prisma } from 'lib/prisma';
 import { grantMatchSummaryQueue } from '@/backend/queue';
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
+import { recordFailureAndMaybeAlert } from '@/backend/services/criticalFailureAlerts';
+import { ALERT_THRESHOLD_KEYS } from '@/backend/services/alertThresholds';
 import { produceManualReviewFlagJob } from './manualReviewProducer';
 import { aggregateDeclaredModificationCodes, buildQuoteItems } from './modificationNormalization';
 import type { AiOutputSource, AiProvenanceMetadata } from '@/backend/audit/aiProvenance';
@@ -116,6 +118,16 @@ export async function evaluateProjectEligibility(
           outputSource: 'HEURISTIC',
           isFallback: true,
         } satisfies AiProvenanceMetadata & Record<string, unknown>,
+      });
+
+      void recordFailureAndMaybeAlert({
+        key: ALERT_THRESHOLD_KEYS.GRANT_DISCOVERY_AI_FAILURE,
+        summary: `Grant discovery for project ${project.id} fell back to heuristic scoring`,
+        details: {
+          projectId: project.id,
+          assessmentId: assessment.id,
+          failureReason: evaluation.discoveryMetadata.aiFailureReason,
+        },
       });
     }
 

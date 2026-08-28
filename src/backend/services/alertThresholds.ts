@@ -22,6 +22,7 @@ export const ALERT_THRESHOLD_KEYS = {
   EMAIL_DELIVERY_FAILURE: "email-delivery-failure",
   FILE_SCAN_FAILURE: "file-scan-failure",
   PRICING_TIER_FALLBACK: "pricing-tier-fallback",
+  GRANT_DISCOVERY_AI_FAILURE: "grant-discovery-ai-failure",
 } as const;
 
 export type AlertThresholdKey = (typeof ALERT_THRESHOLD_KEYS)[keyof typeof ALERT_THRESHOLD_KEYS];
@@ -49,6 +50,11 @@ const DEFAULTS: Record<AlertThresholdKey, { label: string; thresholdCount: numbe
   },
   [ALERT_THRESHOLD_KEYS.PRICING_TIER_FALLBACK]: {
     label: "Quotes falling back to synthetic tier pricing (SERP unusable)",
+    thresholdCount: 5,
+    windowMinutes: 15,
+  },
+  [ALERT_THRESHOLD_KEYS.GRANT_DISCOVERY_AI_FAILURE]: {
+    label: "Grant discovery AI failures (fell back to heuristic catalog scoring)",
     thresholdCount: 5,
     windowMinutes: 15,
   },
