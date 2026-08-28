@@ -15,6 +15,7 @@
     "db:backfill-audit-chain": "tsx scripts/backfill-audit-chain.ts",
     "assets:generate-grant-template": "tsx scripts/generate-grant-template.ts",
     "assess:eligibility": "tsx scripts/assess-eligibility.ts",
+    "digest:send": "tsx scripts/send-daily-digest.ts",
     "db:studio": "prisma studio",
     "test": "jest",
     "test:watch": "jest --watch",
