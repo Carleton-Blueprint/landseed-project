@@ -54,6 +54,7 @@ prisma/migrations/**/migration_lock.toml
 # Notes
 docs/*
 !docs/DISASTER_RECOVERY.md
+!docs/INFRASTRUCTURE.md
 backups/
 phase-plans/
 
