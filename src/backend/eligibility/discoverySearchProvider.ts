@@ -679,11 +679,9 @@ interface OpenAiWebSearchOutcome {
   decisions: LlmGrantDecision[] | null;
   /**
    * Set only when the AI path was attempted and failed. Null for intentional skips
-   * (no API key configured, AI disabled, or mock mode) — those are not failures.
+   * (no API key configured) — those are not failures.
    */
   failureReason: string | null;
-  /** True when `decisions` came from the hardcoded GRANT_DISCOVERY_MOCK_AI catalog, not a live call. */
-  isMock: boolean;
 }
 
 async function tryOpenAiWebSearch(
@@ -693,66 +691,7 @@ async function tryOpenAiWebSearch(
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     debug('AI', 'OPENAI_API_KEY not set — skipping AI web search');
-    return { decisions: null, failureReason: null, isMock: false };
-  }
-
-  const enabled = (process.env.GRANT_DISCOVERY_AI_ENABLED ?? 'true').toLowerCase();
-  if (enabled === 'false') {
-    debug('AI', 'GRANT_DISCOVERY_AI_ENABLED=false — skipping AI web search');
-    return { decisions: null, failureReason: null, isMock: false };
-  }
-
-  // -----------------------------------------------------------
-  // MOCK MODE — set GRANT_DISCOVERY_MOCK_AI=true in .env to use
-  // -----------------------------------------------------------
-  if ((process.env.GRANT_DISCOVERY_MOCK_AI ?? 'false').toLowerCase() === 'true') {
-    debug('AI', 'MOCK MODE — returning hardcoded decisions instead of calling OpenAI');
-    return { failureReason: null, isMock: true, decisions: [{
-        grantId: 'mock_hatc_canada',
-        title: 'Home Accessibility Tax Credit (HATC) [MOCK]',
-        scope: 'NATIONAL',
-        jurisdiction: 'CA',
-        sourceUrl: 'https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/deductions-credits-expenses/line-31285-home-accessibility-expenses.html',
-        summary: 'Federal tax credit on up to $20,000 of eligible accessibility renovation expenses.',
-        score: 85,
-        decision: EligibilityDecision.ELIGIBLE,
-        matchedCriteria: ['jurisdiction_match', 'modification_overlap', 'owner_occupied'],
-        missingCriteria: [],
-        confidence: 'HIGH',
-        rationale: 'Mock: applicant meets federal HATC criteria based on province, ownership, and modification codes.',
-        estimatedFundingAmount: 'Up to $20,000',
-      },
-      {
-        grantId: 'mock_on_rrap',
-        title: 'Ontario RRAP / IAH [MOCK]',
-        scope: 'PROVINCIAL',
-        jurisdiction: 'ON',
-        sourceUrl: 'https://www.ontario.ca/page/investment-affordable-housing-program',
-        summary: 'Ontario provincial funding for accessibility modifications for low-income homeowners.',
-        score: 60,
-        decision: EligibilityDecision.NEEDS_MORE_INFO,
-        matchedCriteria: ['jurisdiction_match', 'modification_overlap'],
-        missingCriteria: ['income_verification_required'],
-        confidence: 'MEDIUM',
-        rationale: 'Mock: jurisdiction and modifications match but income eligibility unconfirmed.',
-        estimatedFundingAmount: null,
-      },
-      {
-        grantId: 'mock_municipal_toronto',
-        title: 'City of Toronto Home Improvement Program [MOCK]',
-        scope: 'MUNICIPAL',
-        jurisdiction: 'ON',
-        sourceUrl: 'https://www.toronto.ca/community-people/housing-shelter/housing-support/home-improvement-programs-for-homeowners/',
-        summary: 'Toronto forgivable loan for seniors and persons with disabilities.',
-        score: 30,
-        decision: EligibilityDecision.INELIGIBLE,
-        matchedCriteria: ['modification_overlap'],
-        missingCriteria: ['municipal_residency_unconfirmed', 'income_threshold_not_met'],
-        confidence: 'LOW',
-        rationale: 'Mock: modification codes match but residency and income criteria not confirmed.',
-        estimatedFundingAmount: null,
-      },
-    ] };
+    return { decisions: null, failureReason: null };
   }
 
   const scopedQueries = buildSearchQueries(input);
@@ -820,7 +759,6 @@ async function tryOpenAiWebSearch(
     return {
       decisions: null,
       failureReason: `OpenAI API returned ${response.status} ${response.statusText}: ${errBody.slice(0, 300)}`,
-      isMock: false,
     };
   }
 
@@ -836,7 +774,7 @@ async function tryOpenAiWebSearch(
 
   if (!content) {
     debug('AI', 'No content in response');
-    return { decisions: null, failureReason: 'OpenAI response contained no output text', isMock: false };
+    return { decisions: null, failureReason: 'OpenAI response contained no output text' };
   }
 
   let parsed: { decisions?: LlmGrantDecision[] } | null = null;
@@ -845,17 +783,17 @@ async function tryOpenAiWebSearch(
     debug('AI', `JSON parsed — decisions count: ${parsed?.decisions?.length ?? 'missing'}`);
   } catch (err) {
     debug('AI', 'JSON parse error', { error: String(err), raw: content.slice(0, 500) });
-    return { decisions: null, failureReason: `Failed to parse JSON from OpenAI response: ${String(err)}`, isMock: false };
+    return { decisions: null, failureReason: `Failed to parse JSON from OpenAI response: ${String(err)}` };
   }
 
   if (!parsed) {
     debug('AI', 'JSON parse error', { contentLength: content.length, raw: content.slice(0, 500) });
-    return { decisions: null, failureReason: 'Failed to parse JSON from OpenAI response', isMock: false };
+    return { decisions: null, failureReason: 'Failed to parse JSON from OpenAI response' };
   }
 
   if (!Array.isArray(parsed.decisions)) {
     debug('AI', 'decisions is not an array', { parsed });
-    return { decisions: null, failureReason: 'OpenAI response JSON did not contain a decisions array', isMock: false };
+    return { decisions: null, failureReason: 'OpenAI response JSON did not contain a decisions array' };
   }
 
   const valid = parsed.decisions.filter(
@@ -883,10 +821,10 @@ async function tryOpenAiWebSearch(
   })));
 
   if (valid.length === 0 && dropped > 0) {
-    return { decisions: valid, failureReason: `All ${dropped} OpenAI decision(s) were malformed and dropped`, isMock: false };
+    return { decisions: valid, failureReason: `All ${dropped} OpenAI decision(s) were malformed and dropped` };
   }
 
-  return { decisions: valid, failureReason: null, isMock: false };
+  return { decisions: valid, failureReason: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,11 +1031,11 @@ export async function discoverAndEvaluateGrants(
   try {
     // Step 3: AI web search
     debug('MAIN', 'Step 3 — attempting AI web search...');
-    const { decisions: llmDecisions, failureReason, isMock } = await tryOpenAiWebSearch(input, heuristicCandidates);
+    const { decisions: llmDecisions, failureReason } = await tryOpenAiWebSearch(input, heuristicCandidates);
     aiFailureReason = failureReason;
 
     if (llmDecisions && llmDecisions.length > 0) {
-      provider = isMock ? 'MOCK' : 'OPENAI';
+      provider = 'OPENAI';
       debug('MAIN', `AI returned ${llmDecisions.length} decisions — merging with heuristic results`);
 
       const aiCandidatesRaw: DiscoveryCandidateEvaluation[] = llmDecisions.map((llm) => ({
