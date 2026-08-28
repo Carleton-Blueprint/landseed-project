@@ -16,14 +16,26 @@ import { createManualReviewWorker } from '@/backend/queue';
 import { prisma } from 'lib/prisma';
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { ProjectManualReviewReasonCode } from '@prisma/client';
+import { getAdminEmails } from '@/backend/auth/requireRole';
+import { enqueueManualReviewFlagNotification } from '@/backend/notifications/manualReviewNotificationContract';
 
-const worker = createManualReviewWorker(async (job) => {
+export async function processManualReviewJob(job: {
+  data: {
+    projectId: string;
+    assessmentId?: string;
+    aiConfidence: 'HIGH' | 'MEDIUM' | 'LOW';
+    complexityScore?: number;
+    reason?: string;
+    photoId?: string;
+    metadata?: Record<string, unknown>;
+  };
+}): Promise<void> {
   const { projectId, assessmentId, aiConfidence, complexityScore, reason, photoId, metadata } = job.data;
 
   // Step 1: Validate project exists
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: { id: true },
+    select: { id: true, address: true },
   });
 
   if (!project) {
@@ -111,8 +123,57 @@ const worker = createManualReviewWorker(async (job) => {
     });
 
     console.log(`[ManualReview] Created flag for project ${projectId} (reason: ${reasonCode})`);
+
+    await notifyAdmins(flag.id, projectId, project.address, reasonCode, description);
   }
-});
+}
+
+const worker = createManualReviewWorker(processManualReviewJob);
+
+/**
+ * Alerts admins immediately on flag creation (in addition to the existing
+ * daily digest). Only called from the create path — nothing currently sets
+ * isActive back to false, so every update is a re-flag of an already-active
+ * (already-alerted) project, and alerting there would be pure noise.
+ */
+async function notifyAdmins(
+  flagId: string,
+  projectId: string,
+  projectAddress: string,
+  reason: ProjectManualReviewReasonCode,
+  description: string
+): Promise<void> {
+  try {
+    const adminEmails = await getAdminEmails();
+
+    if (adminEmails.length === 0) {
+      return;
+    }
+
+    await enqueueManualReviewFlagNotification({
+      projectId,
+      projectAddress,
+      flagId,
+      reason,
+      description,
+      adminEmails,
+    });
+  } catch (notificationError) {
+    console.error('[ManualReview] Failed to enqueue admin notification:', notificationError);
+
+    await logAuditEventNonBlocking({
+      category: 'MANUAL_CHANGE',
+      action: 'MANUAL_REVIEW_NOTIFICATION_FAILED',
+      outcome: 'FAILURE',
+      resourceType: 'ProjectManualReviewFlag',
+      resourceId: flagId,
+      projectId,
+      description: `Failed to notify admins of manual review flag: ${
+        notificationError instanceof Error ? notificationError.message : String(notificationError)
+      }`,
+    });
+  }
+}
 
 // Event listeners
 worker.on('completed', (job) => {
