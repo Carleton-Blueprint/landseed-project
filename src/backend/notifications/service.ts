@@ -32,6 +32,8 @@ export type NotificationJobPayload = {
   questionSubject?: string;
   fileName?: string;
   documentType?: string;
+  manualReviewReason?: string;
+  manualReviewDescription?: string;
   // Optional overrides
   subject?: string | null;
   html?: string | null;
@@ -166,6 +168,8 @@ export async function queueNotification(payload: NotificationJobPayload): Promis
     questionSubject: payload.questionSubject,
     fileName: payload.fileName,
     documentType: payload.documentType,
+    manualReviewReason: payload.manualReviewReason,
+    manualReviewDescription: payload.manualReviewDescription,
     authActionLink: payload.authActionLink,
     seniorName: payload.seniorName,
     isCaregiverSubmission: payload.isCaregiverSubmission,
@@ -240,6 +244,8 @@ export async function processNotification(payload: NotificationJobPayload): Prom
     questionSubject: payload.questionSubject,
     fileName: payload.fileName,
     documentType: payload.documentType,
+    manualReviewReason: payload.manualReviewReason,
+    manualReviewDescription: payload.manualReviewDescription,
     authActionLink: payload.authActionLink,
     seniorName: payload.seniorName,
     isCaregiverSubmission: payload.isCaregiverSubmission,

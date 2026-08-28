@@ -13,6 +13,8 @@ type TemplateInput = {
   questionSubject?: string;
   fileName?: string;
   documentType?: string;
+  manualReviewReason?: string;
+  manualReviewDescription?: string;
   authActionLink?: string | null;
   seniorName?: string | null;
   isCaregiverSubmission?: boolean;
@@ -171,6 +173,26 @@ export function renderEmailTemplate(input: TemplateInput): RenderedEmailTemplate
         <p>Landseed Team</p>
       `,
       text: `Hi Advisory Team,\n\nA client has submitted a new question about their estimate for ${input.projectAddress || "their project"}.\n\nCategory: ${input.questionCategory || "General"}\nSubject: ${input.questionSubject || "N/A"}\n\nReview in Admin Dashboard: ${input.estimateLink}\n\nLandseed Team`,
+    };
+  }
+
+  if (input.eventType === NotificationEventType.MANUAL_REVIEW_FLAG_CREATED) {
+    const reasonLabel = input.manualReviewReason
+      ? input.manualReviewReason.replace(/_/g, " ").toLowerCase()
+      : "needs review";
+
+    return {
+      templateName: "manual-review-flag-created-v1",
+      subject: `[Action Needed] Project Flagged for Manual Review${input.projectAddress ? ` — ${input.projectAddress}` : ""}`,
+      html: `
+        <p>Hi Admin,</p>
+        <p>A project has been flagged for manual review${input.projectAddress ? ` — <strong>${input.projectAddress}</strong>` : ""}.</p>
+        <p><strong>Reason:</strong> ${reasonLabel}</p>
+        ${input.manualReviewDescription ? `<p>${input.manualReviewDescription}</p>` : ""}
+        <p><a href="${input.estimateLink}">Review in Admin Dashboard</a></p>
+        <p>Landseed Team</p>
+      `,
+      text: `Hi Admin,\n\nA project has been flagged for manual review${input.projectAddress ? ` — ${input.projectAddress}` : ""}.\n\nReason: ${reasonLabel}\n${input.manualReviewDescription ? `${input.manualReviewDescription}\n` : ""}\nReview in Admin Dashboard: ${input.estimateLink}\n\nLandseed Team`,
     };
   }
 

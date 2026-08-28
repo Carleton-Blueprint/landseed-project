@@ -36,6 +36,8 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
       questionSubject: payload.questionSubject,
       fileName: payload.fileName,
       documentType: payload.documentType,
+      manualReviewReason: payload.manualReviewReason,
+      manualReviewDescription: payload.manualReviewDescription,
       subject: payload.subject,
       html: payload.html,
       text: payload.text,
