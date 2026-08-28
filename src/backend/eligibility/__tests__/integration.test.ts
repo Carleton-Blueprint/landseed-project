@@ -5,9 +5,8 @@
  * FR-3.1 Integration Tests — real Postgres (DATABASE_URL) and real Redis
  * (REDIS_URL) required; no mocked Prisma client. Exercises the full
  * assemble -> evaluate -> persist -> audit chain through evaluateProjectEligibility(),
- * including the live-AI-failure -> heuristic-fallback path and the
- * GRANT_DISCOVERY_MOCK_AI hardcoded-mock path, verifying each is recorded
- * with distinct, correct provenance in the audit trail (see the AI Mock
+ * including the live-AI-failure -> heuristic-fallback path, verifying it is
+ * recorded with correct provenance in the audit trail (see the AI Mock
  * Finalization work in src/backend/audit/aiProvenance.ts).
  *
  * The original version of this file was entirely placeholder stubs
@@ -68,10 +67,9 @@ const { generateQuote, getPricingDecisionAuditTrail } = jest.requireActual(
 ) as typeof import("@/backend/services/quote");
 
 // The same background block also auto-generates a grant PDF (real S3 upload) once
-// the mocked quote resolves, if the assessment came back ELIGIBLE — which the
-// GRANT_DISCOVERY_MOCK_AI catalog's first entry always does. Mock it out for the
-// same reason as generateQuote above: it isn't the subject of these tests, and it
-// otherwise fires a real upload against a project the test has already deleted.
+// the mocked quote resolves, if the assessment came back ELIGIBLE. Mock it out for
+// the same reason as generateQuote above: it isn't the subject of these tests, and
+// it otherwise fires a real upload against a project the test has already deleted.
 jest.mock("@/backend/services/grantDocument", () => ({
   generateAndStoreGrantDocument: jest.fn(async () => ({ s3Key: "test-grant-doc-stub" })),
 }));
@@ -214,8 +212,6 @@ describe("FR-3.1 Eligibility Integration Tests", () => {
 
     it("falls back to the heuristic catalog and logs GRANT_DISCOVERY_AI_FALLBACK when the live call fails", async () => {
       process.env.OPENAI_API_KEY = "test-key";
-      process.env.GRANT_DISCOVERY_AI_ENABLED = "true";
-      process.env.GRANT_DISCOVERY_MOCK_AI = "false";
 
       global.fetch = jest.fn(async () =>
         new Response("upstream error", { status: 500, statusText: "Internal Server Error" })
@@ -250,40 +246,13 @@ describe("FR-3.1 Eligibility Integration Tests", () => {
       }
     });
 
-    it("labels GRANT_DISCOVERY_MOCK_AI output as MOCK (not OPENAI or a failure fallback)", async () => {
-      process.env.OPENAI_API_KEY = "test-key";
-      process.env.GRANT_DISCOVERY_AI_ENABLED = "true";
-      process.env.GRANT_DISCOVERY_MOCK_AI = "true";
-
-      const user = await createTestUser();
-      createdUserIds.push(user.id);
-      const project = await createTestProject(user.id);
-
-      try {
-        const result = await evaluateProjectEligibility(project);
-
-        if (!("assessmentId" in result)) {
-          throw new Error(`Expected a successful evaluation, got: ${JSON.stringify(result)}`);
-        }
-
-        const persisted = await prisma.eligibilityAssessment.findUnique({
-          where: { id: result.assessmentId },
-        });
-        expect(persisted?.discoveryProvider).toBe("MOCK");
-
-        const fallbackEvent = await prisma.auditEvent.findFirst({
-          where: { action: "GRANT_DISCOVERY_AI_FALLBACK", projectId: project.id },
-        });
-        expect(fallbackEvent).toBeNull();
-      } finally {
-        await cleanupProject(project.id);
-      }
-    });
   });
 
   describe("Quote integration", () => {
     it("links a generated quote to its eligibility assessment and records provenance in the audit trail", async () => {
-      process.env.GRANT_DISCOVERY_MOCK_AI = "true";
+      // No OPENAI_API_KEY -> discovery takes the heuristic-only path, deterministic
+      // and without hitting live OpenAI; this test isn't about discovery provenance.
+      delete process.env.OPENAI_API_KEY;
 
       const user = await createTestUser();
       createdUserIds.push(user.id);
@@ -362,7 +331,10 @@ describe("FR-3.1 Eligibility Integration Tests", () => {
 
   describe("Audit trail completeness", () => {
     it("getLatestEligibilityAssessment reflects the same provenance recorded on the audit event", async () => {
-      process.env.GRANT_DISCOVERY_MOCK_AI = "true";
+      // No OPENAI_API_KEY -> deterministic heuristic-only path; this test is about
+      // provenance consistency between the assessment and audit event, not which
+      // provider produced it.
+      delete process.env.OPENAI_API_KEY;
 
       const user = await createTestUser();
       createdUserIds.push(user.id);
@@ -372,12 +344,12 @@ describe("FR-3.1 Eligibility Integration Tests", () => {
         await evaluateProjectEligibility(project, user);
 
         const latest = await getLatestEligibilityAssessment(project.id);
-        expect(latest?.discoveryProvider).toBe("MOCK");
+        expect(latest?.discoveryProvider).toBe("HEURISTIC");
 
         const auditEvent = await prisma.auditEvent.findFirst({
           where: { action: "ELIGIBILITY_EVALUATED", projectId: project.id },
         });
-        expect((auditEvent?.metadata as Record<string, unknown>)?.discoveryProvider).toBe("MOCK");
+        expect((auditEvent?.metadata as Record<string, unknown>)?.discoveryProvider).toBe("HEURISTIC");
       } finally {
         await cleanupProject(project.id);
       }

@@ -5,8 +5,6 @@
  *   npx tsx scripts/assess-eligibility.ts <projectId>
  *
  * Env (from .env):
- *   GRANT_DISCOVERY_MOCK_AI=true|false
- *   GRANT_DISCOVERY_AI_ENABLED=true|false
  *   GRANT_DISCOVERY_AI_MODEL=gpt-4o-mini
  *   OPENAI_API_KEY=sk-...
  */
@@ -35,11 +33,7 @@ async function main() {
   }
 
   console.log(`Assessing eligibility for project ${projectId}...`);
-  console.log(
-    `Discovery env: AI_ENABLED=${process.env.GRANT_DISCOVERY_AI_ENABLED ?? 'true'}, ` +
-      `MOCK_AI=${process.env.GRANT_DISCOVERY_MOCK_AI ?? 'false'}, ` +
-      `MODEL=${process.env.GRANT_DISCOVERY_AI_MODEL ?? 'gpt-4o-mini'}`
-  );
+  console.log(`Discovery env: MODEL=${process.env.GRANT_DISCOVERY_AI_MODEL ?? 'gpt-4o-mini'}`);
 
   const startedAt = Date.now();
   const input = assembleEligibilityInput(project);

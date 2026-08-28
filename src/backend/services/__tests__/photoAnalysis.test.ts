@@ -62,8 +62,6 @@ describe("analyzeProjectPhoto", () => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
     process.env.OPENAI_API_KEY = "sk-test";
-    process.env.PHOTO_ANALYSIS_AI_ENABLED = "true";
-    delete process.env.PHOTO_ANALYSIS_MOCK_AI;
   });
 
   afterAll(() => {
@@ -77,35 +75,6 @@ describe("analyzeProjectPhoto", () => {
 
     expect(result.status).toBe("SKIPPED");
     expect(result.modificationCodes).toEqual([]);
-    expect(mockCreate).not.toHaveBeenCalled();
-  });
-
-  it("returns a SKIPPED no-signal result when PHOTO_ANALYSIS_AI_ENABLED=false", async () => {
-    process.env.PHOTO_ANALYSIS_AI_ENABLED = "false";
-
-    const result = await analyzeProjectPhoto("https://example.com/photo.png");
-
-    expect(result.status).toBe("SKIPPED");
-    expect(mockCreate).not.toHaveBeenCalled();
-  });
-
-  it("defaults to SKIPPED (dark ship) when PHOTO_ANALYSIS_AI_ENABLED is unset", async () => {
-    delete process.env.PHOTO_ANALYSIS_AI_ENABLED;
-
-    const result = await analyzeProjectPhoto("https://example.com/photo.png");
-
-    expect(result.status).toBe("SKIPPED");
-    expect(mockCreate).not.toHaveBeenCalled();
-  });
-
-  it("returns hardcoded mock data in mock mode without calling OpenAI", async () => {
-    process.env.PHOTO_ANALYSIS_MOCK_AI = "true";
-
-    const result = await analyzeProjectPhoto("https://example.com/photo.png");
-
-    expect(result.status).toBe("READY");
-    expect(result.model).toBe("mock");
-    expect(result.modificationCodes.length).toBeGreaterThan(0);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
@@ -201,8 +170,6 @@ describe("processPhotoModificationAnalysisJob", () => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
     process.env.OPENAI_API_KEY = "sk-test";
-    process.env.PHOTO_ANALYSIS_AI_ENABLED = "true";
-    delete process.env.PHOTO_ANALYSIS_MOCK_AI;
     mockFindMany.mockResolvedValue([]);
   });
 
@@ -294,23 +261,6 @@ describe("processPhotoModificationAnalysisJob", () => {
         action: "PHOTO_MODIFICATION_ANALYSIS_READY",
         outcome: "SUCCESS",
         metadata: expect.objectContaining({ outputSource: "LIVE", isFallback: false }),
-      })
-    );
-  });
-
-  it("logs outputSource=MOCK (not a fallback) when PHOTO_ANALYSIS_MOCK_AI is enabled", async () => {
-    process.env.PHOTO_ANALYSIS_MOCK_AI = "true";
-    mockPhoto();
-    mockProjectPhotos([{ analysisStatus: "READY", aiModificationCodes: ["GRAB_BARS"], aiConfidence: "MEDIUM" }]);
-
-    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
-
-    expect(mockCreate).not.toHaveBeenCalled();
-    expect(mockLogAuditEventNonBlocking).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "PHOTO_MODIFICATION_ANALYSIS_READY",
-        outcome: "SUCCESS",
-        metadata: expect.objectContaining({ model: "mock", outputSource: "MOCK", isFallback: false }),
       })
     );
   });

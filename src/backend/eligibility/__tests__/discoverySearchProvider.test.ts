@@ -54,8 +54,6 @@ function catalogFetchFallback() {
 
 function saveDiscoveryEnv() {
   return {
-    aiEnabled: process.env.GRANT_DISCOVERY_AI_ENABLED,
-    mockAi: process.env.GRANT_DISCOVERY_MOCK_AI,
     openAiKey: process.env.OPENAI_API_KEY,
     aiModel: process.env.GRANT_DISCOVERY_AI_MODEL,
   };
@@ -63,8 +61,6 @@ function saveDiscoveryEnv() {
 
 function restoreDiscoveryEnv(saved: ReturnType<typeof saveDiscoveryEnv>) {
   const entries: Array<[string, string | undefined]> = [
-    ['GRANT_DISCOVERY_AI_ENABLED', saved.aiEnabled],
-    ['GRANT_DISCOVERY_MOCK_AI', saved.mockAi],
     ['OPENAI_API_KEY', saved.openAiKey],
     ['GRANT_DISCOVERY_AI_MODEL', saved.aiModel],
   ];
@@ -79,8 +75,6 @@ function restoreDiscoveryEnv(saved: ReturnType<typeof saveDiscoveryEnv>) {
 }
 
 function configureLiveAiEnv() {
-  process.env.GRANT_DISCOVERY_AI_ENABLED = 'true';
-  process.env.GRANT_DISCOVERY_MOCK_AI = 'false';
   process.env.OPENAI_API_KEY = 'test-key';
 }
 
@@ -176,101 +170,9 @@ describe('resolveGrantDiscoveryMetadata', () => {
 });
 
 describe('discoverAndEvaluateGrants', () => {
-  it('uses mocked LLM decisions when mock AI mode is enabled', async () => {
-    const originalAiEnabled = process.env.GRANT_DISCOVERY_AI_ENABLED;
-    const originalMockAi = process.env.GRANT_DISCOVERY_MOCK_AI;
-    const originalOpenAiKey = process.env.OPENAI_API_KEY;
-
-    process.env.GRANT_DISCOVERY_AI_ENABLED = 'true';
-    process.env.GRANT_DISCOVERY_MOCK_AI = 'true';
-    process.env.OPENAI_API_KEY = 'test-key';
-
-    try {
-      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-
-        if (url.includes('api.openai.com')) {
-          throw new Error('Mock AI mode should not call OpenAI API');
-        }
-
-        return new Response('<html><head><title>Fallback</title></head><body></body></html>', {
-          status: 404,
-          headers: {
-            'content-type': 'text/html; charset=utf-8',
-          },
-        });
-      });
-
-      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
-
-      const result = await discoverAndEvaluateGrants({
-        project: {
-          projectId: 'project-mock-ai',
-          projectStatus: 'draft',
-          address: '123 Main St',
-        },
-        required: {
-          province: 'ON',
-          ownershipStatus: 'owner',
-          clientConsentConfirmed: true,
-          modificationCodes: ['GRAB_BARS', 'HANDRAILS'],
-        },
-        optional: {
-          name: null,
-          email: null,
-          phone: null,
-          city: null,
-          postalCode: null,
-          ownershipOtherDetails: null,
-          landlordName: null,
-          landlordPhone: null,
-          isCaregiver: false,
-          seniorName: null,
-          relationshipToSenior: null,
-          caregiverConsentConfirmed: null,
-        },
-        missingRequiredFields: [],
-        malformedDraftFields: [],
-      });
-
-      // MOCK, not OPENAI — the hardcoded mock decisions must not be mislabeled as a live call.
-      expect(result.discoveryMetadata.provider).toBe('MOCK');
-      expect(result.discoveryMetadata.returnedCount).toBeGreaterThanOrEqual(3);
-      expect(result.discoveredGrants.map((grant) => grant.grantId)).toEqual(
-        expect.arrayContaining(['mock_hatc_canada', 'mock_on_rrap', 'mock_municipal_toronto'])
-      );
-      expect(result.programDecisions.mock_hatc_canada).toBe(EligibilityDecision.ELIGIBLE);
-      expect(result.programDecisions.mock_on_rrap).toBe(EligibilityDecision.NEEDS_MORE_INFO);
-      expect(result.programDecisions.mock_municipal_toronto).toBe(EligibilityDecision.INELIGIBLE);
-      expect(result.overallDecision).toBe(EligibilityDecision.ELIGIBLE);
-      expect(result.reasonCodes).toContain('GRANTS_DISCOVERED');
-      expect(result.reasonCodes).toContain('AT_LEAST_ONE_GRANT_ELIGIBLE');
-    } finally {
-      if (typeof originalAiEnabled === 'undefined') {
-        delete process.env.GRANT_DISCOVERY_AI_ENABLED;
-      } else {
-        process.env.GRANT_DISCOVERY_AI_ENABLED = originalAiEnabled;
-      }
-
-      if (typeof originalMockAi === 'undefined') {
-        delete process.env.GRANT_DISCOVERY_MOCK_AI;
-      } else {
-        process.env.GRANT_DISCOVERY_MOCK_AI = originalMockAi;
-      }
-
-      if (typeof originalOpenAiKey === 'undefined') {
-        delete process.env.OPENAI_API_KEY;
-      } else {
-        process.env.OPENAI_API_KEY = originalOpenAiKey;
-      }
-    }
-  });
-
   it('fetches the built-in source URLs and ranks matching grants', async () => {
-    const originalAiEnabled = process.env.GRANT_DISCOVERY_AI_ENABLED;
     const originalOpenAiKey = process.env.OPENAI_API_KEY;
 
-    process.env.GRANT_DISCOVERY_AI_ENABLED = 'false';
     delete process.env.OPENAI_API_KEY;
 
     try {
@@ -361,12 +263,6 @@ describe('discoverAndEvaluateGrants', () => {
         )
       ).toBe(true);
     } finally {
-      if (typeof originalAiEnabled === 'undefined') {
-        delete process.env.GRANT_DISCOVERY_AI_ENABLED;
-      } else {
-        process.env.GRANT_DISCOVERY_AI_ENABLED = originalAiEnabled;
-      }
-
       if (typeof originalOpenAiKey === 'undefined') {
         delete process.env.OPENAI_API_KEY;
       } else {
@@ -573,11 +469,9 @@ describe('discoverAndEvaluateGrants', () => {
     }
   });
 
-  it('does not report a failure reason when AI is intentionally disabled', async () => {
-    const originalAiEnabled = process.env.GRANT_DISCOVERY_AI_ENABLED;
+  it('does not report a failure reason when AI is unconfigured (no API key)', async () => {
     const originalOpenAiKey = process.env.OPENAI_API_KEY;
 
-    process.env.GRANT_DISCOVERY_AI_ENABLED = 'false';
     delete process.env.OPENAI_API_KEY;
 
     try {
@@ -590,12 +484,6 @@ describe('discoverAndEvaluateGrants', () => {
       expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
       expect(result.discoveryMetadata.aiFailureReason).toBeNull();
     } finally {
-      if (typeof originalAiEnabled === 'undefined') {
-        delete process.env.GRANT_DISCOVERY_AI_ENABLED;
-      } else {
-        process.env.GRANT_DISCOVERY_AI_ENABLED = originalAiEnabled;
-      }
-
       if (typeof originalOpenAiKey === 'undefined') {
         delete process.env.OPENAI_API_KEY;
       } else {

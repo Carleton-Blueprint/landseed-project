@@ -62,11 +62,11 @@ jest.mock("@/backend/queue", () => {
   };
 });
 
-// The real discovery provider's dev mock mode (GRANT_DISCOVERY_MOCK_AI) always
-// returns the same fixed HIGH/MEDIUM/LOW grant trio regardless of project input,
-// so AI confidence never varies by scenario. Mock discovery here so this test can
-// deterministically exercise both the low-confidence and high-confidence paths
-// through the real classify/enqueue pipeline.
+// The real discovery provider's heuristic/live-AI results vary with catalog
+// content and project input, so AI confidence isn't deterministic run to run.
+// Mock discovery here so this test can deterministically exercise both the
+// low-confidence and high-confidence paths through the real classify/enqueue
+// pipeline.
 jest.mock("@/backend/eligibility/discoverySearchProvider", () => {
   const actual = jest.requireActual("@/backend/eligibility/discoverySearchProvider");
   return {
