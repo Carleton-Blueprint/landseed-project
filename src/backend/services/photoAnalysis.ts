@@ -7,9 +7,9 @@
  * taxonomy used elsewhere in the system (intake checklist, estimation, image
  * generation).
  *
- * On any failure (missing API key, disabled flag, network error, timeout,
- * malformed response) this returns a non-throwing "no signal" result rather
- * than throwing, so callers never need special-case error handling to stay
+ * On any failure (missing API key, network error, timeout, malformed
+ * response) this returns a non-throwing "no signal" result rather than
+ * throwing, so callers never need special-case error handling to stay
  * safe — the absence of a signal is itself a valid, expected outcome.
  */
 import { getOpenAIClient } from "lib/openai";
@@ -181,22 +181,6 @@ function normalizeParsedResponse(
 }
 
 // ---------------------------------------------------------------------------
-// Mock mode
-// ---------------------------------------------------------------------------
-
-function mockAnalysisResult(): PhotoAnalysisResult {
-  debug("MOCK", "MOCK MODE — returning hardcoded analysis instead of calling OpenAI");
-  return {
-    status: "READY",
-    modificationCodes: [MODIFICATION_CODES.GRAB_BARS],
-    confidence: "MEDIUM",
-    rationale: "Mock: bathroom fixtures visible consistent with a grab-bar installation need.",
-    model: "mock",
-    error: null,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -212,19 +196,6 @@ export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalys
   if (!apiKey) {
     debug("MAIN", "OPENAI_API_KEY not set — skipping analysis");
     return noSignalResult("SKIPPED", "OPENAI_API_KEY not set");
-  }
-
-  // Defaults OFF (opt-in), unlike grant discovery's default-on AI flag: this feature
-  // auto-writes ProjectManualReviewFlag rows, a staff-visible workflow side effect,
-  // so it ships dark per-environment until product signs off on the rollout.
-  const enabled = (process.env.PHOTO_ANALYSIS_AI_ENABLED ?? "false").toLowerCase();
-  if (enabled !== "true") {
-    debug("MAIN", "PHOTO_ANALYSIS_AI_ENABLED is not \"true\" — skipping analysis");
-    return noSignalResult("SKIPPED", "PHOTO_ANALYSIS_AI_ENABLED is not enabled");
-  }
-
-  if ((process.env.PHOTO_ANALYSIS_MOCK_AI ?? "false").toLowerCase() === "true") {
-    return mockAnalysisResult();
   }
 
   try {
@@ -432,8 +403,7 @@ export async function processPhotoModificationAnalysisJob(
     },
   });
 
-  const outputSource: AiOutputSource =
-    result.status !== "READY" ? "NONE" : result.model === "mock" ? "MOCK" : "LIVE";
+  const outputSource: AiOutputSource = result.status !== "READY" ? "NONE" : "LIVE";
 
   await logAuditEventNonBlocking({
     category: "AI_GENERATION",
