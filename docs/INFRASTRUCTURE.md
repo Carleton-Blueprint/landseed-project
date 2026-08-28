@@ -320,9 +320,19 @@ proceed with the fallback in each item and revisit once LandSeed responds.
 
 Different responsible party than the LandSeed items above — this is blocked
 on someone with Owner role on the `Carleton-Blueprint` GitHub org, not on
-LandSeed. Also not blocking today's deployment; both items are quick once
-someone with access is available, so handle them together in one sitting
-rather than one at a time.
+LandSeed. Both items are quick once someone with access is available, so
+handle them together in one sitting rather than one at a time.
+
+**Update, 2026-08-28 (ticket 3, PR #130):** the auto-deploy-on-push question
+below is no longer unconfirmed — confirmed live. Pushing PR #130's branch
+produced a real Vercel "Preview" deployment via the GitHub PR checks, so the
+CLI-based connection (`vercel git connect`) does enable full
+auto-deploy-on-push, not just repo metadata. That means the Production
+Branch flip is no longer a hypothetical precaution — it is currently live
+and Production Branch is still `main`, so **merging any PR to `main` right
+now deploys straight to production with no staging gate**. PR #130 is being
+merged with this understood; flip the Production Branch setting as soon as
+an org owner is available, ideally before the next merge after that.
 
 - **Grant Vercel's GitHub App repository access.** The dashboard's "Import
   Git Repository" flow fails with "This action must be performed by an
@@ -331,16 +341,17 @@ rather than one at a time.
   Owner role does this, have them pick **"Only select repositories"** and
   choose just `landseed-project`, not "All repositories." Worked around for
   now via `vercel link`/`vercel git connect` (CLI), which connected the repo
-  through a different path that didn't hit this gate — but it's unconfirmed
-  whether that enables full auto-deploy-on-push or just repo metadata.
+  through a different path that didn't hit this gate — and (per the update
+  above) that path does enable full auto-deploy-on-push, confirmed via
+  PR #130.
 - **Flip Vercel's Production Branch from `main` to `production`.** A
   `production` branch already exists (created off `origin/main`, pushed to
   origin) so this is ready to go — the dashboard setting itself
   (Project Settings → Git → Production Branch) is gated behind the same
-  GitHub-owner access as the item above, so do both at once. Without this,
-  once full GitHub integration is active, every push to `main` would
-  auto-deploy straight to production with no staging gate in between —
-  do this *before* relying on auto-deploy-on-push for anything.
+  GitHub-owner access as the item above, so do both at once. This is no
+  longer a "before relying on auto-deploy-on-push" precaution — auto-deploy
+  is confirmed active now, so every push to `main` deploys to production
+  until this flips. Highest-priority item in this section as of 2026-08-28.
 
 ### Deferred to handoff
 
