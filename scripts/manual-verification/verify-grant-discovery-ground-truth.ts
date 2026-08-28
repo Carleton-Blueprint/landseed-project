@@ -19,9 +19,7 @@
  * can process: GRAB_BARS, RAISED_TOILET, WALK_IN_SHOWER, WIDENED_DOORWAY,
  * STAIR_LIFT, HANDRAILS, RAMP, WHEELCHAIR_RAMP, WALK_IN_TUB, NON_SLIP_FLOORING.
  *
- * Requires: OPENAI_API_KEY set to a live key in .env. Forces
- * GRANT_DISCOVERY_MOCK_AI=false and GRANT_DISCOVERY_AI_ENABLED=true for
- * the duration of the run only (does not touch .env).
+ * Requires: OPENAI_API_KEY set to a live key in .env.
  *
  * Usage: npx tsx scripts/manual-verification/verify-grant-discovery-ground-truth.ts
  */
@@ -180,9 +178,6 @@ interface RunOutcome {
 }
 
 async function main() {
-  process.env.GRANT_DISCOVERY_AI_ENABLED = "true";
-  process.env.GRANT_DISCOVERY_MOCK_AI = "false";
-
   const outcomes: RunOutcome[] = [];
 
   for (const modificationCode of MODIFICATION_TYPES) {

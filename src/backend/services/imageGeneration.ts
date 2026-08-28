@@ -3,8 +3,10 @@
  *
  * generateAccessibilityVisual() is the live path: it sends the client's original
  * photo plus the identified modification types to OpenAI's gpt-image-1 edit
- * endpoint and stores the result in S3. generateMockAccessibilityVisual() remains
- * as the fallback used when LIVE_IMAGE_GENERATION_ENABLED is not "true".
+ * endpoint and stores the result in S3. generateMockAccessibilityVisual() is not
+ * a flag-gated alternative — it's the placeholder used only once BullMQ retries
+ * on the live call are exhausted (see applyAccessibilityVisualMockFallback() and
+ * its caller in aiJobsWorker.ts).
  */
 import { randomUUID } from "node:crypto";
 import { toFile } from "openai";
