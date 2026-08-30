@@ -807,26 +807,19 @@ export async function generateManualOutputPackage(
 
   let builderTrendExportRequestId: string | null = null;
   try {
-    // Only generate the export package immediately if the project is
-    // already APPROVED by the time staff generate the output package. If
-    // approval comes later, projectStatusLifecycle.ts's
-    // transitionProjectStatus generates it at that point instead. Reads
-    // status fresh here rather than reusing the `project` fetched at
-    // function entry: real async work (markEstimateReadyForReview,
-    // generateAndStoreGrantDocument) already ran in between, so that
-    // snapshot could be stale by the time we get here.
-    const currentProject = await prisma.project.findUnique({
-      where: { id: project.id },
-      select: { status: true },
+    // Unlike the normal client-facing flow, manual mode has no separate
+    // admin approval step to gate on: a manual-mode project's status never
+    // reaches ESTIMATE_ACCEPTED (see markEstimateReadyForReview, which sets
+    // ESTIMATE_READY instead), so it can never reach APPROVED through
+    // projectStatusLifecycle.ts's transitionProjectStatus either. Staff
+    // generating the output package IS the formal, staff-recorded
+    // acceptance/approval for manual mode (see the quote-creation comment
+    // above), so the export package is requested unconditionally here.
+    const exportRequest = await requestManualFallbackExport({
+      projectId: project.id,
+      requestedByUserId: input.actorUserId,
     });
-
-    if (currentProject?.status === "APPROVED") {
-      const exportRequest = await requestManualFallbackExport({
-        projectId: project.id,
-        requestedByUserId: input.actorUserId,
-      });
-      builderTrendExportRequestId = exportRequest.exportRequestId;
-    }
+    builderTrendExportRequestId = exportRequest.exportRequestId;
   } catch (error) {
     console.warn("Manual mode: BuilderTrend export package request failed", error);
   }
