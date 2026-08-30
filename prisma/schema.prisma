@@ -39,7 +39,6 @@ model User {
   grantSignatures               GrantSignature[]         @relation("GrantSignatureSigner")
   manualModeSubmissions         ManualModeSubmission[]
   createdManualQuotes           Quote[]
-  builderTrendManualSyncs       BuilderTrendTransfer[]
   alertThresholdUpdates         AlertThresholdConfig[]
   quoteOverrides                QuoteOverride[]
 }
@@ -59,8 +58,6 @@ model Project {
   photos                           Photo[]
   documents                        Document[]
   quotes                           Quote[]
-  builderTrendTransfers            BuilderTrendTransfer[]
-  builderTrendStatusCallbackEvents BuilderTrendStatusCallbackEvent[]
   manualModeSubmission             ManualModeSubmission?
   manualFallbackExports            ManualFallbackExport[]
   eligibilityAssessments           EligibilityAssessment[]
@@ -280,7 +277,6 @@ model Quote {
   createdByUserId         String?
   manualModeSubmissionId  String?
   auditEvents             AuditEvent[]
-  builderTrendTransfers   BuilderTrendTransfer?
   declineSurvey           DeclineSurveyResponse?
   estimateDocuments       EstimateDocument[]
   eligibilityAssessment   EligibilityAssessment? @relation(fields: [eligibilityAssessmentId], references: [id])
@@ -337,55 +333,6 @@ model DeclineSurveyResponse {
 
   @@index([primaryReason])
   @@index([createdAt])
-}
-
-model BuilderTrendTransfer {
-  id                     String                            @id @default(cuid())
-  projectId              String
-  quoteId                String                            @unique
-  status                 BuilderTrendTransferStatus        @default(PENDING)
-  payload                Json?
-  attempts               Int                               @default(0)
-  externalReference      String?
-  lastError              String?
-  requestedAt            DateTime                          @default(now())
-  sentAt                 DateTime?
-  fallbackRequestedAt    DateTime?
-  workOrderUrl           String?
-  externalStatus         String?
-  lastStatusCallbackAt   DateTime?
-  lastManualSyncAt       DateTime?
-  lastManualSyncByUserId String?
-  createdAt              DateTime                          @default(now())
-  updatedAt              DateTime                          @updatedAt
-  project                Project                           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  quote                  Quote                             @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  lastManualSyncByUser   User?                             @relation(fields: [lastManualSyncByUserId], references: [id])
-  statusCallbackEvents   BuilderTrendStatusCallbackEvent[]
-
-  @@index([projectId])
-  @@index([status])
-}
-
-model BuilderTrendStatusCallbackEvent {
-  id                     String                @id @default(cuid())
-  projectId              String
-  builderTrendTransferId String?
-  externalReference      String?
-  previousStatus         String?
-  newStatus              String
-  previousProjectStatus  String?
-  newProjectStatus       String?
-  rawPayload             Json
-  validationError        String?               @db.Text
-  receivedAt             DateTime              @default(now())
-  processedAt            DateTime?
-  project                Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  builderTrendTransfer   BuilderTrendTransfer? @relation(fields: [builderTrendTransferId], references: [id])
-
-  @@index([projectId, receivedAt(sort: Desc)])
-  @@index([builderTrendTransferId])
-  @@index([externalReference])
 }
 
 model QuoteQuestion {
@@ -468,7 +415,7 @@ model SecurityEvent {
 }
 
 // Admin-editable thresholds for the critical-failure alert checks (AI job,
-// BuilderTrend transfer, email delivery, file scan). Keyed by a fixed set of
+// email delivery, file scan). Keyed by a fixed set of
 // scope strings the alert-checking code looks up by; rows are seeded with
 // defaults and edited via /api/admin/alert-thresholds, so ops can retune
 // alert sensitivity without a code deploy.
@@ -809,13 +756,6 @@ enum ProjectAccessRole {
 enum SystemRole {
   USER
   ADMIN
-}
-
-enum BuilderTrendTransferStatus {
-  PENDING
-  RETRYING
-  SENT
-  FAILED
 }
 
 enum ManualModeSubmissionStatus {

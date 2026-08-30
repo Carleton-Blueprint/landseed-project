@@ -159,7 +159,7 @@ export async function generateAndStoreEstimateDocument(
  * Returns the quote's latest READY estimate document, generating one on
  * demand if none exists yet (e.g. a quote gets accepted and approved before
  * any async job has generated its estimate document). Returns null only if
- * generation itself fails — callers (e.g. the BuilderTrend attachment flow)
+ * generation itself fails — callers (e.g. the manual fallback export flow)
  * should treat that as "no attachment available" rather than fail the
  * caller's own action.
  */

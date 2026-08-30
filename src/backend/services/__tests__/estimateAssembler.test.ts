@@ -40,7 +40,27 @@ const { prisma } = require("lib/prisma") as {
   };
 };
 
-const { assembleEstimateInput } = require("../estimateAssembler") as {
+const { assembleEstimateInput, resolvePricingBreakdown } = require("../estimateAssembler") as {
+  resolvePricingBreakdown: (input: {
+    quote: {
+      subtotal: number;
+      total: number;
+      estimateMin: number | null;
+      estimateMax: number | null;
+    };
+    refinedEstimate: unknown;
+    quoteIsTiered: boolean;
+    acceptedTier: "economy" | "standard" | "premium" | null;
+  }) => {
+    selectedTier: string | null;
+    lineItems: unknown[];
+    subtotal: number;
+    laborTotal: number;
+    markupTotal: number;
+    total: number;
+    estimateMin: number;
+    estimateMax: number;
+  };
   assembleEstimateInput: (quoteId: string) => Promise<{
     projectId: string;
     quoteId: string;
@@ -88,6 +108,86 @@ const NON_TIERED_REFINED_ESTIMATE = {
   estimateMin: 332.5,
   estimateMax: 367.5,
 };
+
+function buildEstimateForTier(total: number) {
+  return {
+    lineItems: [
+      {
+        description: "Walk-in shower",
+        quantity: 1,
+        pricingQuery: "Walk-in shower",
+        pricingSource: "Home Depot",
+        pricingLink: null,
+        materialUnitCost: total * 0.5,
+        materialTotal: total * 0.5,
+        laborHours: 4,
+        laborRate: total * 0.1,
+        laborTotal: total * 0.2,
+        markupPercentage: 0.15,
+        markupTotal: total * 0.15,
+        lineTotal: total,
+      },
+    ],
+    modificationTotals: [],
+    subtotal: total * 0.7,
+    laborTotal: total * 0.2,
+    markupTotal: total * 0.15,
+    total,
+    estimateMin: total * 0.95,
+    estimateMax: total * 1.05,
+  };
+}
+
+const RESOLVE_PRICING_BASE_QUOTE_ROW = { subtotal: 1300, total: 1300, estimateMin: 1235, estimateMax: 1365 };
+
+describe("resolvePricingBreakdown", () => {
+  it("uses the accepted tier's own totals, not the Quote row's stored totals", () => {
+    const tiered = {
+      tiers: {
+        economy: buildEstimateForTier(1000),
+        standard: buildEstimateForTier(1300),
+        premium: buildEstimateForTier(1700),
+      },
+    };
+
+    const breakdown = resolvePricingBreakdown({
+      quote: RESOLVE_PRICING_BASE_QUOTE_ROW,
+      refinedEstimate: tiered,
+      quoteIsTiered: true,
+      acceptedTier: "premium",
+    });
+
+    expect(breakdown.total).toBe(1700);
+    expect(breakdown.lineItems).toHaveLength(1);
+    expect(breakdown.selectedTier).toBe("premium");
+  });
+
+  it("uses the flat refinedEstimate when the quote isn't tiered", () => {
+    const breakdown = resolvePricingBreakdown({
+      quote: RESOLVE_PRICING_BASE_QUOTE_ROW,
+      refinedEstimate: buildEstimateForTier(500),
+      quoteIsTiered: false,
+      acceptedTier: null,
+    });
+
+    expect(breakdown.total).toBe(500);
+    expect(breakdown.lineItems).toHaveLength(1);
+    expect(breakdown.selectedTier).toBeNull();
+  });
+
+  it("falls back to the Quote row's totals with empty lineItems when no refinedEstimate breakdown exists", () => {
+    const breakdown = resolvePricingBreakdown({
+      quote: RESOLVE_PRICING_BASE_QUOTE_ROW,
+      refinedEstimate: null,
+      quoteIsTiered: false,
+      acceptedTier: null,
+    });
+
+    expect(breakdown.total).toBe(1300);
+    expect(breakdown.subtotal).toBe(1300);
+    expect(breakdown.lineItems).toEqual([]);
+  });
+});
 
 describe("assembleEstimateInput", () => {
   beforeEach(() => {

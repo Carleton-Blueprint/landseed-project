@@ -43,7 +43,6 @@ describe("getAllAlertThresholds", () => {
       .mockResolvedValueOnce([{ key: ALERT_THRESHOLD_KEYS.AI_JOB_FAILURE }]) // existing-keys probe
       .mockResolvedValueOnce([
         { key: ALERT_THRESHOLD_KEYS.AI_JOB_FAILURE, thresholdCount: 5, windowMinutes: 15, enabled: true },
-        { key: ALERT_THRESHOLD_KEYS.BUILDERTREND_TRANSFER_FAILURE, thresholdCount: 3, windowMinutes: 15, enabled: true },
         { key: ALERT_THRESHOLD_KEYS.EMAIL_DELIVERY_FAILURE, thresholdCount: 5, windowMinutes: 15, enabled: true },
         { key: ALERT_THRESHOLD_KEYS.FILE_SCAN_FAILURE, thresholdCount: 5, windowMinutes: 15, enabled: true },
         { key: ALERT_THRESHOLD_KEYS.PRICING_TIER_FALLBACK, thresholdCount: 5, windowMinutes: 15, enabled: true },
@@ -53,8 +52,8 @@ describe("getAllAlertThresholds", () => {
 
     const rows = await getAllAlertThresholds();
 
-    expect(mockUpsert).toHaveBeenCalledTimes(5); // the 5 defaults missing beyond AI_JOB_FAILURE
-    expect(rows).toHaveLength(6);
+    expect(mockUpsert).toHaveBeenCalledTimes(4); // the 4 defaults missing beyond AI_JOB_FAILURE
+    expect(rows).toHaveLength(5);
   });
 
   it("skips seeding once all keys already exist", async () => {

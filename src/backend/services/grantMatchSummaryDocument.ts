@@ -158,8 +158,8 @@ export async function generateAndStoreGrantMatchSummaryDocument(
  * Returns the project's latest READY grant match summary, generating one
  * on demand if none exists yet (e.g. a grant application gets APPROVED
  * before the async post-assessment generation job has run). Returns null
- * only if generation itself fails — callers (e.g. the BuilderTrend
- * attachment flow) should treat that as "no attachment available" rather
+ * only if generation itself fails — callers (e.g. the manual fallback
+ * export flow) should treat that as "no attachment available" rather
  * than fail the caller's own action.
  */
 export async function getOrGenerateReadyGrantMatchSummary(

@@ -64,7 +64,6 @@ const mockProjectWithQuote: SerializedProject = {
     assessedAt: new Date("2026-08-01T11:00:00Z").toISOString(),
     isOverridden: false,
   },
-  builderTrendTransfer: null,
   manualFallbackExport: null,
   photos: [
     {

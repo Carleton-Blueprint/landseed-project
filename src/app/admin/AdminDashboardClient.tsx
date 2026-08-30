@@ -90,17 +90,6 @@ export interface SerializedProject {
     assessedAt: string;
     isOverridden?: boolean;
   } | null;
-  builderTrendTransfer: {
-    id: string;
-    status: string;
-    attempts: number;
-    lastError: string | null;
-    sentAt: string | null;
-    workOrderUrl: string | null;
-    externalStatus: string | null;
-    lastStatusCallbackAt: string | null;
-    lastManualSyncAt: string | null;
-  } | null;
   manualFallbackExport: {
     id: string;
     status: string;
@@ -228,13 +217,6 @@ const QUOTE_STATUS_STYLES: Record<string, { label: string; color: string }> = {
   ACCEPTED: { label: "Accepted", color: "text-emerald-700" },
   DECLINED: { label: "Declined", color: "text-red-600" },
   EXPIRED: { label: "Expired", color: "text-orange-700" },
-};
-
-const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
-  PENDING: { label: "Pending", dot: "bg-amber-500" },
-  RETRYING: { label: "Retrying", dot: "bg-orange-500" },
-  SENT: { label: "Sent", dot: "bg-emerald-500" },
-  FAILED: { label: "Failed", dot: "bg-red-500" },
 };
 
 const EXPORT_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
@@ -385,12 +367,7 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
   const router = useRouter();
   const eligibility = project.eligibility;
   const quote = project.quote;
-  const transfer = project.builderTrendTransfer;
   const exportPackage = project.manualFallbackExport;
-  const [syncing, setSyncing] = React.useState(false);
-  const [syncMessage, setSyncMessage] = React.useState<string | null>(null);
-  const [retrying, setRetrying] = React.useState(false);
-  const [retryMessage, setRetryMessage] = React.useState<string | null>(null);
   const [generatingExport, setGeneratingExport] = React.useState(false);
   const [generateExportMessage, setGenerateExportMessage] = React.useState<string | null>(null);
 
@@ -458,26 +435,6 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
     }
   }
 
-  async function handleMarkSynced() {
-    setSyncing(true);
-    setSyncMessage(null);
-    try {
-      const response = await fetch(`/api/admin/projects/${project.id}/buildertrend-transfer/manual-sync`, {
-        method: "POST",
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body?.error ?? "Failed to record manual sync");
-      }
-      setSyncMessage("Synced.");
-      router.refresh();
-    } catch (error) {
-      setSyncMessage(error instanceof Error ? error.message : "Failed to record manual sync");
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   async function handleGenerateExport() {
     setGeneratingExport(true);
     setGenerateExportMessage(null);
@@ -495,27 +452,6 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
       setGenerateExportMessage(error instanceof Error ? error.message : "Failed to generate export package");
     } finally {
       setGeneratingExport(false);
-    }
-  }
-
-  async function handleRetryTransfer() {
-    if (!transfer) return;
-    setRetrying(true);
-    setRetryMessage(null);
-    try {
-      const response = await fetch(`/api/buildertrend-transfer/${transfer.id}/retry`, {
-        method: "POST",
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body?.error ?? "Failed to retry transfer");
-      }
-      setRetryMessage("Retry queued.");
-      router.refresh();
-    } catch (error) {
-      setRetryMessage(error instanceof Error ? error.message : "Failed to retry transfer");
-    } finally {
-      setRetrying(false);
     }
   }
 
@@ -845,7 +781,7 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
           )}
         </div>
 
-        {/* ── BuilderTrend Transfer + Documents ── */}
+        {/* ── Status + Documents ── */}
         <div className="rounded-lg border bg-white p-4 shadow-sm space-y-3">
           <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
             <svg className="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -860,71 +796,6 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
             currentStatus={project.status}
             history={project.statusHistory}
           />
-
-          {/* BuilderTrend */}
-          {transfer ? (
-            <div className="rounded-md bg-gray-50 p-2.5 space-y-1">
-              <div className="flex items-center gap-2 text-xs">
-                <span className={`h-2 w-2 rounded-full ${TRANSFER_STATUS_STYLES[transfer.status]?.dot ?? "bg-gray-400"}`} />
-                <span className="font-medium text-gray-800">
-                  BuilderTrend: {TRANSFER_STATUS_STYLES[transfer.status]?.label ?? transfer.status}
-                </span>
-                <span className="text-gray-400">({transfer.attempts} attempt{transfer.attempts === 1 ? "" : "s"})</span>
-              </div>
-              {transfer.lastError && (
-                <p className="text-[10px] text-red-500 truncate" title={transfer.lastError}>
-                  Error: {transfer.lastError}
-                </p>
-              )}
-              {transfer.sentAt && (
-                <p className="text-[10px] text-gray-400">Sent: {fmtDate(transfer.sentAt)}</p>
-              )}
-              {transfer.lastStatusCallbackAt ? (
-                <p className="text-[10px] text-gray-500">
-                  Work order status: <strong>{transfer.externalStatus ?? "unknown"}</strong> (updated {fmtDate(transfer.lastStatusCallbackAt)})
-                </p>
-              ) : (
-                <p className="text-[10px] text-gray-500 italic">
-                  No live status callbacks received yet.
-                  {transfer.lastManualSyncAt && ` Last manually synced: ${fmtDate(transfer.lastManualSyncAt)}.`}
-                </p>
-              )}
-              <div className="flex items-center gap-2 pt-1">
-                {transfer.workOrderUrl && (
-                  <a
-                    href={transfer.workOrderUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[10px] font-medium text-blue-600 hover:underline"
-                  >
-                    View work order
-                  </a>
-                )}
-                <button
-                  type="button"
-                  onClick={handleMarkSynced}
-                  disabled={syncing}
-                  className="text-[10px] font-medium text-gray-600 hover:underline disabled:opacity-50"
-                >
-                  {syncing ? "Syncing..." : "Mark Manually Synced"}
-                </button>
-                {syncMessage && <span className="text-[10px] text-gray-400">{syncMessage}</span>}
-                {transfer.status === "FAILED" && (
-                  <button
-                    type="button"
-                    onClick={handleRetryTransfer}
-                    disabled={retrying}
-                    className="text-[10px] font-medium text-blue-600 hover:underline disabled:opacity-50"
-                  >
-                    {retrying ? "Retrying..." : "Retry Transfer"}
-                  </button>
-                )}
-                {retryMessage && <span className="text-[10px] text-gray-400">{retryMessage}</span>}
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-gray-500 italic">No BuilderTrend transfer initiated.</p>
-          )}
 
           {/* BuilderTrend Export Package (downloadable, admin pushes to BuilderTrend manually) */}
           <div className="rounded-md bg-gray-50 p-2.5 space-y-1">

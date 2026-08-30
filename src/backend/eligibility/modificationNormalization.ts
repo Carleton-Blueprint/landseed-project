@@ -178,9 +178,9 @@ export function validatePhotoModifications(
 /**
  * Unions and dedupes each photo's already-validated declaredModificationCodes
  * into a single, canonically-ordered list — the project-level "list of
- * modification items" consumed by cost estimation, eligibility, grant PDF
- * generation, and the BuilderTrend payload, now that per-photo tagging is
- * the source of truth instead of a separate project-level field.
+ * modification items" consumed by cost estimation, eligibility, and grant
+ * PDF generation, now that per-photo tagging is the source of truth instead
+ * of a separate project-level field.
  */
 export function aggregateDeclaredModificationCodes(
   photos: ModificationCodeSource[]
