@@ -13,6 +13,7 @@
 
 import 'dotenv/config';
 import { createManualReviewWorker } from '@/backend/queue';
+import { registerShutdownHandler } from '@/backend/queue/shutdownRegistry';
 import { prisma } from 'lib/prisma';
 import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { ProjectManualReviewReasonCode } from '@prisma/client';
@@ -278,17 +279,8 @@ async function createAuditEvent({
   });
 }
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('[ManualReview] SIGTERM received, closing worker...');
+registerShutdownHandler('manual-review', async () => {
   await worker.close();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('[ManualReview] SIGINT received, closing worker...');
-  await worker.close();
-  process.exit(0);
 });
 
 console.log('[ManualReview] Worker started and listening on queue: manual-review');

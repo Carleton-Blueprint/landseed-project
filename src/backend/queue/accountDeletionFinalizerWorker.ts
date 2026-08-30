@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 import { prisma } from "lib/prisma";
 import { finalizeAccountDeletionRequest } from "@/backend/services/accountDeletionRetention";
 import { AccountDeletionRequestStatus } from "@prisma/client";
@@ -43,12 +44,9 @@ console.log("Account deletion finalizer started", { scanIntervalMs: SCAN_INTERVA
 void runFinalizer();
 scanTimer = setInterval(() => void runFinalizer(), SCAN_INTERVAL_MS);
 
-process.on("SIGTERM", () => {
-  if (scanTimer) clearInterval(scanTimer);
-  process.exit(0);
-});
-
-process.on("SIGINT", () => {
-  if (scanTimer) clearInterval(scanTimer);
-  process.exit(0);
+registerShutdownHandler("account-deletion-finalizer", () => {
+  if (scanTimer) {
+    clearInterval(scanTimer);
+    scanTimer = null;
+  }
 });

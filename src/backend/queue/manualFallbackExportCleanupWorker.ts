@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { cleanupExpiredManualFallbackExports } from "@/backend/services/manualFallbackExport";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 
 const SCAN_INTERVAL_MS = Number(process.env.MANUAL_FALLBACK_EXPORT_CLEANUP_INTERVAL_MS ?? 15 * 60 * 1000);
 
@@ -39,13 +40,9 @@ cleanupTimer = setInterval(() => {
   void runCleanup();
 }, SCAN_INTERVAL_MS);
 
-async function shutdown() {
+registerShutdownHandler("manual-fallback-export-cleanup", () => {
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
     cleanupTimer = null;
   }
-  process.exit(0);
-}
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+});
