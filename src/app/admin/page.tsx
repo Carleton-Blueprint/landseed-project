@@ -326,6 +326,7 @@ export default async function AdminDashboardPage() {
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
         },
         builderTrendTransfer: null,
+        manualFallbackExport: null,
         submissionData: {
           name: "Margaret Higgins",
           email: "margaret.h@example.com",
@@ -414,6 +415,7 @@ export default async function AdminDashboardPage() {
           lastStatusCallbackAt: null,
           lastManualSyncAt: null,
         },
+        manualFallbackExport: null,
         submissionData: {
           name: "Arthur Pendelton",
           email: "arthur.p@example.com",
@@ -473,6 +475,7 @@ export default async function AdminDashboardPage() {
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         },
         builderTrendTransfer: null,
+        manualFallbackExport: null,
         submissionData: {
           name: "Elizabeth Vance",
           email: "elizabeth.v@example.com",
@@ -550,6 +553,7 @@ export default async function AdminDashboardPage() {
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
         },
         builderTrendTransfer: null,
+        manualFallbackExport: null,
         submissionData: {
           name: "Robert Chen",
           email: "robert.c@example.com",
@@ -643,6 +647,7 @@ export default async function AdminDashboardPage() {
           lastStatusCallbackAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
           lastManualSyncAt: null,
         },
+        manualFallbackExport: null,
         submissionData: {
           name: "Sarah Jenkins",
           email: "sarah.j@example.com",

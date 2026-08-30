@@ -1,7 +1,8 @@
 /**
  * API Route: /api/admin/projects/[projectId]/manual-mode/generate-package
  * POST: Generate the complete output package (quote, grant document,
- * BuilderTrend work order) from a project's manual mode submission.
+ * downloadable BuilderTrend export package) from a project's manual mode
+ * submission.
  * Auth: NextAuth (admin/advisory only)
  */
 

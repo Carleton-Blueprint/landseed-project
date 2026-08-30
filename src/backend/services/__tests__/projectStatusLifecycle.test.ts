@@ -4,15 +4,15 @@ import {
   isValidProjectStatus,
   transitionProjectStatus,
 } from "../projectStatusLifecycle";
-import {
-  attachGrantMatchSummaryToBuilderTrendTransfer,
-  triggerBuilderTrendTransferForApprovedProject,
-} from "@/backend/integrations/buildertrend";
+import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 import { prisma } from "lib/prisma";
 
-jest.mock("@/backend/integrations/buildertrend", () => ({
-  attachGrantMatchSummaryToBuilderTrendTransfer: jest.fn(),
-  triggerBuilderTrendTransferForApprovedProject: jest.fn(),
+jest.mock("@/backend/services/manualFallbackExport", () => ({
+  requestManualFallbackExport: jest.fn(),
+}));
+
+jest.mock("@/backend/audit/log", () => ({
+  logAuditEventNonBlocking: jest.fn(),
 }));
 
 jest.mock("lib/prisma", () => ({
@@ -25,8 +25,7 @@ jest.mock("lib/prisma", () => ({
 }));
 
 describe("projectStatusLifecycle", () => {
-  const mockedAttachGrantMatchSummary = attachGrantMatchSummaryToBuilderTrendTransfer as jest.Mock;
-  const mockedTriggerBuilderTrendTransfer = triggerBuilderTrendTransferForApprovedProject as jest.Mock;
+  const mockedRequestManualFallbackExport = requestManualFallbackExport as jest.Mock;
   const mockedPrisma = prisma as unknown as {
     project: {
       findUnique: jest.Mock;
@@ -36,8 +35,7 @@ describe("projectStatusLifecycle", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockedAttachGrantMatchSummary.mockResolvedValue({ attached: false, transferId: null });
-    mockedTriggerBuilderTrendTransfer.mockResolvedValue({ triggered: false, transferId: null });
+    mockedRequestManualFallbackExport.mockResolvedValue({ exportRequestId: "export-1" });
   });
 
   it("validates known status values", () => {
@@ -151,11 +149,10 @@ describe("projectStatusLifecycle", () => {
       changedByUserId: "admin-1",
       historyId: "history-1",
     });
-    expect(mockedAttachGrantMatchSummary).not.toHaveBeenCalled();
-    expect(mockedTriggerBuilderTrendTransfer).not.toHaveBeenCalled();
+    expect(mockedRequestManualFallbackExport).not.toHaveBeenCalled();
   });
 
-  it("attaches the grant match summary to BuilderTrend when transitioning to APPROVED", async () => {
+  it("requests the BuilderTrend export package when transitioning to APPROVED", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
       status: ProjectStatus.ESTIMATE_ACCEPTED,
@@ -179,42 +176,18 @@ describe("projectStatusLifecycle", () => {
       isAdmin: true,
     });
 
-    expect(mockedAttachGrantMatchSummary).toHaveBeenCalledWith("proj-1", "admin-1");
-  });
-
-  it("triggers (enqueues) the BuilderTrend transfer when transitioning to APPROVED", async () => {
-    mockedPrisma.project.findUnique.mockResolvedValue({
-      id: "proj-1",
-      status: ProjectStatus.ESTIMATE_ACCEPTED,
-    });
-
-    const changedAt = new Date("2026-04-13T12:00:00.000Z");
-    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
-      const tx = {
-        project: { update: jest.fn().mockResolvedValue({}) },
-        projectStatusHistory: {
-          create: jest.fn().mockResolvedValue({ id: "history-2b", changedAt }),
-        },
-      };
-      return callback(tx);
-    });
-
-    await transitionProjectStatus({
+    expect(mockedRequestManualFallbackExport).toHaveBeenCalledWith({
       projectId: "proj-1",
-      actorUserId: "admin-1",
-      toStatus: ProjectStatus.APPROVED,
-      isAdmin: true,
+      requestedByUserId: "admin-1",
     });
-
-    expect(mockedTriggerBuilderTrendTransfer).toHaveBeenCalledWith("proj-1", "admin-1");
   });
 
-  it("does not fail the approval when the BuilderTrend attachment call rejects", async () => {
+  it("does not fail the approval when the export request rejects", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-1",
       status: ProjectStatus.ESTIMATE_ACCEPTED,
     });
-    mockedAttachGrantMatchSummary.mockRejectedValue(new Error("BuilderTrend transfer lookup failed"));
+    mockedRequestManualFallbackExport.mockRejectedValue(new Error("Export request failed"));
 
     const changedAt = new Date("2026-04-13T12:00:00.000Z");
     mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
@@ -222,34 +195,6 @@ describe("projectStatusLifecycle", () => {
         project: { update: jest.fn().mockResolvedValue({}) },
         projectStatusHistory: {
           create: jest.fn().mockResolvedValue({ id: "history-3", changedAt }),
-        },
-      };
-      return callback(tx);
-    });
-
-    await expect(
-      transitionProjectStatus({
-        projectId: "proj-1",
-        actorUserId: "admin-1",
-        toStatus: ProjectStatus.APPROVED,
-        isAdmin: true,
-      })
-    ).resolves.toMatchObject({ toStatus: ProjectStatus.APPROVED });
-  });
-
-  it("does not fail the approval when the BuilderTrend trigger call rejects", async () => {
-    mockedPrisma.project.findUnique.mockResolvedValue({
-      id: "proj-1",
-      status: ProjectStatus.ESTIMATE_ACCEPTED,
-    });
-    mockedTriggerBuilderTrendTransfer.mockRejectedValue(new Error("Enqueue failed"));
-
-    const changedAt = new Date("2026-04-13T12:00:00.000Z");
-    mockedPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
-      const tx = {
-        project: { update: jest.fn().mockResolvedValue({}) },
-        projectStatusHistory: {
-          create: jest.fn().mockResolvedValue({ id: "history-4", changedAt }),
         },
       };
       return callback(tx);

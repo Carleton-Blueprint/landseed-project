@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
-import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
+import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { prisma } from "lib/prisma";
@@ -22,8 +22,8 @@ jest.mock("@/backend/audit/log", () => ({
   logAuditEventNonBlocking: jest.fn(),
 }));
 
-jest.mock("@/backend/integrations/buildertrend", () => ({
-  enqueueBuilderTrendTransfer: jest.fn(),
+jest.mock("@/backend/services/manualFallbackExport", () => ({
+  requestManualFallbackExport: jest.fn(),
 }));
 
 jest.mock("@/backend/services/grantDocument", () => ({
@@ -55,7 +55,6 @@ jest.mock("lib/s3", () => ({
 const mockedProjectFindUnique = jest.fn();
 const mockedProjectCreate = jest.fn();
 const mockedQuoteCreate = jest.fn();
-const mockedBuilderTrendTransferCreate = jest.fn();
 const mockedManualModeSubmissionUpdate = jest.fn();
 const mockedUserFindUnique = jest.fn();
 const mockedUserFindMany = jest.fn();
@@ -69,9 +68,6 @@ jest.mock("lib/prisma", () => ({
     },
     quote: {
       create: (...args: unknown[]) => mockedQuoteCreate(...args),
-    },
-    builderTrendTransfer: {
-      create: (...args: unknown[]) => mockedBuilderTrendTransferCreate(...args),
     },
     manualModeSubmission: {
       update: (...args: unknown[]) => mockedManualModeSubmissionUpdate(...args),
@@ -87,7 +83,9 @@ jest.mock("lib/prisma", () => ({
 }));
 
 const mockedAudit = logAuditEventNonBlocking as jest.MockedFunction<typeof logAuditEventNonBlocking>;
-const mockedEnqueueTransfer = enqueueBuilderTrendTransfer as jest.MockedFunction<typeof enqueueBuilderTrendTransfer>;
+const mockedRequestManualFallbackExport = requestManualFallbackExport as jest.MockedFunction<
+  typeof requestManualFallbackExport
+>;
 const mockedGenerateGrantDocument = generateAndStoreGrantDocument as jest.MockedFunction<
   typeof generateAndStoreGrantDocument
 >;
@@ -106,10 +104,7 @@ describe("generateManualOutputPackage", () => {
     mockedProjectFindUnique.mockResolvedValue({
       id: "project-1",
       address: "123 Main St",
-      // Defaults to APPROVED so existing tests exercise output-package
-      // generation without also having to think about the BuilderTrend
-      // approval gate — see the dedicated "approval gate" tests below for that.
-      status: "APPROVED",
+      status: "ESTIMATE_READY",
       user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
       manualModeSubmission: {
         id: "submission-1",
@@ -124,7 +119,13 @@ describe("generateManualOutputPackage", () => {
       id: "quote-1",
       ...data,
     }));
-    mockedBuilderTrendTransferCreate.mockResolvedValue({ id: "transfer-1" });
+    mockedRequestManualFallbackExport.mockResolvedValue({
+      projectId: "project-1",
+      requestedByUserId: "staff-1",
+      exportRequestId: "export-1",
+      requestedAt: "2026-04-13T12:00:00.000Z",
+      retentionDays: 7,
+    });
     mockedManualModeSubmissionUpdate.mockResolvedValue({});
     mockedMarkEstimateReady.mockResolvedValue({ notified: true } as never);
     mockedGenerateGrantDocument.mockResolvedValue({ grantDocumentKey: "grant-key-1" } as never);
@@ -140,32 +141,14 @@ describe("generateManualOutputPackage", () => {
     );
   });
 
-  it("still creates and enqueues the BuilderTrend work order, now against an accepted quote", async () => {
+  it("requests the BuilderTrend export package, now against an accepted quote", async () => {
     const result = await generateManualOutputPackage({ projectId: "project-1", actorUserId: "staff-1" });
 
-    expect(mockedBuilderTrendTransferCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ quoteId: "quote-1" }) })
-    );
-    expect(mockedEnqueueTransfer).toHaveBeenCalledWith("transfer-1");
-    expect(result.builderTrendTransferId).toBe("transfer-1");
-  });
-
-  it("populates the BuilderTrend transfer payload with summary-level fields from the manual submission", async () => {
-    await generateManualOutputPackage({ projectId: "project-1", actorUserId: "staff-1" });
-
-    expect(mockedBuilderTrendTransferCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          payload: {
-            schemaVersion: 2,
-            project: { id: "project-1", address: "123 Main St" },
-            client: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
-            modificationType: ["Custom ramp install"],
-            totalEstimate: 100,
-          },
-        }),
-      })
-    );
+    expect(mockedRequestManualFallbackExport).toHaveBeenCalledWith({
+      projectId: "project-1",
+      requestedByUserId: "staff-1",
+    });
+    expect(result.builderTrendExportRequestId).toBe("export-1");
   });
 
   it("marks the audit trail with acceptanceRecordedBy: STAFF", async () => {
@@ -179,27 +162,25 @@ describe("generateManualOutputPackage", () => {
     );
   });
 
-  it("approval gate: creates the transfer but does not enqueue it when the project isn't APPROVED yet", async () => {
-    mockedProjectFindUnique.mockResolvedValue({
-      id: "project-1",
-      address: "123 Main St",
-      status: "ESTIMATE_ACCEPTED",
-      user: { name: "Jane Client", email: "jane@example.com", phone: "555-0100" },
-      manualModeSubmission: {
-        id: "submission-1",
-        status: "READY",
-        subtotal: 100,
-        total: 100,
-        modificationType: "Custom ramp install",
-      },
-      eligibilityAssessments: [],
+  it("requests the export package unconditionally: manual-mode projects never reach APPROVED, so there's no gate to wait on", async () => {
+    // project.status is ESTIMATE_READY here (the default from beforeEach, and what
+    // markEstimateReadyForReview actually sets) — never ESTIMATE_ACCEPTED/APPROVED.
+    // Package generation must still request the export.
+    const result = await generateManualOutputPackage({ projectId: "project-1", actorUserId: "staff-1" });
+
+    expect(mockedRequestManualFallbackExport).toHaveBeenCalledWith({
+      projectId: "project-1",
+      requestedByUserId: "staff-1",
     });
+    expect(result.builderTrendExportRequestId).toBe("export-1");
+  });
+
+  it("does not fail package generation when the export request rejects", async () => {
+    mockedRequestManualFallbackExport.mockRejectedValue(new Error("Export request failed"));
 
     const result = await generateManualOutputPackage({ projectId: "project-1", actorUserId: "staff-1" });
 
-    expect(mockedBuilderTrendTransferCreate).toHaveBeenCalled();
-    expect(mockedEnqueueTransfer).not.toHaveBeenCalled();
-    expect(result.builderTrendTransferId).toBe("transfer-1");
+    expect(result.builderTrendExportRequestId).toBeNull();
   });
 
   it("skips grant match summary generation when no eligibility assessment exists", async () => {

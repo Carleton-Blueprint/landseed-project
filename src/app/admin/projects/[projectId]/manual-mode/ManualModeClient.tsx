@@ -124,7 +124,7 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
   const [packageResult, setPackageResult] = useState<{
     quoteId: string;
     grantDocumentKey: string | null;
-    builderTrendTransferId: string | null;
+    builderTrendExportRequestId: string | null;
     clientNotified: boolean;
   } | null>(null);
 
@@ -395,12 +395,22 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
               Grant document: {packageResult.grantDocumentKey ?? "generation failed — check audit log"}
             </p>
             <p className="text-gray-600">
-              BuilderTrend work order:{" "}
-              {packageResult.builderTrendTransferId ?? "creation failed — check audit log"}
+              BuilderTrend export package:{" "}
+              {packageResult.builderTrendExportRequestId ? "generating…" : "request failed — check audit log"}
             </p>
             <p className={packageResult.clientNotified ? "text-gray-600" : "text-amber-600"}>
               Client notified: {packageResult.clientNotified ? "yes" : "no — check audit log"}
             </p>
+            {packageResult.builderTrendExportRequestId && (
+              <p className="text-gray-500">
+                Download the package once it&apos;s ready from this project&apos;s Transfer &amp; Documents
+                section in the{" "}
+                <Link href="/admin" className="text-blue-600 hover:underline">
+                  Advisor Panel
+                </Link>
+                .
+              </p>
+            )}
           </div>
         )}
 
@@ -837,8 +847,8 @@ export function ManualModeClient({ initialData }: { initialData: ManualModeIniti
         <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Output Package</h2>
           <p className="text-sm text-gray-600">
-            Generates the quote, grant application document, and BuilderTrend work order from the manually-entered
-            data above. The submission must be marked ready first.
+            Generates the quote, grant application document, and a downloadable BuilderTrend export package from the
+            manually-entered data above. The submission must be marked ready first.
           </p>
           <Button
             onClick={handleGeneratePackage}

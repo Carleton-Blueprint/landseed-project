@@ -38,6 +38,7 @@ const mockProjectWithSubmission: SerializedProject = {
   quote: null,
   eligibility: null,
   builderTrendTransfer: null,
+  manualFallbackExport: null,
   submissionData: {
     name: "Eleanor Vance",
     email: "eleanor@example.com",
@@ -91,6 +92,7 @@ const mockProjectEmptySubmission: SerializedProject = {
   quote: null,
   eligibility: null,
   builderTrendTransfer: null,
+  manualFallbackExport: null,
 };
 
 describe("Admin Dashboard Detail View", () => {

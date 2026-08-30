@@ -13,12 +13,7 @@ import { uploadToS3, S3_BUCKET } from "lib/s3";
 import { virusScanQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { generateAndStoreGrantDocument } from "@/backend/services/grantDocument";
-import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
-import {
-  BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
-  toNumber,
-  type BuilderTrendWorkOrderPayload,
-} from "@/backend/integrations/builderTrendPayload";
+import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 import { deriveAddressFromIntakeData } from "@/backend/services/intakeDraft";
@@ -715,7 +710,7 @@ export interface GenerateManualOutputPackageResult {
   quoteId: string;
   grantDocumentKey: string | null;
   grantMatchSummaryDocumentId: string | null;
-  builderTrendTransferId: string | null;
+  builderTrendExportRequestId: string | null;
   clientNotified: boolean;
 }
 
@@ -810,57 +805,23 @@ export async function generateManualOutputPackage(
     }
   }
 
-  let builderTrendTransferId: string | null = null;
+  let builderTrendExportRequestId: string | null = null;
   try {
-    // No photo-declared modification codes or AI-generated refinedEstimate breakdown exist
-    // in manual mode (see buildBuilderTrendWorkOrderPayload for that path), so the payload
-    // is built directly from the staff-entered submission instead of going through it.
-    const builderTrendPayload: BuilderTrendWorkOrderPayload = {
-      schemaVersion: BUILDER_TREND_WORK_ORDER_PAYLOAD_SCHEMA_VERSION,
-      project: { id: project.id, address: project.address },
-      client: {
-        name: project.user.name,
-        email: project.user.email,
-        phone: project.user.phone,
-      },
-      modificationType: [submission.modificationType],
-      totalEstimate: toNumber(quote.total),
-    };
-
-    const transfer = await prisma.builderTrendTransfer.create({
-      data: {
-        projectId: project.id,
-        quoteId: quote.id,
-        status: "PENDING",
-        payload: builderTrendPayload as unknown as Prisma.InputJsonValue,
-      },
+    // Unlike the normal client-facing flow, manual mode has no separate
+    // admin approval step to gate on: a manual-mode project's status never
+    // reaches ESTIMATE_ACCEPTED (see markEstimateReadyForReview, which sets
+    // ESTIMATE_READY instead), so it can never reach APPROVED through
+    // projectStatusLifecycle.ts's transitionProjectStatus either. Staff
+    // generating the output package IS the formal, staff-recorded
+    // acceptance/approval for manual mode (see the quote-creation comment
+    // above), so the export package is requested unconditionally here.
+    const exportRequest = await requestManualFallbackExport({
+      projectId: project.id,
+      requestedByUserId: input.actorUserId,
     });
-    builderTrendTransferId = transfer.id;
-
-    // Approval gate (Ticket 1): only enqueue immediately if the project
-    // is already APPROVED by the time staff generate the output package. If
-    // approval comes later, projectStatusLifecycle.ts's
-    // transitionProjectStatus enqueues it at that point instead — the
-    // two triggers race independently. Reads status fresh, right
-    // here after the transfer row above has committed, rather than reusing the
-    // `project` fetched at function entry: real async work (markEstimateReadyForReview,
-    // generateAndStoreGrantDocument) already ran in between, so that snapshot could be
-    // stale by the time we get here, and a concurrent approval landing in that window
-    // could otherwise race both triggers into missing each other (the approval side's
-    // own lookup would find no transfer row yet, and this side would see a stale
-    // "not approved" status) — leaving the transfer stuck PENDING forever. A fresh
-    // read taken after our own commit closes that window: whichever side's write
-    // lands first, the other side's later read is guaranteed to observe it.
-    const currentProject = await prisma.project.findUnique({
-      where: { id: project.id },
-      select: { status: true },
-    });
-
-    if (currentProject?.status === "APPROVED") {
-      await enqueueBuilderTrendTransfer(transfer.id);
-    }
+    builderTrendExportRequestId = exportRequest.exportRequestId;
   } catch (error) {
-    console.warn("Manual mode: BuilderTrend transfer creation/enqueue failed", error);
+    console.warn("Manual mode: BuilderTrend export package request failed", error);
   }
 
   await prisma.manualModeSubmission.update({
@@ -878,12 +839,12 @@ export async function generateManualOutputPackage(
     quoteId: quote.id,
     resourceType: "manual_mode_submission",
     resourceId: submission.id,
-    description: "Manual mode output package generated (quote, grant document, BuilderTrend work order)",
+    description: "Manual mode output package generated (quote, grant document, BuilderTrend export package)",
     afterState: {
       quoteId: quote.id,
       grantDocumentKey,
       grantMatchSummaryDocumentId,
-      builderTrendTransferId,
+      builderTrendExportRequestId,
       clientNotified,
       acceptanceRecordedBy: "STAFF",
     },
@@ -896,7 +857,7 @@ export async function generateManualOutputPackage(
     quoteId: quote.id,
     grantDocumentKey,
     grantMatchSummaryDocumentId,
-    builderTrendTransferId,
+    builderTrendExportRequestId,
     clientNotified,
   };
 }

@@ -44,6 +44,7 @@ const mockProjects: SerializedProject[] = [
     },
     eligibility: null,
     builderTrendTransfer: null,
+    manualFallbackExport: null,
   },
   {
     id: "proj-2",
@@ -71,6 +72,7 @@ const mockProjects: SerializedProject[] = [
     },
     eligibility: null,
     builderTrendTransfer: null,
+    manualFallbackExport: null,
   },
   {
     id: "proj-3",
@@ -89,6 +91,7 @@ const mockProjects: SerializedProject[] = [
     quote: null,
     eligibility: null,
     builderTrendTransfer: null,
+    manualFallbackExport: null,
   },
 ];
 
