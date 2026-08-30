@@ -353,6 +353,24 @@ an org owner is available, ideally before the next merge after that.
   is confirmed active now, so every push to `main` deploys to production
   until this flips. Highest-priority item in this section as of 2026-08-28.
 
+  **Update, 2026-08-30:** confirmed gated, not just theorized. On the
+  current (non-owner) account, Project Settings → Git shows no Production
+  Branch control at all — not greyed out, just absent from the page
+  entirely (only "Connected Git Repository," PR/commit comment toggles,
+  Git Commits status settings, LFS, and Deploy Hooks render). Also tried
+  the API path directly: `GET /v9/projects/{idOrName}` confirms the field
+  is `link.productionBranch` (currently `"main"`), but `PATCH` doesn't
+  accept `link` as a body field (`400: should NOT have additional property
+  'link'`) — the correct body shape is unconfirmed (top-level
+  `productionBranch` was the next thing to try, but wasn't completed this
+  session), and untested whether a non-owner token would 403 on it anyway.
+  Bottom line unchanged: needs an org owner, dashboard is the more direct
+  path once they're granted access, don't burn more time on the API route.
+  `production` is now 9+ commits behind `main` (missing PR #130 and the
+  worker shutdown-handler consolidation, PR #131) — remember to merge
+  `main` → `production` right after the flip, or prod will briefly regress
+  to an older build.
+
 ### Deferred to handoff
 
 Not blocking anything today — Blueprint's accounts absorb these during
