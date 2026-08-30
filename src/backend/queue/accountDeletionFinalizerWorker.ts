@@ -45,5 +45,8 @@ void runFinalizer();
 scanTimer = setInterval(() => void runFinalizer(), SCAN_INTERVAL_MS);
 
 registerShutdownHandler("account-deletion-finalizer", () => {
-  if (scanTimer) clearInterval(scanTimer);
+  if (scanTimer) {
+    clearInterval(scanTimer);
+    scanTimer = null;
+  }
 });

@@ -142,5 +142,8 @@ scanTimer = setInterval(() => {
 }, SCAN_INTERVAL_MS);
 
 registerShutdownHandler("account-deletion", () => {
-  if (scanTimer) clearInterval(scanTimer);
+  if (scanTimer) {
+    clearInterval(scanTimer);
+    scanTimer = null;
+  }
 });
