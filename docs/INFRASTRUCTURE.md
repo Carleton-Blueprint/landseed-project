@@ -39,7 +39,7 @@ workers) are shared infrastructure that both environments talk to.
    |                |                |                |
  Postgres         Redis            R2 / S3        External APIs
  (Prisma)        (Railway)        (Cloudflare)    Resend, OpenAI,
-                    |                              BuilderTrend, SERP
+                    |                              SERP
               Workers (Railway)
               npm run worker:all
 ```
@@ -48,7 +48,7 @@ workers) are shared infrastructure that both environments talk to.
   request-scoped work only. Enqueues background jobs; it does not process them.
 - **Workers** (Railway): a single always-on process (`worker:all`) that consumes
   every BullMQ queue and performs the slow or external work (email, AI, virus
-  scan, BuilderTrend transfer, scheduled sweeps). See
+  scan, scheduled sweeps). See
   [Worker setup](#7-workers-shared).
 - **Backing services**: Postgres, Redis, and R2 are shared by both web
   environments and the workers.
@@ -128,7 +128,6 @@ and Redis) so staging traffic never touches production data.
 | R2 / S3 (Cloudflare) | photo and document storage | bucket plus access keys |
 | Resend | transactional email | used by the email worker, not the web tier |
 | OpenAI | photo analysis and image generation | used by the AI worker |
-| BuilderTrend | construction management integration | outbound transfer plus inbound status webhook |
 | SERP API | grant discovery research | optional; only if that feature is enabled |
 | ClamAV | virus scanning of uploads | Railway sidecar next to the worker service, reached over Railway's private network — see [ClamAV reachability](#clamav-virus-scanning) |
 
@@ -180,7 +179,6 @@ tier and the worker service.
 | `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | photo and document uploads from the upload route |
 | `AUDIT_SIGNING_PRIVATE_KEY`, `AUDIT_SIGNING_PUBLIC_KEY`, `AUDIT_SIGNING_KEY_ID` | signing of the hash-chained audit log (login and account events are written from the web tier) |
 | `MFA_ENCRYPTION_KEY` | encryption of admin MFA secrets (enrollment and verification happen in the web tier) |
-| `BUILDERTREND_WEBHOOK_SECRET` | validates inbound BuilderTrend status webhooks |
 
 ### Feature flags and optional web-tier settings
 
@@ -190,7 +188,7 @@ tier and the worker service.
 | `GRANT_DISCOVERY_AI_MODEL` | select the grant-discovery model |
 | `PHOTO_ANALYSIS_AI_MODEL` | select the photo-analysis model |
 | `PRICING_DEBUG`, `PHOTO_ANALYSIS_DEBUG`, `GRANT_DISCOVERY_DEBUG` | debug logging; leave unset in production |
-| `*_MOCK_*`, `BUILDERTREND_MOCK_FAIL`, `GRANT_DISCOVERY_DEV_MOCK_GET` | test and mock flags; never set in production |
+| `*_MOCK_*`, `GRANT_DISCOVERY_DEV_MOCK_GET` | test and mock flags; never set in production |
 
 Variables such as `RESEND_API_KEY`, `EMAIL_FROM`, `OPENAI_API_KEY`,
 `OPENAI_ORG_ID`, `SERP_API_KEY`, `SERP_API_COST_PER_QUERY`, and `CLAMAV_HOST` /
@@ -208,8 +206,7 @@ host is harmless but not required.
   environment that uses it.
 - The following are especially sensitive and their exposure requires rotation:
   `NEXTAUTH_SECRET`, `AUDIT_SIGNING_PRIVATE_KEY`, `MFA_ENCRYPTION_KEY`,
-  `R2_SECRET_ACCESS_KEY`, `RESEND_API_KEY`, `OPENAI_API_KEY`, `DATABASE_URL`,
-  and `BUILDERTREND_WEBHOOK_SECRET`.
+  `R2_SECRET_ACCESS_KEY`, `RESEND_API_KEY`, `OPENAI_API_KEY`, and `DATABASE_URL`.
 
 ## 6. Database and migrations
 
