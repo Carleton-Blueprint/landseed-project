@@ -14,7 +14,6 @@ jest.mock("@/backend/services/alertThresholds", () => ({
   getAlertThreshold: jest.fn(),
   ALERT_THRESHOLD_KEYS: {
     AI_JOB_FAILURE: "ai-job-failure",
-    BUILDERTREND_TRANSFER_FAILURE: "buildertrend-transfer-failure",
     EMAIL_DELIVERY_FAILURE: "email-delivery-failure",
     FILE_SCAN_FAILURE: "file-scan-failure",
   },

@@ -8,12 +8,82 @@ import {
   type PricingTierKey,
   type TieredRefinedEstimate,
 } from '@/backend/services/pricingTiers';
-import {
-  resolveBuilderTrendPricingBreakdown,
-  type BuilderTrendWorkOrderPricingBreakdown,
-} from '@/backend/integrations/builderTrendPayload';
 import type { PromoteIntakeData } from '@/backend/schemas/intakeDraft';
-import type { RefinedEstimateLineItem } from './refinedEstimate';
+import type { RefinedEstimate, RefinedEstimateLineItem } from './refinedEstimate';
+
+export interface PricingBreakdown {
+  selectedTier: PricingTierKey | null;
+  lineItems: RefinedEstimate['lineItems'];
+  subtotal: number;
+  laborTotal: number;
+  markupTotal: number;
+  total: number;
+  estimateMin: number;
+  estimateMax: number;
+}
+
+export type DecimalLike = { toString(): string } | number;
+
+export function toNumber(value: DecimalLike): number {
+  return typeof value === 'number' ? value : Number(value.toString());
+}
+
+/**
+ * Prefers the accepted tier's own breakdown (tiered) or the flat
+ * refinedEstimate (non-tiered) for every figure, including the header
+ * totals — Quote.subtotal/total/estimateMin/estimateMax reflect whichever
+ * tier the quote was originally generated with, not necessarily the tier
+ * the client just accepted, so they're only a fallback when no
+ * refinedEstimate breakdown is available at all. Used to build the itemized
+ * Estimate PDF.
+ */
+export function resolvePricingBreakdown(input: {
+  quote: {
+    subtotal: DecimalLike;
+    total: DecimalLike;
+    estimateMin: DecimalLike | null;
+    estimateMax: DecimalLike | null;
+  };
+  refinedEstimate: AnyRefinedEstimate | null;
+  quoteIsTiered: boolean;
+  acceptedTier: PricingTierKey | null;
+}): PricingBreakdown {
+  const { quote, refinedEstimate, quoteIsTiered, acceptedTier } = input;
+
+  const flatEstimate: RefinedEstimate | null =
+    acceptedTier && quoteIsTiered && refinedEstimate
+      ? (refinedEstimate as TieredRefinedEstimate).tiers[acceptedTier]
+      : !quoteIsTiered && refinedEstimate
+        ? (refinedEstimate as RefinedEstimate)
+        : null;
+
+  if (flatEstimate) {
+    return {
+      selectedTier: acceptedTier,
+      lineItems: flatEstimate.lineItems,
+      subtotal: flatEstimate.subtotal,
+      laborTotal: flatEstimate.laborTotal,
+      markupTotal: flatEstimate.markupTotal,
+      total: flatEstimate.total,
+      estimateMin: flatEstimate.estimateMin,
+      estimateMax: flatEstimate.estimateMax,
+    };
+  }
+
+  const subtotal = toNumber(quote.subtotal);
+  const total = toNumber(quote.total);
+
+  return {
+    selectedTier: acceptedTier,
+    lineItems: [],
+    subtotal,
+    laborTotal: 0,
+    markupTotal: 0,
+    total,
+    estimateMin: quote.estimateMin != null ? toNumber(quote.estimateMin) : subtotal,
+    estimateMax: quote.estimateMax != null ? toNumber(quote.estimateMax) : total,
+  };
+}
 
 export interface AssembledEstimateInput {
   projectId: string;
@@ -22,7 +92,7 @@ export interface AssembledEstimateInput {
   projectAddress: string;
   modificationType: string;
   selectedTier: PricingTierKey | null;
-  pricing: BuilderTrendWorkOrderPricingBreakdown;
+  pricing: PricingBreakdown;
   incompleteFields: string[];
   preparedAtIso: string;
   // FR-4.3: true once an admin has overridden this quote's pricing post-estimate.
@@ -33,7 +103,7 @@ export interface AssembledEstimateInput {
 }
 
 /**
- * Builds a BuilderTrendWorkOrderPricingBreakdown from a post-estimate
+ * Builds a PricingBreakdown from a post-estimate
  * override's simplified {description, quantity, materialTotal, laborTotal}
  * line items. Markup/unit-cost/labor-hours/rate/pricing-source have no
  * override-tracked value, so they're zeroed/nulled rather than fabricated -
@@ -44,7 +114,7 @@ function buildOverriddenPricingBreakdown(override: {
   subtotal: unknown;
   total: unknown;
   lineItems: unknown;
-}): BuilderTrendWorkOrderPricingBreakdown {
+}): PricingBreakdown {
   const overrideLineItems = (override.lineItems ?? []) as Array<{
     description: string;
     quantity: number;
@@ -180,7 +250,7 @@ export async function assembleEstimateInput(quoteId: string): Promise<AssembledE
 
   const pricing = quote.override
     ? buildOverriddenPricingBreakdown(quote.override)
-    : resolveBuilderTrendPricingBreakdown({
+    : resolvePricingBreakdown({
         quote: {
           subtotal: quote.subtotal,
           total: quote.total,

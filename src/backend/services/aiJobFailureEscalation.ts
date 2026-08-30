@@ -1,13 +1,9 @@
 /**
  * Escalation path for ai-jobs queue jobs (photo modification analysis,
- * accessibility image generation) that exhaust all retry attempts.
- *
- * Mirrors the exhaustion→escalation pattern already used for BuilderTrend
- * transfers (see src/backend/integrations/buildertrend.ts,
- * triggerManualFallbackForExhaustedTransfer): the ai-jobs worker previously
- * only logged on final failure with no downstream effect, so a project
- * could silently end up with no AI-generated visual/analysis and nobody
- * flagged to follow up manually.
+ * accessibility image generation) that exhaust all retry attempts: the
+ * ai-jobs worker previously only logged on final failure with no downstream
+ * effect, so a project could silently end up with no AI-generated
+ * visual/analysis and nobody flagged to follow up manually.
  */
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";

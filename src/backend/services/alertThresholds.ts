@@ -1,6 +1,6 @@
 /**
- * Read/cache layer for admin-editable alert thresholds (AI job, BuilderTrend
- * transfer, email delivery, file scan failures). Rows self-seed with
+ * Read/cache layer for admin-editable alert thresholds (AI job, email
+ * delivery, file scan failures). Rows self-seed with
  * defaults on first read so there's no separate seed-script step — this
  * repo has no seed infrastructure today (see prisma/) — and are then
  * editable via /api/admin/alert-thresholds without a code deploy.
@@ -18,7 +18,6 @@ import { logAuditEventNonBlocking } from "@/backend/audit/log";
 
 export const ALERT_THRESHOLD_KEYS = {
   AI_JOB_FAILURE: "ai-job-failure",
-  BUILDERTREND_TRANSFER_FAILURE: "buildertrend-transfer-failure",
   EMAIL_DELIVERY_FAILURE: "email-delivery-failure",
   FILE_SCAN_FAILURE: "file-scan-failure",
   PRICING_TIER_FALLBACK: "pricing-tier-fallback",
@@ -31,11 +30,6 @@ const DEFAULTS: Record<AlertThresholdKey, { label: string; thresholdCount: numbe
   [ALERT_THRESHOLD_KEYS.AI_JOB_FAILURE]: {
     label: "AI job failures (image generation / photo analysis)",
     thresholdCount: 5,
-    windowMinutes: 15,
-  },
-  [ALERT_THRESHOLD_KEYS.BUILDERTREND_TRANSFER_FAILURE]: {
-    label: "BuilderTrend transfer failures",
-    thresholdCount: 3,
     windowMinutes: 15,
   },
   [ALERT_THRESHOLD_KEYS.EMAIL_DELIVERY_FAILURE]: {

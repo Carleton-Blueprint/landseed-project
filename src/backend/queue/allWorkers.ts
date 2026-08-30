@@ -14,7 +14,6 @@ import "dotenv/config";
 import "./virusScanWorker";
 import "./emailWorker";
 import "./aiJobsWorker";
-import "./builderTrendTransferWorker";
 import "./estimateExpiryWorker";
 import "./estimateGenerationWorker";
 import "./staffRequestFollowUpWorker";

@@ -60,13 +60,6 @@ export const emailQueue = new Queue<{
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
 });
 
-export const builderTrendTransferQueue = new Queue<{
-  transferId: string;
-}>("buildertrend-transfer", {
-  connection,
-  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
-});
-
 export const manualReviewQueue = new Queue<{
   projectId: string;
   // Omitted for triggers with no EligibilityAssessment (e.g. photo analysis) —
@@ -168,18 +161,6 @@ export function createEmailWorker(
   return new Worker("email", processor, { connection });
 }
 
-export function createBuilderTrendTransferWorker(
-  processor: (job: {
-    data: {
-      transferId: string;
-    };
-    attemptsMade: number;
-    opts: { attempts?: number };
-  }) => Promise<void>
-) {
-  return new Worker("buildertrend-transfer", processor, { connection });
-}
-
 export function createManualReviewWorker(
   processor: (job: {
     data: {
@@ -236,9 +217,9 @@ export function createGrantMatchSummaryWorker(
   return new Worker("grant-match-summary", processor, { connection });
 }
 
-// Some tests (e.g. builderTrendTransferQueueConfig.test.ts) mock bullmq/ioredis
-// themselves and load this module for real to inspect constructor args, which
-// leaves virusScanQueue etc. as plain mock objects with no .close()/.quit().
+// Some tests mock bullmq/ioredis themselves and load this module for real to
+// inspect constructor args, which leaves virusScanQueue etc. as plain mock
+// objects with no .close()/.quit().
 // Guard each call so closeQueueConnections is safe regardless of whether the
 // underlying bullmq/ioredis instances are real or mocked.
 async function closeIfCloseable(target: { close?: () => Promise<unknown> }): Promise<void> {
@@ -256,7 +237,6 @@ export async function closeQueueConnections(): Promise<void> {
     closeIfCloseable(virusScanQueue),
     closeIfCloseable(aiJobsQueue),
     closeIfCloseable(emailQueue),
-    closeIfCloseable(builderTrendTransferQueue),
     closeIfCloseable(manualReviewQueue),
     closeIfCloseable(manualFallbackExportQueue),
     closeIfCloseable(estimateGenerationQueue),
