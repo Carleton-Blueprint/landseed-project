@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma, ProjectStatus } from "@prisma/client";
-import { randomUUID } from "node:crypto";
 import { prisma } from "lib/prisma";
 import { auth } from "@/auth";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
-import { enqueueBuilderTrendTransfer } from "@/backend/integrations/buildertrend";
-import { buildBuilderTrendWorkOrderPayload } from "@/backend/integrations/builderTrendPayload";
 import {
   isTieredEstimate,
   PRICING_TIER_KEYS,
@@ -93,13 +90,6 @@ export async function POST(
           include: {
             projectAccess: {
               where: { userId: session.user.id }
-            },
-            user: {
-              select: { name: true, email: true, phone: true }
-            },
-            photos: {
-              where: { virus_scan_status: "clean" },
-              select: { declaredModificationCodes: true }
             }
           }
         }
@@ -170,27 +160,6 @@ export async function POST(
     // Process the update
     const updatedProjectStatus = status === "ACCEPTED" ? ProjectStatus.ESTIMATE_ACCEPTED : ProjectStatus.ESTIMATE_DECLINED;
 
-    const builderTrendPayload =
-      status === "ACCEPTED"
-        ? buildBuilderTrendWorkOrderPayload({
-            project: {
-              id: quote.project.id,
-              address: quote.project.address,
-              user: quote.project.user,
-              photos: quote.project.photos,
-            },
-            quote: {
-              subtotal: quote.subtotal,
-              total: quote.total,
-              estimateMin: quote.estimateMin,
-              estimateMax: quote.estimateMax,
-            },
-            refinedEstimate,
-            quoteIsTiered,
-            acceptedTier,
-          })
-        : null;
-
     // Update Quote status and Project status in a transaction
     const updatedQuote = await prisma.$transaction(async (tx) => {
       const updatedRows = await tx.$queryRaw<Array<{ id: string; status: string; declinedReason: string | null }>>(
@@ -254,74 +223,9 @@ export async function POST(
         });
       }
 
-      let builderTrendTransfer: {
-        id: string;
-        status: string;
-        isNew: boolean;
-      } | null = null;
-
-      if (status === "ACCEPTED") {
-        const payloadJson = JSON.stringify(builderTrendPayload);
-
-        const insertedTransferRows = await tx.$queryRaw<
-          Array<{ id: string; status: string }>
-        >(
-          Prisma.sql`
-            INSERT INTO "BuilderTrendTransfer" (
-              "id",
-              "projectId",
-              "quoteId",
-              "status",
-              "payload",
-              "requestedAt",
-              "createdAt",
-              "updatedAt"
-            )
-            VALUES (
-              ${randomUUID()},
-              ${quote.projectId},
-              ${quote.id},
-              'PENDING'::"BuilderTrendTransferStatus",
-              CAST(${payloadJson} AS JSONB),
-              CURRENT_TIMESTAMP,
-              CURRENT_TIMESTAMP,
-              CURRENT_TIMESTAMP
-            )
-            ON CONFLICT ("quoteId") DO NOTHING
-            RETURNING "id", "status"
-          `
-        );
-
-        if (insertedTransferRows.length > 0) {
-          builderTrendTransfer = {
-            ...insertedTransferRows[0],
-            isNew: true,
-          };
-        } else {
-          const existingTransferRows = await tx.$queryRaw<
-            Array<{ id: string; status: string }>
-          >(
-            Prisma.sql`
-              SELECT "id", "status"
-              FROM "BuilderTrendTransfer"
-              WHERE "quoteId" = ${quote.id}
-              LIMIT 1
-            `
-          );
-
-          if (existingTransferRows.length > 0) {
-            builderTrendTransfer = {
-              ...existingTransferRows[0],
-              isNew: false,
-            };
-          }
-        }
-      }
-
       return {
         ...updatedRows[0],
         selectedTier: acceptedTier,
-        builderTrendTransfer,
       };
     });
 
@@ -347,96 +251,6 @@ export async function POST(
       },
       ...requestContext,
     });
-
-    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew) {
-      await logAuditEventNonBlocking({
-        category: "MANUAL_CHANGE",
-        action: "BUILDERTREND_TRANSFER_REQUESTED",
-        outcome: "SUCCESS",
-        sensitivityLevel: "RESTRICTED",
-        actorUserId: session.user.id,
-        projectId: quote.projectId,
-        quoteId: quote.id,
-        resourceType: "buildertrend_transfer",
-        resourceId: updatedQuote.builderTrendTransfer.id,
-        description: "Created pending BuilderTrend transfer record after estimate approval",
-        metadata: {
-          transferStatus: updatedQuote.builderTrendTransfer.status,
-        },
-        ...requestContext,
-      });
-    }
-
-    if (status === "ACCEPTED" && updatedQuote.builderTrendTransfer && !updatedQuote.builderTrendTransfer.isNew) {
-      await logAuditEventNonBlocking({
-        category: "MANUAL_CHANGE",
-        action: "BUILDERTREND_TRANSFER_ALREADY_EXISTS",
-        outcome: "SUCCESS",
-        sensitivityLevel: "RESTRICTED",
-        actorUserId: session.user.id,
-        projectId: quote.projectId,
-        quoteId: quote.id,
-        resourceType: "buildertrend_transfer",
-        resourceId: updatedQuote.builderTrendTransfer.id,
-        description: "Skipped creating duplicate BuilderTrend transfer record after estimate approval",
-        metadata: {
-          transferStatus: updatedQuote.builderTrendTransfer.status,
-        },
-        ...requestContext,
-      });
-    }
-
-    // Approval gate (Ticket 1): the transfer row above is always created on
-    // acceptance, but only enqueued for sending once the project has
-    // been APPROVED. If approval comes later, projectStatusLifecycle.ts's
-    // transitionProjectStatus enqueues it at that point instead — the
-    // two triggers race independently, so this only covers "already approved
-    // by the time the quote is accepted." Reads status fresh,
-    // strictly after the transaction above has committed the transfer row —
-    // not the `quote.project` snapshot fetched at the top of the request. That
-    // snapshot predates the transfer row's commit by the whole request
-    // duration, so a concurrent approval landing in that window could
-    // otherwise race both triggers into missing each other: the approval
-    // side's own lookup finds no transfer row yet (ours hasn't committed), and
-    // this side would see a stale "not approved" status, leaving the transfer
-    // stuck PENDING forever with nothing to pick it back up. A fresh read
-    // taken after our own commit closes that window completely: whichever
-    // side's write lands first, the other side's later read is guaranteed to
-    // observe it.
-    const currentProject =
-      status === "ACCEPTED" && updatedQuote.builderTrendTransfer?.isNew
-        ? await prisma.project.findUnique({
-            where: { id: quote.projectId },
-            select: { status: true },
-          })
-        : null;
-
-    if (
-      status === "ACCEPTED" &&
-      updatedQuote.builderTrendTransfer?.isNew &&
-      currentProject?.status === "APPROVED"
-    ) {
-      try {
-        await enqueueBuilderTrendTransfer(updatedQuote.builderTrendTransfer.id);
-      } catch (enqueueError) {
-        await logAuditEventNonBlocking({
-          category: "MANUAL_CHANGE",
-          action: "BUILDERTREND_TRANSFER_ENQUEUE_FAILED",
-          outcome: "FAILURE",
-          sensitivityLevel: "RESTRICTED",
-          actorUserId: session.user.id,
-          projectId: quote.projectId,
-          quoteId: quote.id,
-          resourceType: "buildertrend_transfer",
-          resourceId: updatedQuote.builderTrendTransfer.id,
-          description: "Failed to enqueue BuilderTrend transfer after estimate approval",
-          metadata: {
-            errorMessage: enqueueError instanceof Error ? enqueueError.message : "Unknown enqueue error",
-          },
-          ...requestContext,
-        });
-      }
-    }
 
     return NextResponse.json({ success: true, quote: updatedQuote }, { status: 200 });
   } catch (error: unknown) {

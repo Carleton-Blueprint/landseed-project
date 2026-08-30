@@ -1,9 +1,7 @@
 import { Prisma, ProjectStatus } from "@prisma/client";
 import { prisma } from "lib/prisma";
-import {
-  attachGrantMatchSummaryToBuilderTrendTransfer,
-  triggerBuilderTrendTransferForApprovedProject,
-} from "@/backend/integrations/buildertrend";
+import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { requestManualFallbackExport } from "@/backend/services/manualFallbackExport";
 
 const ALLOWED_TRANSITIONS: Partial<Record<ProjectStatus, ProjectStatus[]>> = {
   ESTIMATE_ACCEPTED: ["APPROVED", "REJECTED"],
@@ -136,19 +134,34 @@ export async function transitionProjectStatus(
     };
   });
 
-  // Approval is the BuilderTrend transfer's send gate: a transfer row is
-  // created at quote acceptance but held (never enqueued) until this fires. Also
-  // pre-warms the Grant Match Summary PDF so it's already READY by send time (see
-  // attachGrantMatchSummaryToBuilderTrendTransfer for why "no transfer yet" is
-  // expected and not an error there). Fire-and-forget: both are best-effort
-  // side effects, not part of the approval transaction itself.
+  // Approval triggers generation of the downloadable BuilderTrend export
+  // package (estimate PDF, grant match summary PDF, grant application PDF,
+  // project data) that staff download and push to BuilderTrend manually —
+  // LandSeed does not integrate with BuilderTrend's API directly. Fire-and-
+  // forget: this is a best-effort side effect, not part of the approval
+  // transaction itself; the export can always be regenerated on demand from
+  // the admin dashboard if this fails.
   if (input.toStatus === "APPROVED") {
-    attachGrantMatchSummaryToBuilderTrendTransfer(input.projectId, input.actorUserId).catch((err) => {
-      console.warn("Failed to attach grant match summary to BuilderTrend transfer for project", input.projectId, err);
-    });
-    triggerBuilderTrendTransferForApprovedProject(input.projectId, input.actorUserId).catch((err) => {
-      console.warn("Failed to trigger BuilderTrend transfer after project approval for project", input.projectId, err);
-    });
+    requestManualFallbackExport({
+      projectId: input.projectId,
+      requestedByUserId: input.actorUserId,
+    })
+      .then((exportRequest) => {
+        logAuditEventNonBlocking({
+          category: "MANUAL_CHANGE",
+          action: "BUILDERTREND_EXPORT_TRIGGERED_BY_PROJECT_APPROVAL",
+          outcome: "SUCCESS",
+          sensitivityLevel: "RESTRICTED",
+          actorUserId: input.actorUserId,
+          projectId: input.projectId,
+          resourceType: "manual_fallback_export",
+          resourceId: exportRequest.exportRequestId,
+          description: "BuilderTrend export package generation queued now that the project has been approved",
+        });
+      })
+      .catch((err) => {
+        console.warn("Failed to generate BuilderTrend export package for approved project", input.projectId, err);
+      });
   }
 
   return result;
