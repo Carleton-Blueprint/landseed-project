@@ -101,6 +101,17 @@ export interface SerializedProject {
     lastStatusCallbackAt: string | null;
     lastManualSyncAt: string | null;
   } | null;
+  manualFallbackExport: {
+    id: string;
+    status: string;
+    requestedAt: string;
+    readyAt: string | null;
+    expiresAt: string | null;
+    fileName: string | null;
+    retentionDays: number;
+    maxSizeBytes: number | null;
+    lastError: string | null;
+  } | null;
   submissionData?: {
     name?: string | null;
     email?: string | null;
@@ -223,6 +234,12 @@ const TRANSFER_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
   PENDING: { label: "Pending", dot: "bg-amber-500" },
   RETRYING: { label: "Retrying", dot: "bg-orange-500" },
   SENT: { label: "Sent", dot: "bg-emerald-500" },
+  FAILED: { label: "Failed", dot: "bg-red-500" },
+};
+
+const EXPORT_STATUS_STYLES: Record<string, { label: string; dot: string }> = {
+  PENDING: { label: "Generating…", dot: "bg-amber-500" },
+  READY: { label: "Ready", dot: "bg-emerald-500" },
   FAILED: { label: "Failed", dot: "bg-red-500" },
 };
 
@@ -369,10 +386,13 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
   const eligibility = project.eligibility;
   const quote = project.quote;
   const transfer = project.builderTrendTransfer;
+  const exportPackage = project.manualFallbackExport;
   const [syncing, setSyncing] = React.useState(false);
   const [syncMessage, setSyncMessage] = React.useState<string | null>(null);
   const [retrying, setRetrying] = React.useState(false);
   const [retryMessage, setRetryMessage] = React.useState<string | null>(null);
+  const [generatingExport, setGeneratingExport] = React.useState(false);
+  const [generateExportMessage, setGenerateExportMessage] = React.useState<string | null>(null);
 
   const canOverrideModifications = project.status === "SUBMITTED" && !quote;
   const [overrideEditing, setOverrideEditing] = React.useState(false);
@@ -455,6 +475,26 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
       setSyncMessage(error instanceof Error ? error.message : "Failed to record manual sync");
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleGenerateExport() {
+    setGeneratingExport(true);
+    setGenerateExportMessage(null);
+    try {
+      const response = await fetch(`/api/project/${project.id}/manual-fallback-export`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.error ?? "Failed to generate export package");
+      }
+      setGenerateExportMessage("Export queued.");
+      router.refresh();
+    } catch (error) {
+      setGenerateExportMessage(error instanceof Error ? error.message : "Failed to generate export package");
+    } finally {
+      setGeneratingExport(false);
     }
   }
 
@@ -885,6 +925,67 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
           ) : (
             <p className="text-xs text-gray-500 italic">No BuilderTrend transfer initiated.</p>
           )}
+
+          {/* BuilderTrend Export Package (downloadable, admin pushes to BuilderTrend manually) */}
+          <div className="rounded-md bg-gray-50 p-2.5 space-y-1">
+            <div className="flex items-center gap-2 text-xs">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  exportPackage ? EXPORT_STATUS_STYLES[exportPackage.status]?.dot ?? "bg-gray-400" : "bg-gray-300"
+                }`}
+              />
+              <span className="font-medium text-gray-800">
+                BuilderTrend Export Package:{" "}
+                {exportPackage ? EXPORT_STATUS_STYLES[exportPackage.status]?.label ?? exportPackage.status : "Not generated"}
+              </span>
+            </div>
+
+            {exportPackage && (
+              <>
+                {exportPackage.fileName && (
+                  <p className="text-[10px] text-gray-500 truncate" title={exportPackage.fileName}>
+                    {exportPackage.fileName}
+                  </p>
+                )}
+                {exportPackage.status === "READY" && exportPackage.readyAt && (
+                  <p className="text-[10px] text-gray-400">
+                    Ready: {fmtDate(exportPackage.readyAt)}
+                    {exportPackage.expiresAt &&
+                      (new Date(exportPackage.expiresAt).getTime() <= Date.now()
+                        ? " — link expired, regenerate to download"
+                        : ` (expires ${fmtDate(exportPackage.expiresAt)})`)}
+                  </p>
+                )}
+                {exportPackage.status === "FAILED" && exportPackage.lastError && (
+                  <p className="text-[10px] text-red-500 truncate" title={exportPackage.lastError}>
+                    Error: {exportPackage.lastError}
+                  </p>
+                )}
+              </>
+            )}
+
+            <div className="flex items-center gap-2 pt-1">
+              {exportPackage &&
+                exportPackage.status === "READY" &&
+                (!exportPackage.expiresAt || new Date(exportPackage.expiresAt).getTime() > Date.now()) && (
+                  <a
+                    href={`/api/project/${project.id}/manual-fallback-export/${exportPackage.id}/download`}
+                    className="text-[10px] font-medium text-blue-600 hover:underline"
+                  >
+                    Download package
+                  </a>
+                )}
+              <button
+                type="button"
+                onClick={handleGenerateExport}
+                disabled={generatingExport}
+                className="text-[10px] font-medium text-gray-600 hover:underline disabled:opacity-50"
+              >
+                {generatingExport ? "Generating..." : exportPackage ? "Regenerate export" : "Generate export"}
+              </button>
+              {generateExportMessage && <span className="text-[10px] text-gray-400">{generateExportMessage}</span>}
+            </div>
+          </div>
 
           {/* Documents summary */}
           <div className="rounded-md bg-gray-50 p-2.5">

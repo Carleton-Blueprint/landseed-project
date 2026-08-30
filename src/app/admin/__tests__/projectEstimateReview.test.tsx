@@ -65,6 +65,7 @@ const mockProjectWithQuote: SerializedProject = {
     isOverridden: false,
   },
   builderTrendTransfer: null,
+  manualFallbackExport: null,
   photos: [
     {
       id: "photo-1",
