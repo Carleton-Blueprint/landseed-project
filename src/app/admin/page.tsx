@@ -51,13 +51,6 @@ export default async function AdminDashboardPage() {
 
     const projectIds = rawProjects.map((p) => p.id);
 
-    type TransferRow = {
-      id: string; projectId: string; status: string;
-      attempts: number; lastError: string | null; sentAt: Date | null;
-      workOrderUrl: string | null; externalStatus: string | null;
-      lastStatusCallbackAt: Date | null; lastManualSyncAt: Date | null;
-    };
-
     const [allDocuments, allQuotes, allAssessments, allStatusHistory] = await Promise.all([
       prisma.document.findMany({
         where: { projectId: { in: projectIds } },
@@ -99,19 +92,6 @@ export default async function AdminDashboardPage() {
       },
     });
 
-    let allTransfers: TransferRow[] = [];
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      allTransfers = await (prisma as any).builderTrendTransfer.findMany({
-        where: { projectId: { in: projectIds } },
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true, projectId: true, status: true, attempts: true, lastError: true, sentAt: true,
-          workOrderUrl: true, externalStatus: true, lastStatusCallbackAt: true, lastManualSyncAt: true,
-        },
-      });
-    } catch { /* table may not exist yet */ }
-
     const docsByProject = new Map<string, typeof allDocuments>();
     for (const d of allDocuments) {
       const arr = docsByProject.get(d.projectId) ?? [];
@@ -122,8 +102,6 @@ export default async function AdminDashboardPage() {
     for (const q of allQuotes) { if (!quotesByProject.has(q.projectId)) quotesByProject.set(q.projectId, q); }
     const assessmentsByProject = new Map<string, (typeof allAssessments)[0]>();
     for (const a of allAssessments) { if (!assessmentsByProject.has(a.projectId)) assessmentsByProject.set(a.projectId, a); }
-    const transfersByProject = new Map<string, (typeof allTransfers)[0]>();
-    for (const t of allTransfers) { if (!transfersByProject.has(t.projectId)) transfersByProject.set(t.projectId, t); }
     const fallbackExportsByProject = new Map<string, (typeof allFallbackExports)[0]>();
     for (const item of allFallbackExports) { if (!fallbackExportsByProject.has(item.projectId)) fallbackExportsByProject.set(item.projectId, item); }
     const statusHistoryByProject = new Map<string, typeof allStatusHistory>();
@@ -137,7 +115,6 @@ export default async function AdminDashboardPage() {
       const docs = docsByProject.get(p.id) ?? [];
       const latestQuote = quotesByProject.get(p.id) ?? null;
       const latestAssessment = assessmentsByProject.get(p.id) ?? null;
-      const latestTransfer = transfersByProject.get(p.id) ?? null;
       const latestFallbackExport = fallbackExportsByProject.get(p.id) ?? null;
       const statusHistory = statusHistoryByProject.get(p.id) ?? [];
       const aExtended = latestAssessment as typeof latestAssessment & {
@@ -208,15 +185,6 @@ export default async function AdminDashboardPage() {
           provider: aExtended.discoveryProvider ?? "HEURISTIC",
           assessedAt: aExtended.createdAt.toISOString(),
           isOverridden: effective?.isOverridden ?? false,
-        } : null,
-        builderTrendTransfer: latestTransfer ? {
-          id: latestTransfer.id, status: latestTransfer.status,
-          attempts: latestTransfer.attempts, lastError: latestTransfer.lastError,
-          sentAt: latestTransfer.sentAt?.toISOString() ?? null,
-          workOrderUrl: latestTransfer.workOrderUrl ?? null,
-          externalStatus: latestTransfer.externalStatus ?? null,
-          lastStatusCallbackAt: latestTransfer.lastStatusCallbackAt?.toISOString() ?? null,
-          lastManualSyncAt: latestTransfer.lastManualSyncAt?.toISOString() ?? null,
         } : null,
         manualFallbackExport: latestFallbackExport ? {
           id: latestFallbackExport.id, status: latestFallbackExport.status,
@@ -325,7 +293,6 @@ export default async function AdminDashboardPage() {
           provider: "OPENAI",
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
         },
-        builderTrendTransfer: null,
         manualFallbackExport: null,
         submissionData: {
           name: "Margaret Higgins",
@@ -404,17 +371,6 @@ export default async function AdminDashboardPage() {
           provider: "OPENAI",
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(),
         },
-        builderTrendTransfer: {
-          id: "transfer-102",
-          status: "PENDING",
-          attempts: 1,
-          lastError: null,
-          sentAt: null,
-          workOrderUrl: null,
-          externalStatus: null,
-          lastStatusCallbackAt: null,
-          lastManualSyncAt: null,
-        },
         manualFallbackExport: null,
         submissionData: {
           name: "Arthur Pendelton",
@@ -474,7 +430,6 @@ export default async function AdminDashboardPage() {
           provider: "HEURISTIC",
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
         },
-        builderTrendTransfer: null,
         manualFallbackExport: null,
         submissionData: {
           name: "Elizabeth Vance",
@@ -552,7 +507,6 @@ export default async function AdminDashboardPage() {
           provider: "HEURISTIC",
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
         },
-        builderTrendTransfer: null,
         manualFallbackExport: null,
         submissionData: {
           name: "Robert Chen",
@@ -635,17 +589,6 @@ export default async function AdminDashboardPage() {
           ],
           provider: "OPENAI",
           assessedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString(),
-        },
-        builderTrendTransfer: {
-          id: "transfer-105",
-          status: "SENT",
-          attempts: 1,
-          lastError: null,
-          sentAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
-          workOrderUrl: null,
-          externalStatus: "IN_PROGRESS",
-          lastStatusCallbackAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-          lastManualSyncAt: null,
         },
         manualFallbackExport: null,
         submissionData: {

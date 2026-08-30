@@ -116,18 +116,6 @@ export default async function ProjectDetailPage({
             override: { select: { total: true } },
           },
         },
-        builderTrendTransfers: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: {
-            id: true,
-            status: true,
-            workOrderUrl: true,
-            externalStatus: true,
-            lastStatusCallbackAt: true,
-            lastManualSyncAt: true,
-          },
-        },
       },
     });
   } catch {
@@ -400,55 +388,6 @@ export default async function ProjectDetailPage({
           <p className="mt-2 text-sm text-gray-500">{estimateSummary.explanation}</p>
         </div>
 
-        {/* ═══════ Work Order (BuilderTrend) ═══════ */}
-        {project.builderTrendTransfers?.[0] && (
-          <div className="rounded-xl border bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-3">
-              <svg className="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-              </svg>
-              Work Order
-            </h2>
-            {(() => {
-              const transfer = project.builderTrendTransfers[0];
-              if (transfer.lastStatusCallbackAt) {
-                return (
-                  <>
-                    <p className="text-sm font-semibold text-gray-800">
-                      {getStatusLabel(transfer.externalStatus ?? transfer.status)}
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Last updated: {new Date(transfer.lastStatusCallbackAt).toLocaleString()}
-                    </p>
-                  </>
-                );
-              }
-
-              return (
-                <>
-                  <p className="text-sm text-gray-600">
-                    Live status updates aren&apos;t available for this work order yet.
-                  </p>
-                  {transfer.lastManualSyncAt && (
-                    <p className="mt-1 text-xs text-gray-500">
-                      Last manually synced: {new Date(transfer.lastManualSyncAt).toLocaleString()}
-                    </p>
-                  )}
-                </>
-              );
-            })()}
-            {project.builderTrendTransfers[0].workOrderUrl && (
-              <a
-                href={project.builderTrendTransfers[0].workOrderUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
-              >
-                View work order &rarr;
-              </a>
-            )}
-          </div>
-        )}
 
         {/* ═══════ Modification Items ═══════ */}
         {modificationItems.length > 0 && (

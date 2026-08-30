@@ -25,7 +25,7 @@ export default async function AdminAlertThresholdsPage() {
           </a>
           <h1 className="mt-2 text-3xl font-bold text-gray-900">Monitoring Alert Thresholds</h1>
           <p className="mt-2 text-gray-600">
-            Configure the failure-count/window thresholds (AI job, BuilderTrend transfer, email delivery, file
+            Configure the failure-count/window thresholds (AI job, email delivery, file
             scan) that trigger admin alerts.
           </p>
         </div>

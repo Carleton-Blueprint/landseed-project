@@ -43,7 +43,6 @@ const mockProjects: SerializedProject[] = [
       estimateMax: "200.00",
     },
     eligibility: null,
-    builderTrendTransfer: null,
     manualFallbackExport: null,
   },
   {
@@ -71,7 +70,6 @@ const mockProjects: SerializedProject[] = [
       estimateMax: "200.00",
     },
     eligibility: null,
-    builderTrendTransfer: null,
     manualFallbackExport: null,
   },
   {
@@ -90,7 +88,6 @@ const mockProjects: SerializedProject[] = [
     documentsPendingReview: 0,
     quote: null,
     eligibility: null,
-    builderTrendTransfer: null,
     manualFallbackExport: null,
   },
 ];

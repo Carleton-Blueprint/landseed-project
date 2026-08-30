@@ -52,9 +52,10 @@ const PROJECT_STATUS_STYLES: Record<ProjectStatus, { label: string; badge: strin
 /** Mirrors ALLOWED_TRANSITIONS in src/backend/services/projectStatusLifecycle.ts.
  * Duplicated here (rather than imported) since that module is server-only.
  * Only ESTIMATE_ACCEPTED has outgoing transitions through this panel — every
- * other status change (DRAFT→SUBMITTED, the estimate sub-states, WORK_*) is
- * driven by its own service or by inbound BuilderTrend callbacks, not by an
- * admin action here. */
+ * other status change (DRAFT→SUBMITTED, the estimate sub-states) is driven by
+ * its own service, not by an admin action here. The WORK_* statuses have no
+ * driver at all currently — they were previously set by inbound BuilderTrend
+ * callbacks, which have been removed. */
 const ALLOWED_TRANSITIONS: Partial<Record<ProjectStatus, ProjectStatus[]>> = {
   ESTIMATE_ACCEPTED: ["APPROVED", "REJECTED"],
 };

@@ -1,7 +1,7 @@
 /**
  * API Route: /api/admin/alert-thresholds
- * GET: list all monitoring alert thresholds (AI job, BuilderTrend transfer,
- *      email delivery, file scan failures).
+ * GET: list all monitoring alert thresholds (AI job, email delivery, file
+ *      scan failures).
  * PATCH: update one threshold's count/window/enabled flag.
  * Auth: NextAuth (admin/advisory only, and the actor must have MFA enrolled).
  */

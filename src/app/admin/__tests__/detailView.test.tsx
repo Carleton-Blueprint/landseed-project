@@ -37,7 +37,6 @@ const mockProjectWithSubmission: SerializedProject = {
   documentsPendingReview: 0,
   quote: null,
   eligibility: null,
-  builderTrendTransfer: null,
   manualFallbackExport: null,
   submissionData: {
     name: "Eleanor Vance",
@@ -91,7 +90,6 @@ const mockProjectEmptySubmission: SerializedProject = {
   documentsPendingReview: 0,
   quote: null,
   eligibility: null,
-  builderTrendTransfer: null,
   manualFallbackExport: null,
 };
 
