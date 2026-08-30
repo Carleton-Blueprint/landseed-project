@@ -20,6 +20,7 @@
 import "dotenv/config";
 import { ProjectStatus } from "@prisma/client";
 import { createVirusScanWorker, aiJobsQueue } from "./index";
+import { registerShutdownHandler } from "./shutdownRegistry";
 import { prisma } from "lib/prisma";
 import { PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE } from "@/backend/services/photoAnalysis";
 import { GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
@@ -367,18 +368,6 @@ console.log(`🛡️  ClamAV: ${process.env.CLAMAV_HOST ?? "localhost"}:${proces
 console.log(`⏳ Waiting for jobs from queue: "virus-scan"`);
 console.log("=".repeat(60) + "\n");
 
-// Graceful shutdown handler
-// Triggered by Ctrl+C or system signals
-process.on("SIGTERM", async () => {
-  console.log("\n⚠️  SIGTERM received. Closing worker gracefully...");
+registerShutdownHandler("virus-scan", async () => {
   await worker.close();
-  console.log("✅ Worker closed. Exiting.");
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  console.log("\n⚠️  SIGINT received (Ctrl+C). Closing worker gracefully...");
-  await worker.close();
-  console.log("✅ Worker closed. Exiting.");
-  process.exit(0);
 });

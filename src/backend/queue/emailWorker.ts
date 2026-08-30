@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { NotificationEventType } from "@prisma/client";
 import { createEmailWorker } from "@/backend/queue";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 import { processNotification } from "@/backend/notifications/service";
 import { recordFailureAndMaybeAlert } from "@/backend/services/criticalFailureAlerts";
 import { ALERT_THRESHOLD_KEYS } from "@/backend/services/alertThresholds";
@@ -72,12 +73,6 @@ worker.on("error", (err) => {
 
 console.log("Email worker started and listening on queue: email");
 
-process.on("SIGTERM", async () => {
+registerShutdownHandler("email", async () => {
   await worker.close();
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  await worker.close();
-  process.exit(0);
 });

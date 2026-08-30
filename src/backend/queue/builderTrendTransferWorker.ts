@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { createBuilderTrendTransferWorker } from "@/backend/queue";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 import {
   processBuilderTrendTransfer,
   triggerManualFallbackForExhaustedTransfer,
@@ -53,12 +54,6 @@ worker.on("error", (err) => {
 
 console.log("BuilderTrend transfer worker started and listening on queue: buildertrend-transfer");
 
-process.on("SIGTERM", async () => {
+registerShutdownHandler("buildertrend-transfer", async () => {
   await worker.close();
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  await worker.close();
-  process.exit(0);
 });

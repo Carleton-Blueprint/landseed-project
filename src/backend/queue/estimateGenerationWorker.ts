@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { createEstimateGenerationWorker } from "@/backend/queue";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 import { processScheduledEstimateGeneration } from "@/backend/services/estimateGeneration";
 
 const worker = createEstimateGenerationWorker(async (job) => {
@@ -35,12 +36,6 @@ worker.on("error", (err) => {
 
 console.log("Estimate generation worker started and listening on queue: estimate-generation");
 
-process.on("SIGTERM", async () => {
+registerShutdownHandler("estimate-generation", async () => {
   await worker.close();
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  await worker.close();
-  process.exit(0);
 });

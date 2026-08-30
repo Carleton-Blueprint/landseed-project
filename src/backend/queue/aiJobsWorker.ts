@@ -13,6 +13,7 @@
  */
 import "dotenv/config";
 import { createAiJobsWorker } from "@/backend/queue";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 import {
   PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE,
   processPhotoModificationAnalysisJob,
@@ -98,12 +99,6 @@ worker.on("error", (err) => {
 
 console.log("AI jobs worker started and listening on queue: ai-jobs");
 
-process.on("SIGTERM", async () => {
+registerShutdownHandler("ai-jobs", async () => {
   await worker.close();
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  await worker.close();
-  process.exit(0);
 });

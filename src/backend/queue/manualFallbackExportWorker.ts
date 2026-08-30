@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { createManualFallbackExportWorker } from "@/backend/queue";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 import { processManualFallbackExport } from "@/backend/services/manualFallbackExport";
 
 const worker = createManualFallbackExportWorker(async (job) => {
@@ -29,12 +30,6 @@ worker.on("error", (err) => {
 
 console.log("Manual fallback export worker started and listening on queue: manual-fallback-export");
 
-process.on("SIGTERM", async () => {
+registerShutdownHandler("manual-fallback-export", async () => {
   await worker.close();
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  await worker.close();
-  process.exit(0);
 });

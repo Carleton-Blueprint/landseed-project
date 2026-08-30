@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { createGrantMatchSummaryWorker } from "@/backend/queue";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 import { generateAndStoreGrantMatchSummaryDocument } from "@/backend/services/grantMatchSummaryDocument";
 
 const worker = createGrantMatchSummaryWorker(async (job) => {
@@ -29,12 +30,6 @@ worker.on("error", (err) => {
 
 console.log("Grant match summary worker started and listening on queue: grant-match-summary");
 
-process.on("SIGTERM", async () => {
+registerShutdownHandler("grant-match-summary", async () => {
   await worker.close();
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  await worker.close();
-  process.exit(0);
 });
