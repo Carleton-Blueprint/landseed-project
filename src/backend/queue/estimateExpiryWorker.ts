@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { expireInactiveQuotes } from "@/backend/services/quoteExpiration";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 
 const SCAN_INTERVAL_MS = Number(process.env.ESTIMATE_EXPIRY_SCAN_INTERVAL_MS ?? 15 * 60 * 1000); // default 15 mins
 const INACTIVITY_DAYS = Number(process.env.ESTIMATE_EXPIRY_INACTIVITY_DAYS ?? 30); // default 30 days
@@ -47,13 +48,9 @@ sweepTimer = setInterval(() => {
   void runSweep(); // run expiry checks/sweeps every SCAN_INTERVAL_MS
 }, SCAN_INTERVAL_MS);
 
-async function shutdown() {
+registerShutdownHandler("estimate-expiry", () => {
   if (sweepTimer) {
     clearInterval(sweepTimer);
     sweepTimer = null;
   }
-  process.exit(0);
-}
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+});

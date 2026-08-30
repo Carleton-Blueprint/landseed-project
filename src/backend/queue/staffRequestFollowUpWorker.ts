@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { flagStaleInformationRequests } from "@/backend/services/informationRequestFollowUp";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 
 const SCAN_INTERVAL_MS = Number(process.env.STAFF_REQUEST_FOLLOWUP_SCAN_INTERVAL_MS ?? 15 * 60 * 1000); // default 15 mins
 const FOLLOW_UP_DAYS = Number(process.env.STAFF_REQUEST_FOLLOWUP_DAYS ?? 7); // default 7 days
@@ -47,13 +48,9 @@ sweepTimer = setInterval(() => {
   void runSweep();
 }, SCAN_INTERVAL_MS);
 
-async function shutdown() {
+registerShutdownHandler("staff-request-followup", () => {
   if (sweepTimer) {
     clearInterval(sweepTimer);
     sweepTimer = null;
   }
-  process.exit(0);
-}
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+});

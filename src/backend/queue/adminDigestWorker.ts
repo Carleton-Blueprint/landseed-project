@@ -19,6 +19,7 @@
  */
 import "dotenv/config";
 import { sendDailyDigest, runCatchUpIfNeeded } from "@/backend/services/adminDigest";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 
 const DIGEST_HOUR_UTC = Number(process.env.ADMIN_DIGEST_HOUR_UTC ?? 13); // default 13:00 UTC
 
@@ -69,13 +70,9 @@ void runCatchUpIfNeeded(DIGEST_HOUR_UTC).then((result) => {
   scheduleNext();
 });
 
-async function shutdown() {
+registerShutdownHandler("admin-digest", () => {
   if (digestTimer) {
     clearTimeout(digestTimer);
     digestTimer = null;
   }
-  process.exit(0);
-}
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+});

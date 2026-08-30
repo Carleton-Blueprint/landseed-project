@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { registerShutdownHandler } from "@/backend/queue/shutdownRegistry";
 import { prisma } from "lib/prisma";
 import { enqueueNotification } from "@/backend/notifications/enqueue";
 import { NotificationEventType } from "@prisma/client";
@@ -140,12 +141,6 @@ scanTimer = setInterval(() => {
   void runScan();
 }, SCAN_INTERVAL_MS);
 
-process.on("SIGTERM", () => {
+registerShutdownHandler("account-deletion", () => {
   if (scanTimer) clearInterval(scanTimer);
-  process.exit(0);
-});
-
-process.on("SIGINT", () => {
-  if (scanTimer) clearInterval(scanTimer);
-  process.exit(0);
 });
