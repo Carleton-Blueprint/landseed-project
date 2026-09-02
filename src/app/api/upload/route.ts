@@ -140,21 +140,24 @@ export async function POST(request: NextRequest) {
 
     // Add virus scan job to Redis queue (non-blocking)
     // The worker will process this asynchronously
-    await virusScanQueue.add(
-      `scan-${photo.id}`,  // Job name (unique identifier)
-      { 
-        key: s3Key,                              // S3 file path
-        photoId: photo.id,                       // Database record ID
-        bucket: S3_BUCKET   // R2 bucket name
-      },
-      { 
-        priority: 1,              // High priority (1 = highest)
-        removeOnComplete: 100,    // Keep last 100 completed jobs for debugging
-        removeOnFail: 500,        // Keep last 500 failed jobs for analysis
-      }
-    );
-
-    console.log(`✅ Photo ${photo.id} uploaded. Virus scan job queued.`);
+    try {
+      await virusScanQueue.add(
+        `scan-${photo.id}`,  // Job name (unique identifier)
+        {
+          key: s3Key,                              // S3 file path
+          photoId: photo.id,                       // Database record ID
+          bucket: S3_BUCKET   // R2 bucket name
+        },
+        {
+          priority: 1,              // High priority (1 = highest)
+          removeOnComplete: 100,    // Keep last 100 completed jobs for debugging
+          removeOnFail: 500,        // Keep last 500 failed jobs for analysis
+        }
+      );
+      console.log(`✅ Photo ${photo.id} uploaded. Virus scan job queued.`);
+    } catch (queueError) {
+      console.error(`Failed to queue virus scan for photo ${photo.id}:`, queueError);
+    }
 
     const displayUrl = await signPhotoUrlForDisplay(photo.url);
 

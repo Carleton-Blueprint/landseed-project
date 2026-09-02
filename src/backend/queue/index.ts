@@ -262,7 +262,12 @@ export async function closeQueueConnections(): Promise<void> {
     closeIfCloseable(estimateGenerationQueue),
     closeIfCloseable(grantMatchSummaryQueue),
   ]);
-  if (typeof producerConnection.quit === "function") {
-    await producerConnection.quit();
+  // disconnect(), not quit(): quit() sends an actual QUIT command over the
+  // socket, which throws given enableOfflineQueue: false if the connection
+  // was never established (e.g. no reachable Redis in a test environment).
+  // disconnect() tears down the socket directly without sending anything,
+  // so it can't hit that failure mode.
+  if (typeof producerConnection.disconnect === "function") {
+    producerConnection.disconnect();
   }
 }

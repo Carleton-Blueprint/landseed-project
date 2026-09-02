@@ -17,46 +17,53 @@ export async function enqueueNotification(payload: NotificationJobPayload): Prom
     payload.eventType === NotificationEventType.EMAIL_CHANGE_VERIFY_OLD ||
     payload.eventType === NotificationEventType.EMAIL_CHANGE_VERIFY_NEW;
 
-  await emailQueue.add(
-    `notify-${payload.idempotencyKey}`,
-    {
-      eventType: payload.eventType,
-      idempotencyKey: payload.idempotencyKey,
-      recipientEmail: payload.recipientEmail,
-      recipientName: payload.recipientName,
-      userId: payload.userId,
-      projectId: payload.projectId,
-      projectAddress: payload.projectAddress,
-      estimateLink: payload.estimateLink,
-      estimateMin: payload.estimateMin,
-      estimateMax: payload.estimateMax,
-      previousTotal: payload.previousTotal,
-      newTotal: payload.newTotal,
-      questionCategory: payload.questionCategory,
-      questionSubject: payload.questionSubject,
-      fileName: payload.fileName,
-      documentType: payload.documentType,
-      manualReviewReason: payload.manualReviewReason,
-      manualReviewDescription: payload.manualReviewDescription,
-      subject: payload.subject,
-      html: payload.html,
-      text: payload.text,
-      noticeId: payload.noticeId,
-      accountDeletionRequestId: payload.accountDeletionRequestId,
-      scheduledFor: payload.scheduledFor,
-      authActionLink: payload.authActionLink,
-      seniorName: payload.seniorName,
-      isCaregiverSubmission: payload.isCaregiverSubmission,
-      senderId: payload.senderId,
-      linkedResourceId: payload.linkedResourceId,
-      informationRequestType: payload.informationRequestType,
-      informationRequestMessage: payload.informationRequestMessage,
-      newEmail: payload.newEmail,
-    },
-    {
-      removeOnComplete: 100,
-      removeOnFail: 500,
-      priority: isEstimateLifecycleEvent || isAuthEvent ? 1 : 2,
-    }
-  );
+  try {
+    await emailQueue.add(
+      `notify-${payload.idempotencyKey}`,
+      {
+        eventType: payload.eventType,
+        idempotencyKey: payload.idempotencyKey,
+        recipientEmail: payload.recipientEmail,
+        recipientName: payload.recipientName,
+        userId: payload.userId,
+        projectId: payload.projectId,
+        projectAddress: payload.projectAddress,
+        estimateLink: payload.estimateLink,
+        estimateMin: payload.estimateMin,
+        estimateMax: payload.estimateMax,
+        previousTotal: payload.previousTotal,
+        newTotal: payload.newTotal,
+        questionCategory: payload.questionCategory,
+        questionSubject: payload.questionSubject,
+        fileName: payload.fileName,
+        documentType: payload.documentType,
+        manualReviewReason: payload.manualReviewReason,
+        manualReviewDescription: payload.manualReviewDescription,
+        subject: payload.subject,
+        html: payload.html,
+        text: payload.text,
+        noticeId: payload.noticeId,
+        accountDeletionRequestId: payload.accountDeletionRequestId,
+        scheduledFor: payload.scheduledFor,
+        authActionLink: payload.authActionLink,
+        seniorName: payload.seniorName,
+        isCaregiverSubmission: payload.isCaregiverSubmission,
+        senderId: payload.senderId,
+        linkedResourceId: payload.linkedResourceId,
+        informationRequestType: payload.informationRequestType,
+        informationRequestMessage: payload.informationRequestMessage,
+        newEmail: payload.newEmail,
+      },
+      {
+        removeOnComplete: 100,
+        removeOnFail: 500,
+        priority: isEstimateLifecycleEvent || isAuthEvent ? 1 : 2,
+      }
+    );
+  } catch (queueError) {
+    console.error(
+      `Failed to queue email notification (eventType: ${payload.eventType}, idempotencyKey: ${payload.idempotencyKey}):`,
+      queueError
+    );
+  }
 }

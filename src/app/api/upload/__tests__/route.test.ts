@@ -95,6 +95,24 @@ describe("POST /api/upload", () => {
     expect(prisma.photo.create).toHaveBeenCalled();
   });
 
+  it("still returns success when the virus-scan enqueue fails (e.g. producer connection unreachable)", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (hasProjectAccess as jest.Mock).mockResolvedValue(true);
+    (uploadToS3 as jest.Mock).mockResolvedValue("https://s3.example.com/photo.jpg");
+    (prisma.photo.create as jest.Mock).mockResolvedValue({
+      id: "photo-1",
+      url: "https://s3.example.com/photo.jpg",
+      projectId: "project-1",
+      virus_scan_status: "pending",
+    });
+    (virusScanQueue.add as jest.Mock).mockRejectedValue(new Error("Stream isn't writeable"));
+
+    const res = await POST(buildFormDataRequest());
+
+    expect(res.status).toBe(200);
+    expect(prisma.photo.create).toHaveBeenCalled();
+  });
+
   it("persists declared modification codes when provided", async () => {
     (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
     (hasProjectAccess as jest.Mock).mockResolvedValue(true);
