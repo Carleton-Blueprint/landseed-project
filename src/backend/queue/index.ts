@@ -2,21 +2,40 @@
  * Redis-backed job queues (BullMQ). virusScanQueue: for scanning uploaded files; aiJobsQueue: for
  * OpenAI or other AI tasks. Create workers with createVirusScanWorker / createAiJobsWorker and run
  * them in a separate process or serverless handler. Set REDIS_URL in env.
+ *
+ * Two separate connections, per BullMQ's own guidance for producers vs. consumers: Queue.add()
+ * callers (Vercel API routes, and services invoked from within worker processes) use
+ * producerConnection, which fails fast when Redis is unreachable instead of hanging — important
+ * since a Vercel serverless function has a hard execution timeout it would otherwise hang toward.
+ * Worker instances use workerConnection, which retries indefinitely, since a long-lived Railway
+ * worker process can afford to wait out a Redis blip.
  */
 import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 
-const connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379", {
+const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
+
+const producerConnection = new IORedis(redisUrl, {
+  // Bounded (unlike workerConnection below): a command still in flight when
+  // the connection drops should fail fast, not wait out reconnect attempts
+  // indefinitely — enableOfflineQueue only fails fast for commands issued
+  // while already disconnected, not ones that were already sent.
+  maxRetriesPerRequest: 1,
+  enableOfflineQueue: false,
+  connectTimeout: 5000,
+});
+
+const workerConnection = new IORedis(redisUrl, {
   maxRetriesPerRequest: null,
 });
 
 export const virusScanQueue = new Queue<{ key: string; photoId: string; bucket?: string }>("virus-scan", {
-  connection,
+  connection: producerConnection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 1000 } },
 });
 
 export const aiJobsQueue = new Queue<{ jobType: string; payload: unknown }>("ai-jobs", {
-  connection,
+  connection: producerConnection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
 });
 
@@ -56,7 +75,7 @@ export const emailQueue = new Queue<{
   informationRequestMessage?: string;
   newEmail?: string | null;
 }>("email", {
-  connection,
+  connection: producerConnection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 2000 } },
 });
 
@@ -71,7 +90,7 @@ export const manualReviewQueue = new Queue<{
   photoId?: string;
   metadata?: Record<string, unknown>;
 }>("manual-review", {
-  connection,
+  connection: producerConnection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 1000 } },
 });
 
@@ -85,7 +104,7 @@ export const manualFallbackExportQueue = new Queue<{
   retentionDays: number;
   maxSizeBytes?: number;
 }>("manual-fallback-export", {
-  connection,
+  connection: producerConnection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
 });
 
@@ -93,7 +112,7 @@ export const estimateGenerationQueue = new Queue<{
   projectId: string;
   actorUserId?: string;
 }>("estimate-generation", {
-  connection,
+  connection: producerConnection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
 });
 
@@ -102,20 +121,20 @@ export const grantMatchSummaryQueue = new Queue<{
   actorUserId: string;
   force?: boolean;
 }>("grant-match-summary", {
-  connection,
+  connection: producerConnection,
   defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 3000 } },
 });
 
 export function createVirusScanWorker(
   processor: (job: { data: { key: string; photoId: string; bucket?: string } }) => Promise<void>
 ) {
-  return new Worker("virus-scan", processor, { connection });
+  return new Worker("virus-scan", processor, { connection: workerConnection });
 }
 
 export function createAiJobsWorker(
   processor: (job: { data: { jobType: string; payload: unknown } }) => Promise<void>
 ) {
-  return new Worker("ai-jobs", processor, { connection });
+  return new Worker("ai-jobs", processor, { connection: workerConnection });
 }
 
 export function createEmailWorker(
@@ -158,7 +177,7 @@ export function createEmailWorker(
     };
   }) => Promise<void>
 ) {
-  return new Worker("email", processor, { connection });
+  return new Worker("email", processor, { connection: workerConnection });
 }
 
 export function createManualReviewWorker(
@@ -174,7 +193,7 @@ export function createManualReviewWorker(
     };
   }) => Promise<void>
 ) {
-  return new Worker("manual-review", processor, { connection });
+  return new Worker("manual-review", processor, { connection: workerConnection });
 }
 
 export function createManualFallbackExportWorker(
@@ -191,7 +210,7 @@ export function createManualFallbackExportWorker(
     };
   }) => Promise<void>
 ) {
-  return new Worker("manual-fallback-export", processor, { connection });
+  return new Worker("manual-fallback-export", processor, { connection: workerConnection });
 }
 
 export function createEstimateGenerationWorker(
@@ -202,7 +221,7 @@ export function createEstimateGenerationWorker(
     };
   }) => Promise<void>
 ) {
-  return new Worker("estimate-generation", processor, { connection });
+  return new Worker("estimate-generation", processor, { connection: workerConnection });
 }
 
 export function createGrantMatchSummaryWorker(
@@ -214,7 +233,7 @@ export function createGrantMatchSummaryWorker(
     };
   }) => Promise<void>
 ) {
-  return new Worker("grant-match-summary", processor, { connection });
+  return new Worker("grant-match-summary", processor, { connection: workerConnection });
 }
 
 // Some tests mock bullmq/ioredis themselves and load this module for real to
@@ -231,7 +250,8 @@ async function closeIfCloseable(target: { close?: () => Promise<unknown> }): Pro
 // BullMQ does not close an externally-provided connection when a Queue is
 // closed, since it assumes the caller owns that connection's lifecycle.
 // Callers (e.g. test teardown) that want to fully release the shared
-// connection must close all queues first, then this.
+// producer connection must close all queues first, then this. Workers (and
+// workerConnection) are closed separately via shutdownRegistry.
 export async function closeQueueConnections(): Promise<void> {
   await Promise.all([
     closeIfCloseable(virusScanQueue),
@@ -242,7 +262,7 @@ export async function closeQueueConnections(): Promise<void> {
     closeIfCloseable(estimateGenerationQueue),
     closeIfCloseable(grantMatchSummaryQueue),
   ]);
-  if (typeof connection.quit === "function") {
-    await connection.quit();
+  if (typeof producerConnection.quit === "function") {
+    await producerConnection.quit();
   }
 }
