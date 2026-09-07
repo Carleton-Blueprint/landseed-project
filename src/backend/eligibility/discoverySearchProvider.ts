@@ -55,6 +55,10 @@ export interface GrantDiscoveryEvaluationResult {
   missingRequirements: string[];
   discoveredGrants: DiscoveredGrant[];
   discoveryMetadata: GrantDiscoveryMetadata;
+  /** Heuristic-enriched sources (post loadDiscoverySources merge) that fed heuristic scoring. */
+  sourcesSnapshot: GrantDiscoverySourceEntry[];
+  /** Raw decisions as returned by OpenAI, before dedup/merge with heuristic candidates. Null if AI wasn't attempted or produced nothing usable. */
+  openAiResponseEntries: LlmGrantDecision[] | null;
 }
 
 export interface GrantDiscoverySearchProvider {
@@ -66,7 +70,7 @@ export interface GrantDiscoveryMetadataOverrides
   executedAt?: string;
 }
 
-interface LlmGrantDecision {
+export interface LlmGrantDecision {
   grantId: string;
   title: string;
   scope: GrantDiscoveryScope;
@@ -904,7 +908,9 @@ export function detectCatalogContradictions(
 function buildDiscoveryResult(
   input: EligibilityInput,
   evaluations: DiscoveryCandidateEvaluation[],
-  metadataOverrides: Partial<GrantDiscoveryMetadata>
+  metadataOverrides: Partial<GrantDiscoveryMetadata>,
+  sourcesSnapshot: GrantDiscoverySourceEntry[],
+  openAiResponseEntries: LlmGrantDecision[] | null
 ): GrantDiscoveryEvaluationResult {
   const discoveredGrants = evaluations.map((item) => ({
     grantId: item.source.id,
@@ -950,6 +956,8 @@ function buildDiscoveryResult(
     missingRequirements: input.missingRequiredFields.map(String),
     discoveredGrants,
     discoveryMetadata: metadata,
+    sourcesSnapshot,
+    openAiResponseEntries,
   };
 }
 
@@ -1027,12 +1035,14 @@ export async function discoverAndEvaluateGrants(
   let provider: GrantDiscoveryProvider = 'HEURISTIC';
   let finalCandidates = heuristicCandidates;
   let aiFailureReason: string | null = null;
+  let openAiResponseEntries: LlmGrantDecision[] | null = null;
 
   try {
     // Step 3: AI web search
     debug('MAIN', 'Step 3 — attempting AI web search...');
     const { decisions: llmDecisions, failureReason } = await tryOpenAiWebSearch(input, heuristicCandidates);
     aiFailureReason = failureReason;
+    openAiResponseEntries = llmDecisions;
 
     if (llmDecisions && llmDecisions.length > 0) {
       provider = 'OPENAI';
@@ -1082,15 +1092,21 @@ export async function discoverAndEvaluateGrants(
     decision: c.decision,
   })));
 
-  const result = buildDiscoveryResult(input, finalCandidates, {
-    provider,
-    query,
-    sourceSnapshotId,
-    candidateCount: sources.length,
-    returnedCount: finalCandidates.length,
-    executedAt: new Date().toISOString(),
-    aiFailureReason: provider === 'HEURISTIC' ? aiFailureReason : null,
-  });
+  const result = buildDiscoveryResult(
+    input,
+    finalCandidates,
+    {
+      provider,
+      query,
+      sourceSnapshotId,
+      candidateCount: sources.length,
+      returnedCount: finalCandidates.length,
+      executedAt: new Date().toISOString(),
+      aiFailureReason: provider === 'HEURISTIC' ? aiFailureReason : null,
+    },
+    sources,
+    openAiResponseEntries
+  );
 
   debug('MAIN', '=== discoverAndEvaluateGrants END ===', {
     overallDecision: result.overallDecision,
