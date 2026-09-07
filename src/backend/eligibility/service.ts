@@ -86,6 +86,8 @@ export async function evaluateProjectEligibility(
       discoveryScoringVersion: evaluation.discoveryMetadata.scoringVersion,
       discoveryModelVersion: evaluation.discoveryMetadata.modelVersion,
       discoverySourceSnapshotId: evaluation.discoveryMetadata.sourceSnapshotId,
+      discoverySourcesSnapshot: evaluation.sourcesSnapshot as unknown as Prisma.InputJsonValue,
+      discoveryOpenAiResponseEntries: evaluation.openAiResponseEntries as unknown as Prisma.InputJsonValue | null,
     });
 
     if (!assessment) {

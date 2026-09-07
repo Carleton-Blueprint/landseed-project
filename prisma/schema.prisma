@@ -44,35 +44,35 @@ model User {
 }
 
 model Project {
-  id                               String                            @id @default(cuid())
-  address                          String
-  status                           ProjectStatus                     @default(DRAFT)
-  userId                           String
-  createdAt                        DateTime                          @default(now())
-  updatedAt                        DateTime                          @updatedAt
-  draftData                        Json?
-  grantDocumentKey                 String?
-  isManualMode                     Boolean                           @default(false)
-  user                             User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectAccess                    ProjectAccess[]
-  photos                           Photo[]
-  documents                        Document[]
-  quotes                           Quote[]
-  manualModeSubmission             ManualModeSubmission?
-  manualFallbackExports            ManualFallbackExport[]
-  eligibilityAssessments           EligibilityAssessment[]
-  grantMatchSummaryDocuments       GrantMatchSummaryDocument[]
-  estimateDocuments                EstimateDocument[]
-  statusHistory                    ProjectStatusHistory[]
-  notifications                    NotificationDelivery[]
-  auditEvents                      AuditEvent[]
-  manualReviewFlag                 ProjectManualReviewFlag?
-  communicationHistory             CommunicationHistory[]
-  consultationRequest              ConsultationRequest?
-  intakeDraft                      IntakeDraft?
-  staffNotes                       ProjectStaffNote[]
-  informationRequests              InformationRequest[]
-  grantSignatures                  GrantSignature[]
+  id                         String                      @id @default(cuid())
+  address                    String
+  status                     ProjectStatus               @default(DRAFT)
+  userId                     String
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  draftData                  Json?
+  grantDocumentKey           String?
+  isManualMode               Boolean                     @default(false)
+  user                       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectAccess              ProjectAccess[]
+  photos                     Photo[]
+  documents                  Document[]
+  quotes                     Quote[]
+  manualModeSubmission       ManualModeSubmission?
+  manualFallbackExports      ManualFallbackExport[]
+  eligibilityAssessments     EligibilityAssessment[]
+  grantMatchSummaryDocuments GrantMatchSummaryDocument[]
+  estimateDocuments          EstimateDocument[]
+  statusHistory              ProjectStatusHistory[]
+  notifications              NotificationDelivery[]
+  auditEvents                AuditEvent[]
+  manualReviewFlag           ProjectManualReviewFlag?
+  communicationHistory       CommunicationHistory[]
+  consultationRequest        ConsultationRequest?
+  intakeDraft                IntakeDraft?
+  staffNotes                 ProjectStaffNote[]
+  informationRequests        InformationRequest[]
+  grantSignatures            GrantSignature[]
 }
 
 model IntakeDraft {
@@ -464,25 +464,27 @@ model AdminDigestDeliveryFailure {
 }
 
 model EligibilityAssessment {
-  id                        String              @id @default(cuid())
-  projectId                 String
-  overallDecision           EligibilityDecision
-  programDecisions          Json
-  reasonCodes               Json
-  missingRequirements       Json
-  isLatest                  Boolean             @default(true)
-  createdAt                 DateTime            @default(now())
-  updatedAt                 DateTime            @updatedAt
-  discoveredGrants          Json?
-  discoveryMetadata         Json?
-  discoveryProvider         String?
-  discoveryEngineVersion    String?
-  discoveryPromptVersion    String?
-  discoveryScoringVersion   String?
-  discoveryModelVersion     String?
-  discoverySourceSnapshotId String?
-  project                   Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  quotes                    Quote[]
+  id                             String              @id @default(cuid())
+  projectId                      String
+  overallDecision                EligibilityDecision
+  programDecisions               Json
+  reasonCodes                    Json
+  missingRequirements            Json
+  isLatest                       Boolean             @default(true)
+  createdAt                      DateTime            @default(now())
+  updatedAt                      DateTime            @updatedAt
+  discoveredGrants               Json?
+  discoveryMetadata              Json?
+  discoveryProvider              String?
+  discoveryEngineVersion         String?
+  discoveryPromptVersion         String?
+  discoveryScoringVersion        String?
+  discoveryModelVersion          String?
+  discoverySourceSnapshotId      String?
+  discoverySourcesSnapshot       Json?
+  discoveryOpenAiResponseEntries Json?
+  project                        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quotes                         Quote[]
   // Also enforced in the DB (not expressible in this DSL): a partial unique
   // index on (projectId) WHERE isLatest = true - see migration
   // 20260820150000_add_eligibility_assessment_latest_unique_index.

@@ -16,6 +16,8 @@ export interface CreateEligibilityAssessmentSnapshotInput {
   discoveryScoringVersion?: string;
   discoveryModelVersion?: string;
   discoverySourceSnapshotId?: string | null;
+  discoverySourcesSnapshot?: Prisma.InputJsonValue;
+  discoveryOpenAiResponseEntries?: Prisma.InputJsonValue | null;
 }
 
 interface EligibilityAssessmentRow {
@@ -33,6 +35,8 @@ interface EligibilityAssessmentRow {
   discoveryScoringVersion: string | null;
   discoveryModelVersion: string | null;
   discoverySourceSnapshotId: string | null;
+  discoverySourcesSnapshot: Prisma.JsonValue | null;
+  discoveryOpenAiResponseEntries: Prisma.JsonValue | null;
   isLatest: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -85,6 +89,8 @@ export async function createEligibilityAssessmentSnapshot(
           "discoveryScoringVersion",
           "discoveryModelVersion",
           "discoverySourceSnapshotId",
+          "discoverySourcesSnapshot",
+          "discoveryOpenAiResponseEntries",
           "isLatest",
           "createdAt",
           "updatedAt"
@@ -104,6 +110,8 @@ export async function createEligibilityAssessmentSnapshot(
           ${input.discoveryScoringVersion ?? null},
           ${input.discoveryModelVersion ?? null},
           ${input.discoverySourceSnapshotId ?? null},
+          CAST(${JSON.stringify(input.discoverySourcesSnapshot ?? null)} AS JSONB),
+          CAST(${JSON.stringify(input.discoveryOpenAiResponseEntries ?? null)} AS JSONB),
           true,
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP
