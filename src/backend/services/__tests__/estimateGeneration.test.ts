@@ -223,6 +223,57 @@ describe("processScheduledEstimateGeneration", () => {
     expect(mockedQueueEligibility).toHaveBeenCalledWith("proj-3");
   });
 
+  it("quotes quantity 2 when two photos declare the same modification code", async () => {
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: "proj-5",
+      status: "SUBMITTED",
+      photos: [
+        { declaredModificationCodes: ["GRAB_BARS"] },
+        { declaredModificationCodes: ["GRAB_BARS"] },
+      ],
+      quotes: [],
+    });
+
+    mockedGenerateQuote.mockResolvedValue({
+      quoteId: "quote-new-5",
+      subtotal: 360,
+      total: 500,
+      eligibilityAssessmentId: undefined,
+      estimateMin: 450,
+      estimateMax: 550,
+      pricingSource: "serp_api",
+      refinedEstimate: {
+        lineItems: [],
+        modificationTotals: [],
+        subtotal: 360,
+        laborTotal: 100,
+        markupTotal: 40,
+        total: 500,
+        estimateMin: 450,
+        estimateMax: 550,
+      },
+    });
+    mockedMarkEstimateReady.mockResolvedValue({
+      projectId: "proj-5",
+      quoteId: "quote-new-5",
+      projectStatus: "estimate_ready",
+      triggerSource: "delayed-estimate-generation",
+      notificationIdempotencyKey: "estimate-ready:quote-new-5",
+      notified: true,
+      notificationQueuedAt: "2026-06-15T10:05:00.000Z",
+    });
+
+    await processScheduledEstimateGeneration({ projectId: "proj-5" });
+
+    expect(mockedGenerateQuote).toHaveBeenCalledWith({
+      projectId: "proj-5",
+      items: [
+        { description: "Grab Bars", quantity: 2, unitPrice: 180, modificationCode: "GRAB_BARS" },
+      ],
+      modificationCodes: ["GRAB_BARS"],
+    });
+  });
+
   it("still queues eligibility evaluation and rethrows when quote generation fails", async () => {
     mockedPrisma.project.findUnique.mockResolvedValue({
       id: "proj-4",
