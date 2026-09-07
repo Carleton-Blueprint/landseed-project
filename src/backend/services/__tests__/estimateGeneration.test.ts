@@ -77,15 +77,28 @@ describe("estimateGeneration delay config", () => {
 
 describe("buildQuoteItems", () => {
   it("falls back to a default line item when there are no modification codes", () => {
-    expect(buildQuoteItems([])).toEqual([
+    expect(buildQuoteItems(new Map())).toEqual([
       { description: "Home modifications (initial intake estimate)", quantity: 1, unitPrice: 150 },
     ]);
   });
 
   it("maps modification codes into quote items with catalog-derived pricing", () => {
-    expect(buildQuoteItems(["GRAB_BARS", "WALK_IN_SHOWER"])).toEqual([
+    expect(
+      buildQuoteItems(
+        new Map([
+          ["GRAB_BARS", 1],
+          ["WALK_IN_SHOWER", 1],
+        ])
+      )
+    ).toEqual([
       { description: "Grab Bars", quantity: 1, unitPrice: 180, modificationCode: "GRAB_BARS" },
       { description: "Walk-In Shower", quantity: 1, unitPrice: 4800, modificationCode: "WALK_IN_SHOWER" },
+    ]);
+  });
+
+  it("sets quantity from the code's count instead of hardcoding 1", () => {
+    expect(buildQuoteItems(new Map([["GRAB_BARS", 2]]))).toEqual([
+      { description: "Grab Bars", quantity: 2, unitPrice: 180, modificationCode: "GRAB_BARS" },
     ]);
   });
 });

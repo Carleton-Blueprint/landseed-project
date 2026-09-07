@@ -176,6 +176,30 @@ export function validatePhotoModifications(
 }
 
 /**
+ * Unions each photo's already-validated declaredModificationCodes into a
+ * per-code count — how many photos declared each code, e.g. two photos each
+ * tagged GRAB_BARS yields { GRAB_BARS: 2 }. This is the source of truth for
+ * both "which codes are present" (aggregateDeclaredModificationCodes) and
+ * "how many of each" (buildQuoteItems's quantities).
+ */
+export function aggregateDeclaredModificationCodeCounts(
+  photos: ModificationCodeSource[]
+): Map<ModificationCode, number> {
+  const counts = new Map<ModificationCode, number>();
+
+  for (const photo of photos) {
+    for (const code of photo.declaredModificationCodes) {
+      if (VALID_MODIFICATION_CODES.has(code)) {
+        const typedCode = code as ModificationCode;
+        counts.set(typedCode, (counts.get(typedCode) ?? 0) + 1);
+      }
+    }
+  }
+
+  return counts;
+}
+
+/**
  * Unions and dedupes each photo's already-validated declaredModificationCodes
  * into a single, canonically-ordered list — the project-level "list of
  * modification items" consumed by cost estimation, eligibility, and grant
@@ -185,27 +209,22 @@ export function validatePhotoModifications(
 export function aggregateDeclaredModificationCodes(
   photos: ModificationCodeSource[]
 ): ModificationCode[] {
-  const seenCodes = new Set<ModificationCode>();
+  const counts = aggregateDeclaredModificationCodeCounts(photos);
 
-  for (const photo of photos) {
-    for (const code of photo.declaredModificationCodes) {
-      if (VALID_MODIFICATION_CODES.has(code)) {
-        seenCodes.add(code as ModificationCode);
-      }
-    }
-  }
-
-  return Object.values(MODIFICATION_CODES).filter((code) => seenCodes.has(code));
+  return Object.values(MODIFICATION_CODES).filter((code) => counts.has(code));
 }
 
 /**
- * Builds catalog-priced quote line items from a project's modification codes.
- * Shared by the delayed estimate-generation worker and eligibility
- * evaluation's auto-quote fallback, so both produce real, priced quotes
- * from the same data rather than one of them using a placeholder.
+ * Builds catalog-priced quote line items from a project's modification code
+ * counts (how many photos declared each code — see
+ * aggregateDeclaredModificationCodeCounts), one line item per code with
+ * quantity set to that count. Shared by the delayed estimate-generation
+ * worker and eligibility evaluation's auto-quote fallback, so both produce
+ * real, priced quotes from the same data rather than one of them using a
+ * placeholder.
  */
-export function buildQuoteItems(modificationCodes: ModificationCode[]): QuoteItem[] {
-  if (modificationCodes.length === 0) {
+export function buildQuoteItems(codeCounts: Map<ModificationCode, number>): QuoteItem[] {
+  if (codeCounts.size === 0) {
     return [
       {
         description: "Home modifications (initial intake estimate)",
@@ -215,14 +234,16 @@ export function buildQuoteItems(modificationCodes: ModificationCode[]): QuoteIte
     ];
   }
 
-  return modificationCodes.map((code) => {
-    const catalogEntry = MODIFICATION_COST_CATALOG[code];
+  return Object.values(MODIFICATION_CODES)
+    .filter((code) => codeCounts.has(code))
+    .map((code) => {
+      const catalogEntry = MODIFICATION_COST_CATALOG[code];
 
-    return {
-      description: catalogEntry.label,
-      quantity: 1,
-      unitPrice: catalogEntry.fallbackUnitPrice,
-      modificationCode: code,
-    };
-  });
+      return {
+        description: catalogEntry.label,
+        quantity: codeCounts.get(code)!,
+        unitPrice: catalogEntry.fallbackUnitPrice,
+        modificationCode: code,
+      };
+    });
 }
