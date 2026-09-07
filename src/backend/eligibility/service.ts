@@ -23,7 +23,7 @@ import { logAuditEventNonBlocking } from '@/backend/audit/log';
 import { recordFailureAndMaybeAlert } from '@/backend/services/criticalFailureAlerts';
 import { ALERT_THRESHOLD_KEYS } from '@/backend/services/alertThresholds';
 import { produceManualReviewFlagJob } from './manualReviewProducer';
-import { aggregateDeclaredModificationCodes, buildQuoteItems } from './modificationNormalization';
+import { aggregateDeclaredModificationCodeCounts, buildQuoteItems } from './modificationNormalization';
 import type { AiOutputSource, AiProvenanceMetadata } from '@/backend/audit/aiProvenance';
 
 export type ProjectWithPhotosForEligibility = Project & {
@@ -216,8 +216,9 @@ export async function evaluateProjectEligibility(
             `Skipping auto-quote for project ${project.id}: quote ${existingQuote.id} already exists`
           );
         } else {
-          const modificationCodes = aggregateDeclaredModificationCodes(project.photos);
-          const quoteItems = buildQuoteItems(modificationCodes);
+          const modificationCodeCounts = aggregateDeclaredModificationCodeCounts(project.photos);
+          const modificationCodes = Array.from(modificationCodeCounts.keys());
+          const quoteItems = buildQuoteItems(modificationCodeCounts);
 
           // Dynamically import to avoid circular dependencies
           const { generateQuote } = await import('@/backend/services/quote');

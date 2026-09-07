@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 import {
+  aggregateDeclaredModificationCodeCounts,
   aggregateDeclaredModificationCodes,
   normalizeModificationItems,
   parseDeclaredModificationCodes,
@@ -135,5 +136,42 @@ describe("aggregateDeclaredModificationCodes", () => {
 
   it("returns an empty array for zero photos", () => {
     expect(aggregateDeclaredModificationCodes([])).toEqual([]);
+  });
+});
+
+describe("aggregateDeclaredModificationCodeCounts", () => {
+  it("counts one occurrence per photo that declares a code", () => {
+    const result = aggregateDeclaredModificationCodeCounts([
+      { declaredModificationCodes: ["GRAB_BARS", "HANDRAILS"] },
+      { declaredModificationCodes: ["GRAB_BARS"] },
+      { declaredModificationCodes: ["HANDRAILS"] },
+    ]);
+
+    expect(result).toEqual(
+      new Map([
+        ["GRAB_BARS", 2],
+        ["HANDRAILS", 2],
+      ])
+    );
+  });
+
+  it("counts codes declared multiple times on the same photo", () => {
+    const result = aggregateDeclaredModificationCodeCounts([
+      { declaredModificationCodes: ["GRAB_BARS", "GRAB_BARS"] },
+    ]);
+
+    expect(result).toEqual(new Map([["GRAB_BARS", 2]]));
+  });
+
+  it("ignores unrecognized codes rather than throwing", () => {
+    const result = aggregateDeclaredModificationCodeCounts([
+      { declaredModificationCodes: ["GRAB_BARS", "not a code"] },
+    ]);
+
+    expect(result).toEqual(new Map([["GRAB_BARS", 1]]));
+  });
+
+  it("returns an empty map for zero photos", () => {
+    expect(aggregateDeclaredModificationCodeCounts([])).toEqual(new Map());
   });
 });

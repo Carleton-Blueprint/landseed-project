@@ -297,6 +297,38 @@ describe('Eligibility Service', () => {
 
       expect(generateQuote).not.toHaveBeenCalled();
     });
+
+    it('quotes quantity 2 in the auto-generated background quote when two photos declare the same code', async () => {
+      discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation());
+      createEligibilityAssessmentSnapshot.mockResolvedValue({
+        id: 'assessment-1',
+        createdAt: new Date(),
+      });
+      prisma.quote.findFirst.mockResolvedValue(null);
+      const { generateQuote } = require('@/backend/services/quote') as { generateQuote: jest.Mock };
+      const projectWithDuplicatePhotoTags = {
+        id: 'proj-1',
+        userId: 'user-1',
+        address: '123 Main St',
+        draftData: {},
+        photos: [
+          { declaredModificationCodes: ['GRAB_BARS'] },
+          { declaredModificationCodes: ['GRAB_BARS'] },
+        ],
+      } as never;
+
+      await evaluateProjectEligibility(projectWithDuplicatePhotoTags);
+      await flushBackgroundJobs();
+
+      expect(generateQuote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          items: [
+            { description: 'Grab Bars', quantity: 2, unitPrice: 180, modificationCode: 'GRAB_BARS' },
+          ],
+          modificationCodes: ['GRAB_BARS'],
+        })
+      );
+    });
   });
 
   describe('getLatestEligibilityAssessment', () => {

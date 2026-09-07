@@ -9,7 +9,7 @@ import { generateQuote } from "@/backend/services/quote";
 import { markEstimateReadyForReview } from "@/backend/services/estimateReadyTransition";
 import { ESTIMATE_READY_TRIGGER_SOURCE } from "@/backend/notifications/estimateReadyContract";
 import {
-  aggregateDeclaredModificationCodes,
+  aggregateDeclaredModificationCodeCounts,
   buildQuoteItems,
 } from "@/backend/eligibility/modificationNormalization";
 import { queueEligibilityEvaluation } from "@/backend/eligibility/triggers";
@@ -86,8 +86,9 @@ export async function processScheduledEstimateGeneration(
     return { projectId: project.id, status: "skipped_project_not_submitted" };
   }
 
-  const modificationCodes = aggregateDeclaredModificationCodes(project.photos);
-  const quoteItems = buildQuoteItems(modificationCodes);
+  const modificationCodeCounts = aggregateDeclaredModificationCodeCounts(project.photos);
+  const modificationCodes = Array.from(modificationCodeCounts.keys());
+  const quoteItems = buildQuoteItems(modificationCodeCounts);
 
   try {
     const quoteResult = await generateQuote({
