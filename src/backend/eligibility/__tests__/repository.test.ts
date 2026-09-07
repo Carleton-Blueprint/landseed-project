@@ -110,6 +110,8 @@ describe("createEligibilityAssessmentSnapshot", () => {
       discoveryScoringVersion: "s1",
       discoveryModelVersion: "m1",
       discoverySourceSnapshotId: "snapshot-1",
+      discoverySourcesSnapshot: [{ id: "source-a" }],
+      discoveryOpenAiResponseEntries: [{ grantId: "grant-a" }],
     };
 
     await createEligibilityAssessmentSnapshot(input);
@@ -130,6 +132,8 @@ describe("createEligibilityAssessmentSnapshot", () => {
     expect(sqlArg.values).toContain("s1");
     expect(sqlArg.values).toContain("m1");
     expect(sqlArg.values).toContain("snapshot-1");
+    expect(sqlArg.values).toContain(JSON.stringify(input.discoverySourcesSnapshot));
+    expect(sqlArg.values).toContain(JSON.stringify(input.discoveryOpenAiResponseEntries));
   });
 
   it("defaults optional discovery fields to null in the INSERT values when omitted", async () => {

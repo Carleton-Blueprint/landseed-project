@@ -256,6 +256,13 @@ describe('discoverAndEvaluateGrants', () => {
       expect(result.discoveredGrants.map((grant) => grant.grantId)).toEqual(
         expect.arrayContaining(['hatc_canada', 'on_rrap', 'toronto_hip'])
       );
+      // No API key configured — the AI path was never attempted, and the
+      // heuristic-enriched sources (what fed scoring) are captured verbatim.
+      expect(result.openAiResponseEntries).toBeNull();
+      expect(result.sourcesSnapshot.length).toBe(result.discoveryMetadata.candidateCount);
+      expect(result.sourcesSnapshot.map((source) => source.id)).toEqual(
+        expect.arrayContaining(['hatc_canada', 'on_rrap', 'toronto_hip'])
+      );
       expect(result.reasonCodes).toContain('GRANTS_DISCOVERED');
       expect(
         result.reasonCodes.some((reasonCode) =>
@@ -307,6 +314,10 @@ describe('discoverAndEvaluateGrants', () => {
         expect.arrayContaining(['live_hatc_canada'])
       );
       expect(result.programDecisions.live_hatc_canada).toBe(EligibilityDecision.ELIGIBLE);
+      // Raw pre-merge OpenAI response — one entry, matching what the mock returned,
+      // independent of whatever heuristic-only candidates got merged into discoveredGrants.
+      expect(result.openAiResponseEntries).toEqual([mockOpenAiDecision()]);
+      expect(result.sourcesSnapshot.length).toBeGreaterThan(0);
     } finally {
       restoreDiscoveryEnv(savedEnv);
     }
@@ -404,6 +415,7 @@ describe('discoverAndEvaluateGrants', () => {
       expect(result.discoveredGrants.length).toBeGreaterThan(0);
       expect(result.discoveredGrants.map((grant) => grant.grantId)).not.toContain('live_hatc_canada');
       expect(result.discoveryMetadata.aiFailureReason).toMatch(/429/);
+      expect(result.openAiResponseEntries).toBeNull();
     } finally {
       restoreDiscoveryEnv(savedEnv);
     }
@@ -524,6 +536,9 @@ describe('discoverAndEvaluateGrants', () => {
       expect(result.discoveryMetadata.provider).toBe('OPENAI');
       expect(result.discoveredGrants.map((grant) => grant.grantId)).toContain('live_hatc_canada');
       expect(result.discoveredGrants.map((grant) => grant.grantId)).not.toContain('bad_grant');
+      // The malformed decision is dropped before it ever reaches openAiResponseEntries —
+      // that field mirrors what's usable from the response, not the raw wire payload.
+      expect(result.openAiResponseEntries).toEqual([mockOpenAiDecision()]);
     } finally {
       restoreDiscoveryEnv(savedEnv);
     }

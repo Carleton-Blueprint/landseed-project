@@ -127,6 +127,8 @@ function baseEvaluation(overrides?: Record<string, unknown>) {
       candidateCount: 0,
       returnedCount: 0,
     },
+    sourcesSnapshot: [],
+    openAiResponseEntries: null,
     ...overrides,
   };
 }
@@ -280,6 +282,56 @@ describe('Eligibility Service', () => {
 
       expect(logAuditEventNonBlocking).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: 'ELIGIBILITY_EVALUATED' })
+      );
+    });
+
+    it('passes sourcesSnapshot and openAiResponseEntries through to the persisted snapshot', async () => {
+      const sourcesSnapshot = [
+        { id: 'source-a', title: 'A', scope: 'NATIONAL', jurisdiction: 'CA', sourceUrl: 'https://a', summary: 'x' },
+      ];
+      const openAiResponseEntries = [
+        {
+          grantId: 'grant-a',
+          title: 'A',
+          scope: 'NATIONAL',
+          jurisdiction: 'CA',
+          sourceUrl: 'https://a',
+          summary: 'x',
+          score: 80,
+          decision: 'ELIGIBLE',
+          matchedCriteria: [],
+          missingCriteria: [],
+          confidence: 'HIGH',
+          rationale: 'r',
+        },
+      ];
+      discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation({ sourcesSnapshot, openAiResponseEntries }));
+      createEligibilityAssessmentSnapshot.mockResolvedValue({
+        id: 'assessment-1',
+        createdAt: new Date(),
+      });
+
+      await evaluateProjectEligibility(baseProject);
+
+      expect(createEligibilityAssessmentSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discoverySourcesSnapshot: sourcesSnapshot,
+          discoveryOpenAiResponseEntries: openAiResponseEntries,
+        })
+      );
+    });
+
+    it('persists a null discoveryOpenAiResponseEntries when the AI path was not attempted', async () => {
+      discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation({ openAiResponseEntries: null }));
+      createEligibilityAssessmentSnapshot.mockResolvedValue({
+        id: 'assessment-1',
+        createdAt: new Date(),
+      });
+
+      await evaluateProjectEligibility(baseProject);
+
+      expect(createEligibilityAssessmentSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ discoveryOpenAiResponseEntries: null })
       );
     });
 
