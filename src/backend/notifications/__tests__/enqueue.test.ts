@@ -189,4 +189,10 @@ describe("enqueueNotification", () => {
     await expect(enqueueNotification(basePayload())).rejects.toThrow("db down");
     expect(mockedEmailQueueAdd).not.toHaveBeenCalled();
   });
+
+  it("does not throw when emailQueue.add rejects (e.g. producer connection unreachable)", async () => {
+    mockedEmailQueueAdd.mockRejectedValueOnce(new Error("Stream isn't writeable"));
+
+    await expect(enqueueNotification(basePayload())).resolves.toBeUndefined();
+  });
 });
