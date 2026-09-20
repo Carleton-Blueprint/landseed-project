@@ -15,30 +15,35 @@ import { authGateResponse } from "@/backend/auth/authGateResponse";
 import { requireVerifiedEmail } from "@/backend/auth/requireVerifiedEmail";
 import { ProjectAccessRole } from "@prisma/client";
 import { virusScanQueue } from "@/backend/queue";
-import { enforceRateLimit } from "@/backend/auth/rateLimit";
+import { enforceDualRateLimit } from "@/backend/auth/rateLimit";
 import { getClientIp } from "@/backend/auth/authEmailResponses";
 import { parseDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const UPLOAD_LIMIT = 20;
+const UPLOAD_IP_LIMIT = 100;
 const UPLOAD_WINDOW_SECONDS = 60 * 60;
 
 export async function POST(request: NextRequest) {
   try {
-    const { response: rateLimitResponse } = await enforceRateLimit({
-      scope: "photo-upload-ip",
-      identifier: getClientIp(request),
-      limit: UPLOAD_LIMIT,
-      windowSeconds: UPLOAD_WINDOW_SECONDS,
+    const session = await auth();
+
+    const { response: rateLimitResponse } = await enforceDualRateLimit({
+      scope: "photo-upload",
+      accountId: session?.user?.id ?? null,
+      ip: getClientIp(request),
+      accountLimit: UPLOAD_LIMIT,
+      accountWindowSeconds: UPLOAD_WINDOW_SECONDS,
+      ipLimit: UPLOAD_IP_LIMIT,
+      ipWindowSeconds: UPLOAD_WINDOW_SECONDS,
       route: "/api/upload",
-      message: "Too many uploads from this network. Please try again later.",
+      accountMessage: "Too many uploads on this account. Please try again later.",
+      ipMessage: "Too many uploads from this network. Please try again later.",
     });
     if (rateLimitResponse) {
       return rateLimitResponse;
     }
-
-    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(

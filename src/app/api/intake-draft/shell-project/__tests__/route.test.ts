@@ -1,7 +1,7 @@
 import { POST } from "../route";
 import { auth } from "@/auth";
 import { ensureShellProject } from "@/backend/services/intakeDraft";
-import { enforceRateLimit } from "@/backend/auth/rateLimit";
+import { enforceDualRateLimit } from "@/backend/auth/rateLimit";
 
 jest.mock("@/auth", () => ({
   auth: jest.fn(),
@@ -12,7 +12,7 @@ jest.mock("@/backend/services/intakeDraft", () => ({
 }));
 
 jest.mock("@/backend/auth/rateLimit", () => ({
-  enforceRateLimit: jest.fn(),
+  enforceDualRateLimit: jest.fn(),
 }));
 
 const request = () => new Request("http://localhost/api/intake-draft/shell-project");
@@ -20,7 +20,7 @@ const request = () => new Request("http://localhost/api/intake-draft/shell-proje
 describe("POST /api/intake-draft/shell-project", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: null });
+    (enforceDualRateLimit as jest.Mock).mockResolvedValue({ response: null });
   });
 
   it("returns 401 when unsigned", async () => {
@@ -68,11 +68,27 @@ describe("POST /api/intake-draft/shell-project", () => {
       status: 429,
       headers: { "Retry-After": "60" },
     });
-    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: limited });
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (enforceDualRateLimit as jest.Mock).mockResolvedValue({ response: limited });
 
     const res = await POST(request());
 
     expect(res.status).toBe(429);
-    expect(auth).not.toHaveBeenCalled();
+    expect(ensureShellProject).not.toHaveBeenCalled();
+  });
+
+  it("checks auth before rate limiting, and rate-limits by account id", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (ensureShellProject as jest.Mock).mockResolvedValue({
+      draft: { id: "draft-1" },
+      project: { id: "project-1" },
+    });
+
+    await POST(request());
+
+    expect(auth).toHaveBeenCalled();
+    expect(enforceDualRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "intake-draft-shell-project", accountId: "user-1" })
+    );
   });
 });

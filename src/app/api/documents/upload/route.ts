@@ -15,10 +15,11 @@ import { virusScanQueue } from "@/backend/queue";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { getRequestAuditContext } from "@/backend/audit/requestContext";
 import { markInformationRequestsRespondedForProject } from "@/backend/services/informationRequests";
-import { enforceRateLimit } from "@/backend/auth/rateLimit";
+import { enforceDualRateLimit } from "@/backend/auth/rateLimit";
 import { getClientIp } from "@/backend/auth/authEmailResponses";
 
 const UPLOAD_LIMIT = 20;
+const UPLOAD_IP_LIMIT = 100;
 const UPLOAD_WINDOW_SECONDS = 60 * 60;
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
@@ -46,19 +47,23 @@ export async function POST(request: NextRequest) {
   const requestContext = getRequestAuditContext(request);
 
   try {
-    const { response: rateLimitResponse } = await enforceRateLimit({
-      scope: "document-upload-ip",
-      identifier: getClientIp(request),
-      limit: UPLOAD_LIMIT,
-      windowSeconds: UPLOAD_WINDOW_SECONDS,
+    const session = await auth();
+
+    const { response: rateLimitResponse } = await enforceDualRateLimit({
+      scope: "document-upload",
+      accountId: session?.user?.id ?? null,
+      ip: getClientIp(request),
+      accountLimit: UPLOAD_LIMIT,
+      accountWindowSeconds: UPLOAD_WINDOW_SECONDS,
+      ipLimit: UPLOAD_IP_LIMIT,
+      ipWindowSeconds: UPLOAD_WINDOW_SECONDS,
       route: "/api/documents/upload",
-      message: "Too many uploads from this network. Please try again later.",
+      accountMessage: "Too many uploads on this account. Please try again later.",
+      ipMessage: "Too many uploads from this network. Please try again later.",
     });
     if (rateLimitResponse) {
       return rateLimitResponse;
     }
-
-    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(

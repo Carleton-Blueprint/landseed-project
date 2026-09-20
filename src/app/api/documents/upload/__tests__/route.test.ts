@@ -9,7 +9,7 @@ import { uploadToS3 } from "lib/s3";
 import { hasProjectAccess } from "@/backend/auth/projectAccess";
 import { requireVerifiedEmail } from "@/backend/auth/requireVerifiedEmail";
 import { virusScanQueue } from "@/backend/queue";
-import { enforceRateLimit } from "@/backend/auth/rateLimit";
+import { enforceDualRateLimit } from "@/backend/auth/rateLimit";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { markInformationRequestsRespondedForProject } from "@/backend/services/informationRequests";
 
@@ -42,7 +42,7 @@ jest.mock("@/backend/queue", () => ({
 }));
 
 jest.mock("@/backend/auth/rateLimit", () => ({
-  enforceRateLimit: jest.fn(),
+  enforceDualRateLimit: jest.fn(),
 }));
 
 jest.mock("@/backend/audit/log", () => ({
@@ -71,22 +71,48 @@ function buildFormDataRequest(): NextRequest {
 describe("POST /api/documents/upload", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: null });
+    (enforceDualRateLimit as jest.Mock).mockResolvedValue({ response: null });
     (requireVerifiedEmail as jest.Mock).mockResolvedValue(undefined);
     (markInformationRequestsRespondedForProject as jest.Mock).mockResolvedValue(undefined);
   });
 
-  it("returns 429 when the rate limit is hit, before checking auth", async () => {
+  it("checks auth before rate limiting, and rate-limits by account id", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (hasProjectAccess as jest.Mock).mockResolvedValue(true);
+    (uploadToS3 as jest.Mock).mockResolvedValue("https://s3.example.com/doc.pdf");
+    (prisma.document.create as jest.Mock).mockResolvedValue({
+      id: "doc-1",
+      fileName: "doc.pdf",
+      fileSize: 1,
+      documentType: "OTHER",
+      virusScanStatus: "pending",
+      reviewStatus: "PENDING",
+      createdAt: new Date(),
+      s3Url: "https://s3.example.com/doc.pdf",
+    });
+    (virusScanQueue.add as jest.Mock).mockResolvedValue(undefined);
+    (logAuditEventNonBlocking as jest.Mock).mockResolvedValue(undefined);
+
+    await POST(buildFormDataRequest());
+
+    expect(auth).toHaveBeenCalled();
+    expect(enforceDualRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "document-upload", accountId: "user-1" })
+    );
+  });
+
+  it("returns 429 when the rate limit is hit", async () => {
     const limited = new Response(JSON.stringify({ error: "Too many uploads." }), {
       status: 429,
       headers: { "Retry-After": "3600" },
     });
-    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: limited });
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (enforceDualRateLimit as jest.Mock).mockResolvedValue({ response: limited });
 
     const res = await POST(buildFormDataRequest());
 
     expect(res.status).toBe(429);
-    expect(auth).not.toHaveBeenCalled();
+    expect(prisma.document.create).not.toHaveBeenCalled();
   });
 
   it("uploads the document when under the rate limit and authorized", async () => {
