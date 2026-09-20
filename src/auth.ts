@@ -27,7 +27,9 @@ const nextAuthResult = NextAuth({
       },
       async authorize(credentials, request) {
         try {
-          await enforceLoginRateLimit(getClientIp(request));
+          const email =
+            typeof credentials?.email === "string" ? credentials.email.trim().toLowerCase() : "";
+          await enforceLoginRateLimit(getClientIp(request), email);
 
           const user = await authorizePasswordCredentials(credentials ?? {});
           if (!user) {

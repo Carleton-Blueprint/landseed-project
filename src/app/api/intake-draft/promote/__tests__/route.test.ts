@@ -1,7 +1,7 @@
 import { POST } from "../route";
 import { auth } from "@/auth";
 import { promoteIntakeDraft } from "@/backend/services/intakeDraft";
-import { enforceRateLimit } from "@/backend/auth/rateLimit";
+import { enforceDualRateLimit } from "@/backend/auth/rateLimit";
 
 jest.mock("@/auth", () => ({
   auth: jest.fn(),
@@ -12,7 +12,7 @@ jest.mock("@/backend/services/intakeDraft", () => ({
 }));
 
 jest.mock("@/backend/auth/rateLimit", () => ({
-  enforceRateLimit: jest.fn(),
+  enforceDualRateLimit: jest.fn(),
 }));
 
 jest.mock("@/backend/auth/requireVerifiedEmail", () => {
@@ -31,7 +31,24 @@ describe("POST /api/intake-draft/promote", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (requireVerifiedEmail as jest.Mock).mockResolvedValue(undefined);
-    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: null });
+    (enforceDualRateLimit as jest.Mock).mockResolvedValue({ response: null });
+  });
+
+  it("checks auth before rate limiting, and rate-limits by account id", async () => {
+    (auth as jest.Mock).mockResolvedValue({ user: { id: "user-1" } });
+    (promoteIntakeDraft as jest.Mock).mockResolvedValue({
+      ok: true,
+      projectId: "project-1",
+      status: "submitted",
+      message: "Intake finalized successfully.",
+    });
+
+    await POST(new Request("http://localhost/api/intake-draft/promote"));
+
+    expect(auth).toHaveBeenCalled();
+    expect(enforceDualRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "intake-draft-promote", accountId: "user-1" })
+    );
   });
 
   it("returns 429 when the rate limit is hit", async () => {
@@ -39,12 +56,12 @@ describe("POST /api/intake-draft/promote", () => {
       status: 429,
       headers: { "Retry-After": "60" },
     });
-    (enforceRateLimit as jest.Mock).mockResolvedValue({ response: limited });
+    (enforceDualRateLimit as jest.Mock).mockResolvedValue({ response: limited });
 
     const res = await POST(new Request("http://localhost/api/intake-draft/promote"));
 
     expect(res.status).toBe(429);
-    expect(auth).not.toHaveBeenCalled();
+    expect(promoteIntakeDraft).not.toHaveBeenCalled();
   });
 
   it("returns 401 when unsigned", async () => {

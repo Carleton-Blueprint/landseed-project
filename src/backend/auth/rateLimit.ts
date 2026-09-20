@@ -102,3 +102,47 @@ export async function enforceRateLimit(params: {
     response: rateLimitedResponse(result, params.message ? { error: params.message } : undefined),
   };
 }
+
+/**
+ * Dual-key variant of enforceRateLimit for authenticated routes: a tight
+ * primary limit keyed by account id, plus a looser secondary net keyed by
+ * IP — so accounts sharing an address (e.g. a retirement residence) don't
+ * rate-limit each other, while a single IP hammering many accounts still
+ * gets caught. When accountId is null (no session yet), only the IP check
+ * runs, same as the route's original IP-only behavior.
+ */
+export async function enforceDualRateLimit(params: {
+  scope: string;
+  accountId: string | null;
+  ip: string;
+  accountLimit: number;
+  accountWindowSeconds: number;
+  ipLimit: number;
+  ipWindowSeconds: number;
+  route: string;
+  accountMessage?: string;
+  ipMessage?: string;
+}): Promise<{ response: NextResponse } | { response: null }> {
+  if (params.accountId) {
+    const accountCheck = await enforceRateLimit({
+      scope: `${params.scope}-account`,
+      identifier: params.accountId,
+      limit: params.accountLimit,
+      windowSeconds: params.accountWindowSeconds,
+      route: params.route,
+      message: params.accountMessage,
+    });
+    if (accountCheck.response) {
+      return accountCheck;
+    }
+  }
+
+  return enforceRateLimit({
+    scope: `${params.scope}-ip`,
+    identifier: params.ip,
+    limit: params.ipLimit,
+    windowSeconds: params.ipWindowSeconds,
+    route: params.route,
+    message: params.ipMessage,
+  });
+}
