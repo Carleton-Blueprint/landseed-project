@@ -22,7 +22,8 @@ Next.js (App Router) app with TypeScript, Tailwind CSS, and a clear split betwee
 
    Copy `.env.example` to `.env` and set:
 
-   - `DATABASE_URL` – PostgreSQL connection string
+   - `DATABASE_URL` – PostgreSQL connection string (Neon pooled string, used by the app and workers)
+   - `DIRECT_URL` – direct (non-pooled) PostgreSQL connection string, used by Prisma migrations
    - `NEXTAUTH_SECRET` – e.g. `openssl rand -base64 32`
    - `NEXTAUTH_URL` – e.g. `http://localhost:3000`
    - `OPENAI_API_KEY`, `R2_ACCOUNT_ID`, `R2_BUCKET`, `REDIS_URL` as needed
