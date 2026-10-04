@@ -128,7 +128,7 @@ and Redis) so staging traffic never touches production data.
 | R2 / S3 (Cloudflare) | photo and document storage | bucket plus access keys |
 | Resend | transactional email | used by the email worker, not the web tier |
 | OpenAI | photo analysis and image generation | used by the AI worker |
-| SERP API | grant discovery research | optional; only if that feature is enabled |
+| SerpAPI (LandSeed account) | material pricing (Google Shopping) for estimates | **required** — `SERP_API_KEY` on both the worker and the web app; without it estimates can't price materials |
 | ClamAV | virus scanning of uploads | Railway sidecar next to the worker service, reached over Railway's private network — see [ClamAV reachability](#clamav-virus-scanning) |
 
 ### Redis reachability
@@ -191,8 +191,10 @@ tier and the worker service.
 | `*_MOCK_*`, `GRANT_DISCOVERY_DEV_MOCK_GET` | test and mock flags; never set in production |
 
 Variables such as `RESEND_API_KEY`, `EMAIL_FROM`, `OPENAI_API_KEY`,
-`OPENAI_ORG_ID`, `SERP_API_KEY`, `SERP_API_COST_PER_QUERY`, and `CLAMAV_HOST` /
-`CLAMAV_PORT` are consumed by the workers, not by the web tier. They belong on
+`OPENAI_ORG_ID`, `SERP_API_COST_PER_QUERY`, and `CLAMAV_HOST` /
+`CLAMAV_PORT` are consumed by the workers, not by the web tier. (`SERP_API_KEY`
+is the exception — the web tier also calls pricing, e.g. `/api/pricing` and
+quote overrides, so it must be set on both.) They belong on
 the worker service (see [section 7](#7-workers-shared)). Setting them on the web
 host is harmless but not required.
 
@@ -384,12 +386,11 @@ accounts and credentials inventory) rather than get forgotten.
   and add us as collaborators. At handoff, document actual plan/tier and
   monthly cost here, alongside the equivalent for Vercel, Neon, R2, Resend,
   OpenAI, and SerpAPI.
-- **SerpAPI is on the free tier.** Reused as-is for the production worker for
-  now (low stakes while there's no real traffic), but the free tier has a low
-  monthly search cap — needs upgrading to a paid plan before real client
-  traffic depends on grant-discovery search results, or requests will start
-  silently failing once the cap is hit. Flag this explicitly at handoff, not
-  just as a line item.
+- **SerpAPI now runs on LandSeed's account** (as of 2026-10-04; key set on
+  both Railway services). It powers material pricing for every estimate, so
+  the monthly search cap matters: once it's hit, pricing lookups fail. Confirm
+  LandSeed's plan covers expected volume before real client traffic, and
+  keep `SERP_API_COST_PER_QUERY` in sync with the plan's per-search cost.
 - **OpenAI is already LandSeed-owned**, not Blueprint's — the key in use is
   billed directly to LandSeed's account. Worth noting in the inventory as the
   one exception to "everything's under Blueprint's account for now."
