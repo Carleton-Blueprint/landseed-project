@@ -16,7 +16,7 @@ workers) are shared infrastructure that both environments talk to.
 | --- | --- |
 | Production URL | `https://landseed-inplace-production.vercel.app` (default Vercel URL — custom domain pending, §10) |
 | Vercel team / project | `carleton-blueprint` / `landseed-inplace-production` |
-| Neon project | `landseed-inplace-production`, region `us-east-2` (Ohio — free-tier default, close enough to Vercel's `iad1`/Virginia region that the difference is negligible) |
+| Neon project | `landseed` (ID `cold-star-48934454`), owned by LandSeed's Neon org, region `us-east-2` (Ohio), **Free plan**. Branches: `production` (Railway web app + worker) and `dev` (local development / tests). `DATABASE_URL` = pooled string, `DIRECT_URL` = direct string (Prisma migrations). Replaced the stopgap project on a personal account as of 2026-10-04. |
 | Railway project | `successful-adaptation` (Railway's auto-generated name — never renamed, cosmetic only), workspace `Great Nnaji's Projects`, region `us-east4` (both Redis and ClamAV were moved here from Railway's Amsterdam default — see phase 1 of the deployment implementation log for why) |
 | Railway services | `Redis` (public TCP proxy), `clamav` (private only), `worker` (runs `npm run worker:all`, sourced from this repo's `main` branch) |
 | GitHub → Vercel connection | Connected via Vercel CLI (`vercel git connect`), not the dashboard's "Import Git Repository" flow — that one needs a `Carleton-Blueprint` org owner to grant Vercel's GitHub App repository access, still pending. Unclear whether the CLI's connection enables full auto-deploy-on-push or just repo metadata; not relied upon either way (see §10). |
@@ -296,11 +296,11 @@ These are blocked on LandSeed and affect what still needs to change in this
 document once resolved. Don't let production deployment wait on them —
 proceed with the fallback in each item and revisit once LandSeed responds.
 
-- **Production database ownership (Neon).** Either we create it under our own
-  account now and transfer at handoff, or LandSeed creates it and adds us as
-  collaborators. Fallback: proceed under our own account so deployment isn't
-  blocked; update the Postgres row in [section 3](#3-backing-services-shared)
-  once ownership is settled.
+- ~~**Production database ownership (Neon).**~~ **Resolved 2026-10-04:**
+  LandSeed created the Neon project and added us as collaborators; production
+  now runs on it (see the Neon row in the summary table). Still open: the
+  project is on the **Free plan** (≈6h restore window) — LandSeed needs to
+  upgrade to Scale to meet the targets in `DISASTER_RECOVERY.md`.
 - **Custom domain (app.landseed.ca).** Needs LandSeed to add DNS records
   (CNAME/A plus TXT verification) once we have exact values from Vercel.
   Fallback: production stays on the default `*.vercel.app` URL. Add a "Custom

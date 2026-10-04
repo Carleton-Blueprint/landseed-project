@@ -3,8 +3,12 @@
 Status: **Neon is the chosen provider.** This document states the recovery
 targets and how Neon meets them, so the handoff package has a real,
 provider-accurate restore procedure to follow. A live restore drill is still
-pending until a production Neon project is provisioned — see Verification
-below.
+pending — see Verification below.
+
+**Current state (2026-10-04):** production runs on LandSeed's Neon project
+`landseed`, but it is on the **Free plan** (up to 6h restore window). That
+does **not** meet the RPO/retention targets below until LandSeed upgrades it
+to Scale.
 
 ## Targets
 
@@ -85,8 +89,8 @@ change. The pre-restore state isn't destroyed: it survives as a renamed
 
 ## Verification
 
-This procedure has **not yet been run as a live drill** — there's no
-production Neon project provisioned yet. Once one exists on the Scale tier:
+This procedure has **not yet been run as a live drill**. The production Neon
+project now exists (Free plan); once it's upgraded to the Scale tier:
 run a real restore drill (trigger a restore against a recent timestamp on a
 non-production branch, time steps 2–5 end-to-end) to confirm the 4h RTO is
 actually achievable given Neon's few-seconds restore time, and record the
