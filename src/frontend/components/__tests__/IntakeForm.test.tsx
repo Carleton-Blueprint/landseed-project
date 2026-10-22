@@ -246,4 +246,18 @@ describe("IntakeForm", () => {
       ).not.toBeInTheDocument()
     );
   });
+
+  it("asks about the senior's ownership instead of the user's when submitting as a caregiver", async () => {
+    const user = userEvent.setup();
+    renderIntakeForm();
+
+    expect(screen.getByText("Are you the owner, tenant, or something else?")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText(/i am a caregiver/i));
+
+    expect(
+      screen.getByText("Is the senior the owner or tenant of this home, or something else?")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Are you the owner, tenant, or something else?")).not.toBeInTheDocument();
+  });
 });
