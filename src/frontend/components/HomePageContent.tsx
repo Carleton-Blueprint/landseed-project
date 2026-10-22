@@ -154,12 +154,20 @@ function SignInFormInner() {
       </div>
 
       <div>
-        <label
-          htmlFor="home-password"
-          className="mb-1.5 block text-sm font-medium text-gray-600"
-        >
-          Password
-        </label>
+        <div className="mb-1.5 flex items-center justify-between">
+          <label
+            htmlFor="home-password"
+            className="block text-sm font-medium text-gray-600"
+          >
+            Password
+          </label>
+          <Link
+            href="/auth/forgot-password"
+            className="text-sm font-medium text-emerald-600 hover:text-emerald-700"
+          >
+            Forgot password?
+          </Link>
+        </div>
         <div className="relative">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
             <Lock className="h-4 w-4" />
