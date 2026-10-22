@@ -849,7 +849,9 @@ export function IntakeForm() {
       <section className="space-y-3">
         <h2 className="text-base font-semibold mb-3">Ownership</h2>
         <p className="text-sm text-muted-foreground mb-3">
-          Are you the owner, tenant, or something else?
+          {isCaregiver
+            ? "Is the senior the owner or tenant of this home, or something else?"
+            : "Are you the owner, tenant, or something else?"}
         </p>
 
         <div className="flex flex-col gap-2">
