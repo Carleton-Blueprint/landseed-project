@@ -2,7 +2,7 @@
 
 This document describes how the Landseed application is deployed and what each
 environment needs. The web application runs on two hosts: **staging on Netlify**
-and **production on Vercel**. Backing services (database, Redis, storage,
+and **production on Railway**. Backing services (database, Redis, storage,
 workers) are shared infrastructure that both environments talk to.
 
 > Confidential: internal operational documentation. Do not share outside the
@@ -14,12 +14,11 @@ workers) are shared infrastructure that both environments talk to.
 
 | Thing | Value |
 | --- | --- |
-| Production URL | `https://landseed-inplace-production.vercel.app` (default Vercel URL — custom domain pending, §10) |
-| Vercel team / project | `carleton-blueprint` / `landseed-inplace-production` |
+| Production URL | `https://landseed-project-production.up.railway.app` (default Railway URL — custom domain pending, §10) |
 | Neon project | `landseed` (ID `cold-star-48934454`), owned by LandSeed's Neon org, region `us-east-2` (Ohio), **Free plan**. Branches: `production` (Railway web app + worker) and `dev` (local development / tests). `DATABASE_URL` = pooled string, `DIRECT_URL` = direct string (Prisma migrations). Replaced the stopgap project on a personal account as of 2026-10-04. |
-| Railway project | `successful-adaptation` (Railway's auto-generated name — never renamed, cosmetic only), workspace `Great Nnaji's Projects`, region `us-east4` (both Redis and ClamAV were moved here from Railway's Amsterdam default — see phase 1 of the deployment implementation log for why) |
-| Railway services | `Redis` (public TCP proxy), `clamav` (private only), `worker` (runs `npm run worker:all`, sourced from this repo's `main` branch) |
-| GitHub → Vercel connection | Connected via Vercel CLI (`vercel git connect`), not the dashboard's "Import Git Repository" flow — that one needs a `Carleton-Blueprint` org owner to grant Vercel's GitHub App repository access, still pending. Unclear whether the CLI's connection enables full auto-deploy-on-push or just repo metadata; not relied upon either way (see §10). |
+| Railway project | `landseed-inplace-production`, in LandSeed's Railway workspace. Hosts everything in production — the old Vercel project/team was deleted. |
+| Railway services | `landseed-project` (Next.js web app, `npm run build` / `npm start`), `worker` (runs `npm run worker:all`), `clamav` (private only), `Redis` (public TCP proxy) |
+| Cloudflare R2 | LandSeed's Cloudflare account, buckets `landseed-prod` (Railway) and `landseed-dev` (local development) |
 
 ## 1. Topology
 
@@ -29,7 +28,7 @@ workers) are shared infrastructure that both environments talk to.
         +-----------+-----------+
         |                       |
    Staging web             Production web
-   (Netlify)                 (Vercel)
+   (Netlify)                (Railway)
         |                       |
         +-----------+-----------+
                     |
@@ -76,39 +75,41 @@ Netlify build settings:
 | Node version | 20 or newer |
 | Functions | default (Next.js adapter) |
 
-### Production: Vercel
+### Production: Railway
 
-Vercel detects its own `VERCEL` environment variable at runtime, and Auth.js
-uses that to trust the host automatically. This removes the staging-only step:
+The web app runs as a long-lived Node server (`next start`) in the Railway
+service `landseed-project`, alongside the worker, ClamAV and Redis services in
+the same project.
 
-- `AUTH_TRUST_HOST` is **not required** on Vercel. Setting it does no harm, but
-  it is unnecessary.
-- **`AUTH_URL` / `NEXTAUTH_URL` must be set explicitly, even on the default
-  `*.vercel.app` URL** — this contradicts what an earlier version of this doc
-  assumed ("auto-inferred, set only for a custom domain"). Verified wrong
-  during phase 4 testing: without it, the post-sign-in redirect and the
-  `authjs.callback-url` cookie both pointed at `http://localhost:3000` in
-  real production, not the actual deployment URL — likely specific to the
-  `next-auth@5.0.0-beta.28` version this app pins. Set both `AUTH_URL` and
-  `NEXTAUTH_URL` (the app code reads the latter as a fallback in several
-  places) to the real deployment URL, custom domain or not.
+- **`AUTH_URL` / `NEXTAUTH_URL` must be set explicitly**, including
+  `https://`. Without them, the post-sign-in redirect and the
+  `authjs.callback-url` cookie point at `http://localhost:3000` (seen in
+  real production, likely specific to the pinned `next-auth@5.0.0-beta.28`).
+  A bare hostname with no `https://` throws `TypeError: Invalid URL` and 500s
+  every authed page. Set both (the app code reads `NEXTAUTH_URL` as a
+  fallback in several places), plus `APP_BASE_URL`.
+- `AUTH_TRUST_HOST` is **not required**: Auth.js trusts the host whenever
+  `AUTH_URL` is set (`@auth/core` `setEnvDefaults`). Setting it does no harm.
+- **Public domain port:** the Railway public domain's target port must match
+  the port Next.js listens on (Railway assigns `8080`). A mismatch shows
+  "Application failed to respond" / 502 even though the logs say Ready.
 
-Vercel build settings:
+Railway build settings (`landseed-project` service):
 
 | Setting | Value |
 | --- | --- |
-| Framework preset | Next.js |
-| Build command | `prisma generate && next build` (or the default, plus a migrate step, see [section 6](#6-database-and-migrations)) |
+| Build command | `npm run build` (runs `prisma generate && next build`; no migrate step, see [section 6](#6-database-and-migrations)) |
+| Start command | `npm start` (`next start`) |
 | Node version | 20 or newer |
 
-### Netlify vs Vercel: what actually differs
+### Netlify vs Railway: what actually differs
 
-| Concern | Netlify (staging) | Vercel (production) |
+| Concern | Netlify (staging) | Railway (production) |
 | --- | --- | --- |
-| Auth.js host trust | `AUTH_TRUST_HOST=true` required | automatic, not needed |
-| Base URL | set `NEXTAUTH_URL` explicitly | auto-inferred; set only for custom domain |
+| Auth.js host trust | `AUTH_TRUST_HOST=true` required | automatic once `AUTH_URL` is set |
+| Base URL | set `NEXTAUTH_URL` explicitly | set `AUTH_URL`/`NEXTAUTH_URL` explicitly, with `https://` |
 | `NEXTAUTH_SECRET` | required | required |
-| Serverless function limits | short timeouts; long tasks belong in workers | short timeouts; long tasks belong in workers |
+| Runtime | serverless functions with short timeouts | long-lived Node server; long tasks still belong in workers |
 | Everything else (env vars, backing services) | identical | identical |
 
 The rest of the configuration (all backing services and every other environment
@@ -124,7 +125,7 @@ and Redis) so staging traffic never touches production data.
 | Service | Purpose | Notes |
 | --- | --- | --- |
 | Postgres | primary datastore (Prisma) | connection string in `DATABASE_URL` |
-| Redis (Railway) | BullMQ queues and login rate limiting | must use the **public** Railway TCP proxy host, not `*.railway.internal`, so Netlify and Vercel can reach it |
+| Redis (Railway) | BullMQ queues and login rate limiting | must use the **public** Railway TCP proxy host, not `*.railway.internal`, so Netlify can reach it |
 | R2 / S3 (Cloudflare) | photo and document storage | bucket plus access keys |
 | Resend | transactional email | used by the email worker, not the web tier |
 | OpenAI | photo analysis and image generation | used by the AI worker |
@@ -138,7 +139,7 @@ must reach the same Redis instance over its public endpoint. In Railway, enable
 the Redis service TCP Proxy and use `REDIS_PUBLIC_URL` (host ends in
 `.proxy.rlwy.net` on a high port, not `6379`). The internal
 `redis.railway.internal` host resolves only inside Railway and will fail from
-Netlify or Vercel with `ENOTFOUND`.
+Netlify with `ENOTFOUND`.
 
 ### ClamAV (virus scanning)
 
@@ -161,7 +162,8 @@ a code change during the production push.
 
 ## 4. Environment variables (web application)
 
-Set these in the Netlify and Vercel dashboards. The canonical list of names
+Set these in the Netlify dashboard (staging) and on the Railway
+`landseed-project` service (production). The canonical list of names
 lives in `.env.example`. Values differ per environment (staging vs production
 credentials and URLs); the crypto keys noted below must match across the web
 tier and the worker service.
@@ -173,10 +175,10 @@ tier and the worker service.
 | `DATABASE_URL` | Postgres connection (per environment) |
 | `REDIS_URL` | Redis public proxy URL (per environment) |
 | `NEXTAUTH_SECRET` | Auth.js session signing secret |
-| `AUTH_TRUST_HOST` | `true` on Netlify only; omit on Vercel |
-| `NEXTAUTH_URL` | full site URL; required on Netlify, optional on Vercel |
+| `AUTH_TRUST_HOST` | `true` on Netlify only; not needed on Railway |
+| `AUTH_URL`, `NEXTAUTH_URL` | full site URL including `https://`; required on both hosts |
 | `APP_BASE_URL` | base URL used to build links in notifications and emails |
-| `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | photo and document uploads from the upload route |
+| `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | photo and document uploads from the upload route. All four are required; a missing account ID shows up as `ENOTFOUND .r2.cloudflarestorage.com` |
 | `AUDIT_SIGNING_PRIVATE_KEY`, `AUDIT_SIGNING_PUBLIC_KEY`, `AUDIT_SIGNING_KEY_ID` | signing of the hash-chained audit log (login and account events are written from the web tier) |
 | `MFA_ENCRYPTION_KEY` | encryption of admin MFA secrets (enrollment and verification happen in the web tier) |
 
@@ -200,7 +202,7 @@ host is harmless but not required.
 
 ## 5. Secrets handling
 
-- Set every secret in the provider dashboard (Netlify, Vercel, Railway). Never
+- Set every secret in the provider dashboard (Netlify, Railway). Never
   commit secret values, and never paste them into chat, tickets, or this file.
 - Use **separate** credentials for staging and production (database, Redis, R2,
   API keys). Staging should never be able to read or write production data.
@@ -237,16 +239,21 @@ Guidance:
 
 ## 7. Workers (shared)
 
-The workers are not part of the Netlify or Vercel deployment. Serverless
-functions cannot run long tasks or timers, so the workers run as a single
-always-on process on Railway.
+The workers run separately from the web app, as a single always-on process in
+the Railway `worker` service. (Netlify's serverless functions can't run long
+tasks or timers, and in production the worker is kept separate from the
+`landseed-project` web service so slow jobs never compete with requests.)
 
 - Start command: `npm run worker:all` (runs `src/backend/queue/allWorkers.ts`,
   which starts every queue consumer and the scheduled sweeps in one process).
 - The worker service needs the shared backing-service variables (`DATABASE_URL`,
   `REDIS_URL`) plus the ones the web tier does not use: `RESEND_API_KEY`,
   `EMAIL_FROM`, `OPENAI_API_KEY` (and optionally `OPENAI_ORG_ID`),
-  `SERP_API_KEY`, `CLAMAV_HOST`, `CLAMAV_PORT`, and the R2 variables.
+  `SERP_API_KEY`, `CLAMAV_HOST`, `CLAMAV_PORT`, and the R2 variables (the
+  virus-scan worker downloads each upload from R2 to scan it and deletes it
+  if infected).
+- `APP_BASE_URL` and `NEXTAUTH_URL` must be the production `https://` URL on
+  the worker too, or every link in worker-sent emails points at localhost.
 - **Crypto keys must match the web tier.** `AUDIT_SIGNING_PRIVATE_KEY`,
   `AUDIT_SIGNING_PUBLIC_KEY`, `AUDIT_SIGNING_KEY_ID`, and `MFA_ENCRYPTION_KEY`
   must be identical on the worker service and the web host for the same
@@ -276,18 +283,20 @@ Staging (Netlify):
 - [ ] Worker service running `worker:all` against staging Redis and Postgres
 - [ ] Sign up, sign in, and a verification email all succeed
 
-Production (Vercel):
+Production (Railway):
 
-- [ ] Env vars set (no `AUTH_TRUST_HOST` needed)
-- [ ] `NEXTAUTH_SECRET` set; `AUTH_URL`/`NEXTAUTH_URL` set to the real
-      deployment URL — **required even on the default `*.vercel.app` URL**,
-      not just for custom domains (see the correction in
-      [section 2](#2-web-application-hosting))
+- [ ] Env vars set on `landseed-project` (no `AUTH_TRUST_HOST` needed)
+- [ ] `NEXTAUTH_SECRET` set; `AUTH_URL`/`NEXTAUTH_URL`/`APP_BASE_URL` set to
+      the real `https://` deployment URL on both `landseed-project` and
+      `worker` (see [section 2](#2-web-application-hosting))
+- [ ] Public domain's target port matches the port Next.js listens on
 - [ ] `REDIS_URL` points at the production public Redis host
 - [ ] Migrations applied to the production database, after a snapshot
 - [ ] Worker service running `worker:all` against production Redis and Postgres
 - [ ] Crypto keys (`AUDIT_SIGNING_*`, `MFA_ENCRYPTION_KEY`) match between the
-      Vercel app and the production worker service
+      `landseed-project` and `worker` services
+- [ ] All four R2 variables set on both services; a test upload lands in
+      `landseed-prod` and the worker logs `File is clean`
 - [ ] Sign up, sign in, and a verification email all succeed
 
 ## 10. Open decisions
@@ -304,8 +313,9 @@ proceed with the fallback in each item and revisit once LandSeed responds.
   project is on the **Free plan** (≈6h restore window) — LandSeed needs to
   upgrade to Scale to meet the targets in `DISASTER_RECOVERY.md`.
 - **Custom domain (app.landseed.ca).** Needs LandSeed to add DNS records
-  (CNAME/A plus TXT verification) once we have exact values from Vercel.
-  Fallback: production stays on the default `*.vercel.app` URL. Add a "Custom
+  (CNAME plus any verification record) once we have exact values from
+  Railway (`landseed-project` service → Settings → Networking → Custom
+  Domain). Fallback: production stays on the default `*.up.railway.app` URL. Add a "Custom
   domain" subsection under [section 2](#2-web-application-hosting) once DNS is
   live, including the `AUTH_URL` pin called out there.
 - **Resend domain access.** Blocked on LandSeed providing either access to
@@ -315,60 +325,17 @@ proceed with the fallback in each item and revisit once LandSeed responds.
   setup notes to [section 3](#3-backing-services-shared) once the domain is
   confirmed.
 
-### Pending a Blueprint org owner
+### Deploy pipeline
 
-Different responsible party than the LandSeed items above — this is blocked
-on someone with Owner role on the `Carleton-Blueprint` GitHub org, not on
-LandSeed. Both items are quick once someone with access is available, so
-handle them together in one sitting rather than one at a time.
+The Vercel-era items that used to be here (granting Vercel's GitHub App repo
+access, flipping Vercel's Production Branch to `production`) are obsolete:
+the Vercel project was deleted when production moved to Railway.
 
-**Update, 2026-08-28 (ticket 3, PR #130):** the auto-deploy-on-push question
-below is no longer unconfirmed — confirmed live. Pushing PR #130's branch
-produced a real Vercel "Preview" deployment via the GitHub PR checks, so the
-CLI-based connection (`vercel git connect`) does enable full
-auto-deploy-on-push, not just repo metadata. That means the Production
-Branch flip is no longer a hypothetical precaution — it is currently live
-and Production Branch is still `main`, so **merging any PR to `main` right
-now deploys straight to production with no staging gate**. PR #130 is being
-merged with this understood; flip the Production Branch setting as soon as
-an org owner is available, ideally before the next merge after that.
-
-- **Grant Vercel's GitHub App repository access.** The dashboard's "Import
-  Git Repository" flow fails with "This action must be performed by an
-  organization owner" — granting a third-party GitHub App org-wide repo
-  access is GitHub-Owner-gated, not a Vercel permission. When someone with
-  Owner role does this, have them pick **"Only select repositories"** and
-  choose just `landseed-project`, not "All repositories." Worked around for
-  now via `vercel link`/`vercel git connect` (CLI), which connected the repo
-  through a different path that didn't hit this gate — and (per the update
-  above) that path does enable full auto-deploy-on-push, confirmed via
-  PR #130.
-- **Flip Vercel's Production Branch from `main` to `production`.** A
-  `production` branch already exists (created off `origin/main`, pushed to
-  origin) so this is ready to go — the dashboard setting itself
-  (Project Settings → Git → Production Branch) is gated behind the same
-  GitHub-owner access as the item above, so do both at once. This is no
-  longer a "before relying on auto-deploy-on-push" precaution — auto-deploy
-  is confirmed active now, so every push to `main` deploys to production
-  until this flips. Highest-priority item in this section as of 2026-08-28.
-
-  **Update, 2026-08-30:** confirmed gated, not just theorized. On the
-  current (non-owner) account, Project Settings → Git shows no Production
-  Branch control at all — not greyed out, just absent from the page
-  entirely (only "Connected Git Repository," PR/commit comment toggles,
-  Git Commits status settings, LFS, and Deploy Hooks render). Also tried
-  the API path directly: `GET /v9/projects/{idOrName}` confirms the field
-  is `link.productionBranch` (currently `"main"`), but `PATCH` doesn't
-  accept `link` as a body field (`400: should NOT have additional property
-  'link'`) — the correct body shape is unconfirmed (top-level
-  `productionBranch` was the next thing to try, but wasn't completed this
-  session), and untested whether a non-owner token would 403 on it anyway.
-  Bottom line unchanged: needs an org owner, dashboard is the more direct
-  path once they're granted access, don't burn more time on the API route.
-  `production` is now 9+ commits behind `main` (missing PR #130 and the
-  worker shutdown-handler consolidation, PR #131) — remember to merge
-  `main` → `production` right after the flip, or prod will briefly regress
-  to an older build.
+- **Confirm which branch each Railway service deploys from** (service →
+  Settings → Source) and whether auto-deploy on push is on. If both deploy
+  from `main`, every merge to `main` goes straight to production with no
+  staging gate — decide whether to point them at a `production` branch
+  instead.
 
 ### Deferred to handoff
 
@@ -377,33 +344,24 @@ development — but they're real recurring costs LandSeed will own after
 transfer, so they need to land in the ticket 2 handoff package (service
 accounts and credentials inventory) rather than get forgotten.
 
-- **Railway billing.** Redis, the worker, and the ClamAV sidecar all live in a
-  Railway project under Blueprint's account. Railway's free Trial doesn't
-  support public networking (needed for Redis's TCP proxy) — it requires
-  upgrading to the Hobby plan (~$5/mo base, plus usage) with a payment method
-  on file. Same ownership question as Neon: keep billing through Blueprint
-  until final handoff, or have LandSeed create their own Railway account now
-  and add us as collaborators. At handoff, document actual plan/tier and
-  monthly cost here, alongside the equivalent for Vercel, Neon, R2, Resend,
-  OpenAI, and SerpAPI.
+- **Railway billing.** The web app, worker, ClamAV and Redis all live in the
+  `landseed-inplace-production` project in LandSeed's Railway workspace.
+  Public networking (needed for Redis's TCP proxy and the web app's domain)
+  requires a paid plan (Hobby, ~$5/mo base plus usage) — confirm whose
+  payment method is on file. At handoff, document actual plan/tier and
+  monthly cost here, alongside the equivalent for Neon, R2, Resend, OpenAI,
+  and SerpAPI.
 - **SerpAPI now runs on LandSeed's account** (as of 2026-10-04; key set on
   both Railway services). It powers material pricing for every estimate, so
   the monthly search cap matters: once it's hit, pricing lookups fail. Confirm
   LandSeed's plan covers expected volume before real client traffic, and
   keep `SERP_API_COST_PER_QUERY` in sync with the plan's per-search cost.
 - **OpenAI is already LandSeed-owned**, not Blueprint's — the key in use is
-  billed directly to LandSeed's account. Worth noting in the inventory as the
-  one exception to "everything's under Blueprint's account for now."
-- **Vercel team.** Created fresh (`carleton-blueprint`) under Blueprint's
-  account — no prior team existed. Plan tier at creation time wasn't
-  explicitly confirmed (no payment prompt appeared, unlike Railway's Hobby
-  gate, suggesting it's still on Vercel's free tier) — verify and record the
-  actual plan here before handoff, same as the others.
-- **Cloudflare R2 (production bucket) is a separate Cloudflare account**
-  from the one holding the dev/local bucket — confirmed by comparing account
-  IDs, not assumed. One more account to include in the handoff inventory
-  alongside Vercel/Neon/Railway, distinct from whatever account dev R2
-  already lived under.
+  billed directly to LandSeed's account.
+- **Cloudflare R2 is on LandSeed's Cloudflare account** (buckets
+  `landseed-prod` and `landseed-dev`; access keys from LandSeed, shared via
+  Bitwarden). A personal card is temporarily on that account's billing until
+  LandSeed replaces it — include in the handoff inventory.
 
 ## Related documents
 
