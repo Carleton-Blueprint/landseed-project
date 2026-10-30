@@ -15,6 +15,11 @@ import { ProjectEstimateReview } from "@/app/admin/ProjectEstimateReview";
 import { MODIFICATION_CODES } from "@/backend/eligibility/types";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 import {
+  formatAssessmentAttribution,
+  formatPostEstimateOverride,
+  type OverrideAttribution,
+} from "@/backend/services/overrideAttributionLabels";
+import {
   CheckCircleIcon,
   ClipboardIcon,
   EyeIcon,
@@ -90,6 +95,8 @@ export interface SerializedProject {
     assessedAt: string;
     isOverridden?: boolean;
   } | null;
+  /** Who overrode/re-assessed, and when (admin-only wording). */
+  overrideAttribution?: OverrideAttribution | null;
   manualFallbackExport: {
     id: string;
     status: string;
@@ -367,6 +374,7 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
   const router = useRouter();
   const eligibility = project.eligibility;
   const quote = project.quote;
+  const attribution = project.overrideAttribution ?? null;
   const exportPackage = project.manualFallbackExport;
   const [generatingExport, setGeneratingExport] = React.useState(false);
   const [generateExportMessage, setGenerateExportMessage] = React.useState<string | null>(null);
@@ -708,6 +716,23 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
                     <MessageIcon size={14} className="text-amber-600" /> {quote.openQuestions} open question{quote.openQuestions === 1 ? "" : "s"}
                 </div>
               )}
+              {attribution?.postEstimateOverride && (
+                <div className="rounded-md bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-xs text-sky-800">
+                  <p>{formatPostEstimateOverride(attribution.postEstimateOverride, fmtDate)}</p>
+                  {attribution.postEstimateOverride.history.length > 1 && (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-sky-700">Override history</summary>
+                      <ul className="mt-1 space-y-0.5">
+                        {attribution.postEstimateOverride.history.map((entry, index) => (
+                          <li key={`${entry.at}-${index}`}>
+                            {entry.adminName} on {fmtDate(entry.at)}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <p className="text-xs text-gray-500 italic">No quote generated yet.</p>
@@ -773,6 +798,11 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
               <p className="text-[10px] text-gray-400">
                 Assessed: {fmtDate(eligibility.assessedAt)}
               </p>
+              {attribution?.assessment && (
+                <p className="rounded-md bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-xs text-sky-800">
+                  {formatAssessmentAttribution(attribution.assessment, fmtDate)}
+                </p>
+              )}
             </>
           ) : (
               <div className="flex items-center gap-2 rounded-md bg-gray-50 border border-dashed border-gray-300 px-3 py-2.5 text-xs text-gray-500">
