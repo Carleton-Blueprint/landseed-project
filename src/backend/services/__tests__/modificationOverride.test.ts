@@ -291,7 +291,7 @@ describe("overridePreEstimateModifications", () => {
       })
     );
 
-    expect(mockedQueueEligibility).toHaveBeenCalledWith("proj-6");
+    expect(mockedQueueEligibility).toHaveBeenCalledWith("proj-6", { preEstimateOverrideBy: "admin-1" });
   });
 
   it("is an instance of ModificationOverrideError for known failures", async () => {

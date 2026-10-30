@@ -420,7 +420,7 @@ describe("saveManualGrantMatches", () => {
     ).rejects.toMatchObject({ code: "INVALID_GRANTS" } satisfies Partial<ManualModeError>);
   });
 
-  it("derives overallDecision ELIGIBLE when any grant is eligible, and saves with discoveryProvider MANUAL", async () => {
+  it("derives overallDecision ELIGIBLE when any grant is eligible, and saves with source ADMIN and discoveryProvider MANUAL", async () => {
     const result = await saveManualGrantMatches({
       projectId: "project-1",
       actorUserId: "staff-1",
@@ -430,6 +430,9 @@ describe("saveManualGrantMatches", () => {
     expect(mockedCreateEligibilitySnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: "project-1",
+        source: "ADMIN",
+        adminAction: "MANUAL_GRANTS",
+        createdByUserId: "staff-1",
         overallDecision: "ELIGIBLE",
         discoveryProvider: "MANUAL",
         discoveredGrants: expect.arrayContaining([expect.objectContaining({ title: "Senior Home Independence Grant" })]),

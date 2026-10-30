@@ -10,7 +10,12 @@
 
 import { Prisma, Project, User } from '@prisma/client';
 import { assembleEligibilityInput } from './assembler';
-import { createEligibilityAssessmentSnapshot } from './repository';
+import {
+  createEligibilityAssessmentSnapshot,
+  isSkippedEligibilitySnapshot,
+  type EligibilityAdminActionValue,
+  type EligibilitySnapshotSkipReason,
+} from './repository';
 import { EligibilityDecision, isFinalEligibilityDecision } from './types';
 import {
   discoverAndEvaluateGrants,
@@ -51,6 +56,13 @@ export interface EvaluateEligibilityServiceResult {
   createdAt: Date;
 }
 
+/** An automatic run that lost to an admin result; nothing was persisted. */
+export interface EvaluateEligibilityServiceSkipped {
+  skipped: true;
+  projectId: string;
+  reason: EligibilitySnapshotSkipReason;
+}
+
 export interface EvaluateEligibilityServiceError {
   code: 'PERSISTENCE_FAILED' | 'UNKNOWN';
   message: string;
@@ -62,8 +74,13 @@ export interface EvaluateEligibilityServiceError {
  */
 export async function evaluateProjectEligibility(
   project: ProjectWithPhotosForEligibility,
-  performedBy?: User
-): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceError> {
+  performedBy?: Pick<User, 'id'>,
+  options: { adminAction?: EligibilityAdminActionValue } = {}
+): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceSkipped | EvaluateEligibilityServiceError> {
+  // Captured before discovery so the repository can tell whether an admin
+  // result landed while this (automatic) run was in flight.
+  const startedAt = new Date();
+
   try {
     // Step 1: Assemble EligibilityInput from project
     const input = assembleEligibilityInput(project);
@@ -72,8 +89,17 @@ export async function evaluateProjectEligibility(
     const evaluation = await discoverAndEvaluateGrants(input);
 
     // Step 3: Persist assessment snapshot
+    const attribution = performedBy
+      ? {
+          source: 'ADMIN' as const,
+          adminAction: options.adminAction ?? 'REASSESS',
+          createdByUserId: performedBy.id,
+        }
+      : { source: 'AUTOMATIC' as const, automaticRunStartedAt: startedAt };
+
     const assessment = await createEligibilityAssessmentSnapshot({
       projectId: project.id,
+      ...attribution,
       overallDecision: evaluation.overallDecision,
       programDecisions: evaluation.programDecisions,
       reasonCodes: evaluation.reasonCodes,
@@ -95,6 +121,15 @@ export async function evaluateProjectEligibility(
         code: 'PERSISTENCE_FAILED',
         message: 'Failed to persist eligibility assessment',
       };
+    }
+
+    // An admin result won the race: nothing was persisted, so skip the audit,
+    // manual-review, quote and PDF side effects below.
+    if (isSkippedEligibilitySnapshot(assessment)) {
+      console.log(
+        `Automatic eligibility assessment for project ${project.id} discarded: ${assessment.reason}`
+      );
+      return { skipped: true, projectId: project.id, reason: assessment.reason };
     }
 
     // Step 3.5: Audit log the AI fallback if the live discovery call was attempted but failed

@@ -40,6 +40,11 @@ async function main() {
   const evaluation = await discoverAndEvaluateGrants(input);
   const assessment = await createEligibilityAssessmentSnapshot({
     projectId: project.id,
+    // A person ran this deliberately, same as the admin assess route. No
+    // session here, so there's no user to attribute it to.
+    source: 'ADMIN',
+    adminAction: 'REASSESS',
+    createdByUserId: null,
     overallDecision: evaluation.overallDecision,
     programDecisions: evaluation.programDecisions,
     reasonCodes: evaluation.reasonCodes,

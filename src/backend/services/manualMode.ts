@@ -511,6 +511,9 @@ export async function saveManualGrantMatches(
 
   const assessment = await createEligibilityAssessmentSnapshot({
     projectId: project.id,
+    source: "ADMIN",
+    adminAction: "MANUAL_GRANTS",
+    createdByUserId: input.actorUserId,
     overallDecision,
     programDecisions: {},
     reasonCodes: [],

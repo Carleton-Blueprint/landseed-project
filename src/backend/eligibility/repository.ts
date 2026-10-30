@@ -2,7 +2,10 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { prisma } from "lib/prisma";
 
-export interface CreateEligibilityAssessmentSnapshotInput {
+export type EligibilityAssessmentSourceValue = "AUTOMATIC" | "ADMIN";
+export type EligibilityAdminActionValue = "PRE_ESTIMATE_OVERRIDE" | "REASSESS" | "MANUAL_GRANTS";
+
+interface EligibilityAssessmentSnapshotFields {
   projectId: string;
   overallDecision: "ELIGIBLE" | "INELIGIBLE" | "NEEDS_MORE_INFO" | "MANUAL_REVIEW";
   programDecisions: Prisma.InputJsonValue;
@@ -20,7 +23,38 @@ export interface CreateEligibilityAssessmentSnapshotInput {
   discoveryOpenAiResponseEntries?: Prisma.InputJsonValue | null;
 }
 
-interface EligibilityAssessmentRow {
+export interface AdminEligibilityAssessmentSnapshotInput extends EligibilityAssessmentSnapshotFields {
+  source: "ADMIN";
+  adminAction: EligibilityAdminActionValue;
+  /** The admin/staff user who triggered it. Null only when there's no session (CLI script). */
+  createdByUserId: string | null;
+}
+
+export interface AutomaticEligibilityAssessmentSnapshotInput extends EligibilityAssessmentSnapshotFields {
+  source: "AUTOMATIC";
+  /** When this run started (before grant discovery), for the in-lock race guard. */
+  automaticRunStartedAt: Date;
+}
+
+export type CreateEligibilityAssessmentSnapshotInput =
+  | AdminEligibilityAssessmentSnapshotInput
+  | AutomaticEligibilityAssessmentSnapshotInput;
+
+export type EligibilitySnapshotSkipReason = "ADMIN_ASSESSMENT_SINCE_RUN_STARTED" | "QUOTE_OVERRIDE_EXISTS";
+
+/** Returned instead of a row when an AUTOMATIC write lost to an admin result. */
+export interface SkippedEligibilityAssessmentSnapshot {
+  skipped: true;
+  reason: EligibilitySnapshotSkipReason;
+}
+
+export function isSkippedEligibilitySnapshot(
+  result: EligibilityAssessmentRow | SkippedEligibilityAssessmentSnapshot | null
+): result is SkippedEligibilityAssessmentSnapshot {
+  return result !== null && "skipped" in result;
+}
+
+export interface EligibilityAssessmentRow {
   id: string;
   projectId: string;
   overallDecision: "ELIGIBLE" | "INELIGIBLE" | "NEEDS_MORE_INFO" | "MANUAL_REVIEW";
@@ -37,6 +71,9 @@ interface EligibilityAssessmentRow {
   discoverySourceSnapshotId: string | null;
   discoverySourcesSnapshot: Prisma.JsonValue | null;
   discoveryOpenAiResponseEntries: Prisma.JsonValue | null;
+  source: EligibilityAssessmentSourceValue;
+  adminAction: EligibilityAdminActionValue | null;
+  createdByUserId: string | null;
   isLatest: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -44,10 +81,20 @@ interface EligibilityAssessmentRow {
 
 /**
  * Creates an immutable eligibility snapshot and marks it as latest for the project.
+ *
+ * AUTOMATIC writes are skipped (nothing inserted, SkippedEligibilityAssessmentSnapshot
+ * returned) when an admin result should win: see the in-lock check below. ADMIN
+ * writes are never skipped.
  */
 export async function createEligibilityAssessmentSnapshot(
+  input: AdminEligibilityAssessmentSnapshotInput
+): Promise<EligibilityAssessmentRow | null>;
+export async function createEligibilityAssessmentSnapshot(
   input: CreateEligibilityAssessmentSnapshotInput
-) {
+): Promise<EligibilityAssessmentRow | SkippedEligibilityAssessmentSnapshot | null>;
+export async function createEligibilityAssessmentSnapshot(
+  input: CreateEligibilityAssessmentSnapshotInput
+): Promise<EligibilityAssessmentRow | SkippedEligibilityAssessmentSnapshot | null> {
   const programDecisionsJson = JSON.stringify(input.programDecisions);
   const reasonCodesJson = JSON.stringify(input.reasonCodes);
   const missingRequirementsJson = JSON.stringify(input.missingRequirements);
@@ -61,6 +108,45 @@ export async function createEligibilityAssessmentSnapshot(
     // two rows marked isLatest = true. Transaction-scoped, so it releases
     // automatically on commit/rollback.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))`;
+
+    // Race guard for AUTOMATIC writes, re-checked under the lock (triggers.ts
+    // checks up front, but grant discovery runs between that check and here).
+    // Skip if an admin result landed after this run started, or the latest
+    // quote has a post-estimate QuoteOverride. Note: createdAt is DB time and
+    // automaticRunStartedAt is app time, so clock skew of a second or two can
+    // shift the boundary slightly.
+    if (input.source === "AUTOMATIC") {
+      const [guard] = await tx.$queryRaw<Array<{ adminSinceRunStarted: boolean; quoteOverrideExists: boolean }>>(
+        Prisma.sql`
+          SELECT
+            EXISTS (
+              SELECT 1 FROM "EligibilityAssessment"
+              WHERE "projectId" = ${input.projectId}
+                AND "source" = 'ADMIN'
+                AND "createdAt" > ${input.automaticRunStartedAt}
+            ) AS "adminSinceRunStarted",
+            EXISTS (
+              SELECT 1 FROM "QuoteOverride"
+              WHERE "quoteId" = (
+                SELECT "id" FROM "Quote"
+                WHERE "projectId" = ${input.projectId}
+                ORDER BY "createdAt" DESC
+                LIMIT 1
+              )
+            ) AS "quoteOverrideExists"
+        `
+      );
+
+      if (guard?.adminSinceRunStarted) {
+        return { skipped: true, reason: "ADMIN_ASSESSMENT_SINCE_RUN_STARTED" } as const;
+      }
+      if (guard?.quoteOverrideExists) {
+        return { skipped: true, reason: "QUOTE_OVERRIDE_EXISTS" } as const;
+      }
+    }
+
+    const adminAction = input.source === "ADMIN" ? input.adminAction : null;
+    const createdByUserId = input.source === "ADMIN" ? input.createdByUserId : null;
 
     await tx.$executeRaw(
       Prisma.sql`
@@ -91,6 +177,9 @@ export async function createEligibilityAssessmentSnapshot(
           "discoverySourceSnapshotId",
           "discoverySourcesSnapshot",
           "discoveryOpenAiResponseEntries",
+          "source",
+          "adminAction",
+          "createdByUserId",
           "isLatest",
           "createdAt",
           "updatedAt"
@@ -112,6 +201,9 @@ export async function createEligibilityAssessmentSnapshot(
           ${input.discoverySourceSnapshotId ?? null},
           CAST(${JSON.stringify(input.discoverySourcesSnapshot ?? null)} AS JSONB),
           CAST(${JSON.stringify(input.discoveryOpenAiResponseEntries ?? null)} AS JSONB),
+          ${input.source}::"EligibilityAssessmentSource",
+          ${adminAction}::"EligibilityAdminAction",
+          ${createdByUserId},
           true,
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP
