@@ -2,8 +2,16 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { prisma } from "lib/prisma";
 
+export type EligibilityAssessmentSourceValue = "AUTOMATIC" | "ADMIN";
+export type EligibilityAdminActionValue = "PRE_ESTIMATE_OVERRIDE" | "REASSESS" | "MANUAL_GRANTS";
+
 export interface CreateEligibilityAssessmentSnapshotInput {
   projectId: string;
+  source: EligibilityAssessmentSourceValue;
+  /** Null for AUTOMATIC rows. */
+  adminAction?: EligibilityAdminActionValue | null;
+  /** The admin/staff user who triggered it. Null for AUTOMATIC rows. */
+  createdByUserId?: string | null;
   overallDecision: "ELIGIBLE" | "INELIGIBLE" | "NEEDS_MORE_INFO" | "MANUAL_REVIEW";
   programDecisions: Prisma.InputJsonValue;
   reasonCodes: Prisma.InputJsonValue;
@@ -37,6 +45,9 @@ interface EligibilityAssessmentRow {
   discoverySourceSnapshotId: string | null;
   discoverySourcesSnapshot: Prisma.JsonValue | null;
   discoveryOpenAiResponseEntries: Prisma.JsonValue | null;
+  source: EligibilityAssessmentSourceValue;
+  adminAction: EligibilityAdminActionValue | null;
+  createdByUserId: string | null;
   isLatest: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -91,6 +102,9 @@ export async function createEligibilityAssessmentSnapshot(
           "discoverySourceSnapshotId",
           "discoverySourcesSnapshot",
           "discoveryOpenAiResponseEntries",
+          "source",
+          "adminAction",
+          "createdByUserId",
           "isLatest",
           "createdAt",
           "updatedAt"
@@ -112,6 +126,9 @@ export async function createEligibilityAssessmentSnapshot(
           ${input.discoverySourceSnapshotId ?? null},
           CAST(${JSON.stringify(input.discoverySourcesSnapshot ?? null)} AS JSONB),
           CAST(${JSON.stringify(input.discoveryOpenAiResponseEntries ?? null)} AS JSONB),
+          ${input.source}::"EligibilityAssessmentSource",
+          ${input.adminAction ?? null}::"EligibilityAdminAction",
+          ${input.createdByUserId ?? null},
           true,
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP

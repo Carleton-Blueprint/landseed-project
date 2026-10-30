@@ -74,6 +74,9 @@ export async function evaluateProjectEligibility(
     // Step 3: Persist assessment snapshot
     const assessment = await createEligibilityAssessmentSnapshot({
       projectId: project.id,
+      source: performedBy ? 'ADMIN' : 'AUTOMATIC',
+      adminAction: performedBy ? 'REASSESS' : null,
+      createdByUserId: performedBy?.id ?? null,
       overallDecision: evaluation.overallDecision,
       programDecisions: evaluation.programDecisions,
       reasonCodes: evaluation.reasonCodes,

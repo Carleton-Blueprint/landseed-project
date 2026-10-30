@@ -271,6 +271,34 @@ describe('Eligibility Service', () => {
       );
     });
 
+    it('saves the snapshot as an ADMIN REASSESS attributed to performedBy', async () => {
+      discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation());
+      createEligibilityAssessmentSnapshot.mockResolvedValue({
+        id: 'assessment-1',
+        createdAt: new Date(),
+      });
+
+      await evaluateProjectEligibility(baseProject, { id: 'admin-1' } as never);
+
+      expect(createEligibilityAssessmentSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ source: 'ADMIN', adminAction: 'REASSESS', createdByUserId: 'admin-1' })
+      );
+    });
+
+    it('saves the snapshot as AUTOMATIC with no adminAction or user when performedBy is omitted', async () => {
+      discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation());
+      createEligibilityAssessmentSnapshot.mockResolvedValue({
+        id: 'assessment-1',
+        createdAt: new Date(),
+      });
+
+      await evaluateProjectEligibility(baseProject);
+
+      expect(createEligibilityAssessmentSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ source: 'AUTOMATIC', adminAction: null, createdByUserId: null })
+      );
+    });
+
     it('does not log ELIGIBILITY_EVALUATED when performedBy is omitted', async () => {
       discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation());
       createEligibilityAssessmentSnapshot.mockResolvedValue({

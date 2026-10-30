@@ -27,6 +27,7 @@ const { createEligibilityAssessmentSnapshot } = require("../repository") as {
 function baseInput() {
   return {
     projectId: "project-1",
+    source: "AUTOMATIC",
     overallDecision: "ELIGIBLE",
     programDecisions: { CMHC: "ELIGIBLE" },
     reasonCodes: ["SOME_CODE"],
@@ -98,6 +99,9 @@ describe("createEligibilityAssessmentSnapshot", () => {
 
     const input = {
       projectId: "project-3",
+      source: "ADMIN",
+      adminAction: "REASSESS",
+      createdByUserId: "admin-7",
       overallDecision: "MANUAL_REVIEW",
       programDecisions: { CMHC: "MANUAL_REVIEW" },
       reasonCodes: ["RULESET_REQUIRES_MANUAL_REVIEW"],
@@ -119,7 +123,13 @@ describe("createEligibilityAssessmentSnapshot", () => {
     const sqlArg = tx.$queryRaw.mock.calls[0][0] as { sql: string; values: unknown[] };
     expect(sqlArg.sql).toContain('INSERT INTO "EligibilityAssessment"');
     expect(sqlArg.sql).toContain("RETURNING *");
+    expect(sqlArg.sql).toContain('"source"');
+    expect(sqlArg.sql).toContain('::"EligibilityAssessmentSource"');
     expect(sqlArg.values).toContain("project-3");
+    expect(sqlArg.sql).toContain('::"EligibilityAdminAction"');
+    expect(sqlArg.values).toContain("ADMIN");
+    expect(sqlArg.values).toContain("REASSESS");
+    expect(sqlArg.values).toContain("admin-7");
     expect(sqlArg.values).toContain("MANUAL_REVIEW");
     expect(sqlArg.values).toContain(JSON.stringify(input.programDecisions));
     expect(sqlArg.values).toContain(JSON.stringify(input.reasonCodes));
