@@ -186,8 +186,9 @@ export async function overridePreEstimateModifications(
   });
 
   // Photo tags changed, so re-evaluate eligibility now rather than waiting
-  // for the delayed estimate-generation job.
-  await queueEligibilityEvaluation(project.id);
+  // for the delayed estimate-generation job. Saved as the admin's result, so
+  // it skips the admin grace window and takes precedence over automatic runs.
+  await queueEligibilityEvaluation(project.id, { preEstimateOverrideBy: input.actorUserId });
 
   return {
     projectId: project.id,

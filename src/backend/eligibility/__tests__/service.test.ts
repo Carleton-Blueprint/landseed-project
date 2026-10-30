@@ -285,6 +285,24 @@ describe('Eligibility Service', () => {
       );
     });
 
+    it('saves the given adminAction for an admin-triggered run', async () => {
+      discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation());
+      createEligibilityAssessmentSnapshot.mockResolvedValue({
+        id: 'assessment-1',
+        createdAt: new Date(),
+      });
+
+      await evaluateProjectEligibility(baseProject, { id: 'admin-1' }, { adminAction: 'PRE_ESTIMATE_OVERRIDE' });
+
+      expect(createEligibilityAssessmentSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'ADMIN',
+          adminAction: 'PRE_ESTIMATE_OVERRIDE',
+          createdByUserId: 'admin-1',
+        })
+      );
+    });
+
     it('saves the snapshot as AUTOMATIC with no adminAction or user when performedBy is omitted', async () => {
       discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation());
       createEligibilityAssessmentSnapshot.mockResolvedValue({

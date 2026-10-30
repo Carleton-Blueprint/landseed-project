@@ -10,7 +10,7 @@
 
 import { Prisma, Project, User } from '@prisma/client';
 import { assembleEligibilityInput } from './assembler';
-import { createEligibilityAssessmentSnapshot } from './repository';
+import { createEligibilityAssessmentSnapshot, type EligibilityAdminActionValue } from './repository';
 import { EligibilityDecision, isFinalEligibilityDecision } from './types';
 import {
   discoverAndEvaluateGrants,
@@ -62,7 +62,8 @@ export interface EvaluateEligibilityServiceError {
  */
 export async function evaluateProjectEligibility(
   project: ProjectWithPhotosForEligibility,
-  performedBy?: User
+  performedBy?: Pick<User, 'id'>,
+  options: { adminAction?: EligibilityAdminActionValue } = {}
 ): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceError> {
   try {
     // Step 1: Assemble EligibilityInput from project
@@ -75,7 +76,7 @@ export async function evaluateProjectEligibility(
     const assessment = await createEligibilityAssessmentSnapshot({
       projectId: project.id,
       source: performedBy ? 'ADMIN' : 'AUTOMATIC',
-      adminAction: performedBy ? 'REASSESS' : null,
+      adminAction: performedBy ? options.adminAction ?? 'REASSESS' : null,
       createdByUserId: performedBy?.id ?? null,
       overallDecision: evaluation.overallDecision,
       programDecisions: evaluation.programDecisions,
