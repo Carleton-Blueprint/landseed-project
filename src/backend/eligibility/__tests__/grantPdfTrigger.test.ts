@@ -27,6 +27,7 @@ jest.mock('../assembler', () => ({
 
 jest.mock('../repository', () => ({
   createEligibilityAssessmentSnapshot: jest.fn(),
+  isSkippedEligibilitySnapshot: jest.requireActual('../repository').isSkippedEligibilitySnapshot,
 }));
 
 jest.mock('../discoverySearchProvider', () => ({

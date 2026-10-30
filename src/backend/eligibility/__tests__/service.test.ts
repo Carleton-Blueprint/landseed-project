@@ -34,6 +34,7 @@ jest.mock('../assembler', () => ({
 
 jest.mock('../repository', () => ({
   createEligibilityAssessmentSnapshot: jest.fn(),
+  isSkippedEligibilitySnapshot: jest.requireActual('../repository').isSkippedEligibilitySnapshot,
 }));
 
 jest.mock('../discoverySearchProvider', () => ({
@@ -312,9 +313,65 @@ describe('Eligibility Service', () => {
 
       await evaluateProjectEligibility(baseProject);
 
-      expect(createEligibilityAssessmentSnapshot).toHaveBeenCalledWith(
-        expect.objectContaining({ source: 'AUTOMATIC', adminAction: null, createdByUserId: null })
-      );
+      const input = createEligibilityAssessmentSnapshot.mock.calls[0][0] as Record<string, unknown>;
+      expect(input).toEqual(expect.objectContaining({ source: 'AUTOMATIC', automaticRunStartedAt: expect.any(Date) }));
+      expect(input).not.toHaveProperty('adminAction');
+      expect(input).not.toHaveProperty('createdByUserId');
+    });
+
+    it('captures automaticRunStartedAt before grant discovery runs', async () => {
+      let discoveryCalledAt = 0;
+      discoverAndEvaluateGrants.mockImplementation(async () => {
+        discoveryCalledAt = Date.now();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return baseEvaluation();
+      });
+      createEligibilityAssessmentSnapshot.mockResolvedValue({ id: 'assessment-1', createdAt: new Date() });
+
+      await evaluateProjectEligibility(baseProject);
+
+      const input = createEligibilityAssessmentSnapshot.mock.calls[0][0] as { automaticRunStartedAt: Date };
+      expect(input.automaticRunStartedAt.getTime()).toBeLessThanOrEqual(discoveryCalledAt);
+    });
+
+    it('returns a skipped result and runs no side effects when the repository discards an automatic write', async () => {
+      // Earlier tests leave fire-and-forget background work queued; drain it so
+      // its calls don't count against this test.
+      await flushBackgroundJobs();
+      jest.clearAllMocks();
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation());
+      createEligibilityAssessmentSnapshot.mockResolvedValue({
+        skipped: true,
+        reason: 'ADMIN_ASSESSMENT_SINCE_RUN_STARTED',
+      });
+      const { generateQuote } = require('@/backend/services/quote') as { generateQuote: jest.Mock };
+      const { produceManualReviewFlagJob } = require('../manualReviewProducer') as {
+        produceManualReviewFlagJob: jest.Mock;
+      };
+      const { generateAndStoreGrantDocument } = require('@/backend/services/grantDocument') as {
+        generateAndStoreGrantDocument: jest.Mock;
+      };
+      const { grantMatchSummaryQueue } = require('@/backend/queue') as typeof import('@/backend/queue');
+      const queueAddSpy = jest.spyOn(grantMatchSummaryQueue, 'add').mockResolvedValue(undefined as never);
+
+      const result = await evaluateProjectEligibility(baseProject);
+      await flushBackgroundJobs();
+
+      expect(result).toEqual({
+        skipped: true,
+        projectId: 'proj-1',
+        reason: 'ADMIN_ASSESSMENT_SINCE_RUN_STARTED',
+      });
+      expect(logAuditEventNonBlocking).not.toHaveBeenCalled();
+      expect(produceManualReviewFlagJob).not.toHaveBeenCalled();
+      expect(prisma.quote.findFirst).not.toHaveBeenCalled();
+      expect(generateQuote).not.toHaveBeenCalled();
+      expect(generateAndStoreGrantDocument).not.toHaveBeenCalled();
+      expect(queueAddSpy).not.toHaveBeenCalled();
+      queueAddSpy.mockRestore();
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('ADMIN_ASSESSMENT_SINCE_RUN_STARTED'));
+      consoleLogSpy.mockRestore();
     });
 
     it('does not log ELIGIBILITY_EVALUATED when performedBy is omitted', async () => {
