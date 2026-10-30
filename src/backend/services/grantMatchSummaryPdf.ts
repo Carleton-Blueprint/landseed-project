@@ -1,6 +1,7 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from 'pdf-lib';
 import type { AssembledGrantMatchSummaryInput, AssembledMatchedGrant } from './grantMatchSummaryAssembler';
 import type { AiOutputSource } from '@/backend/audit/aiProvenance';
+import { CLIENT_OVERRIDE_LABEL } from './overrideAttributionLabels';
 
 const PAGE_SIZE: [number, number] = [612, 792];
 const MARGIN_X = 56;
@@ -173,6 +174,9 @@ export async function generateGrantMatchSummaryPdf(input: AssembledGrantMatchSum
   drawHeaderField(cursor, 'Modification Type', input.modificationType);
   drawHeaderField(cursor, 'Assessment Date', assessmentDateDisplay);
   drawHeaderField(cursor, 'Assessment Method', outputSourceLabel(input.outputSource));
+  if (input.staffOverridden) {
+    cursor.drawLine(CLIENT_OVERRIDE_LABEL, { size: 10, font: bodyFont, color: rgb(0.35, 0.35, 0.35) });
+  }
 
   cursor.y -= 10;
   cursor.drawLine(

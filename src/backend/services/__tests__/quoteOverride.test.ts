@@ -18,6 +18,11 @@ jest.mock("@/backend/services/estimateUpdatedNotification", () => ({
   notifyEstimateUpdated: jest.fn(),
 }));
 
+const mockedGrantMatchSummaryAdd = jest.fn().mockResolvedValue(undefined);
+jest.mock("@/backend/queue", () => ({
+  grantMatchSummaryQueue: { add: (...args: unknown[]) => mockedGrantMatchSummaryAdd(...args) },
+}));
+
 const mockedTxProjectFindUnique = jest.fn();
 const mockedTxPhotoUpdate = jest.fn();
 const mockedTxPhotoFindMany = jest.fn();
@@ -225,6 +230,26 @@ describe("overridePostEstimateQuote", () => {
         newTotal: 120,
       })
     );
+
+    expect(mockedGrantMatchSummaryAdd).toHaveBeenCalledWith(
+      "grant-match-summary:proj-1:override:override-1",
+      { projectId: "proj-1", actorUserId: validInput.actorUserId }
+    );
+  });
+
+  it("does not fail the override when queueing the grant-match summary regeneration fails", async () => {
+    mockProject();
+    mockedGrantMatchSummaryAdd.mockRejectedValueOnce(new Error("redis down"));
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(overridePostEstimateQuote(validInput)).resolves.toMatchObject({ quoteId: "quote-1" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("grant match summary regeneration"),
+      expect.any(Error)
+    );
+    warnSpy.mockRestore();
   });
 
   it("falls back to the project's latest eligibility assessment when quote.eligibilityAssessmentId is unset", async () => {

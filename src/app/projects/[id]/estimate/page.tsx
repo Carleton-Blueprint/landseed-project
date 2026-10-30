@@ -25,6 +25,7 @@ import type { EstimateTierOption } from "./EstimateClientComponent";
 import { groupForDisplay } from "./groupForDisplay";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 import { resolveEffectiveQuoteView } from "@/backend/services/quoteOverride";
+import { CLIENT_OVERRIDE_LABEL } from "@/backend/services/overrideAttributionLabels";
 
 export default async function EstimatePage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -303,9 +304,7 @@ export default async function EstimatePage(props: { params: Promise<{ id: string
               </>
             ) : null}
             {isOverridden ? (
-              <p className="pt-2 text-xs text-gray-500">
-                This estimate was updated by our advisory team after your initial estimate was generated.
-              </p>
+              <p className="pt-2 text-xs text-gray-500">{CLIENT_OVERRIDE_LABEL}</p>
             ) : null}
             <div className="flex justify-between py-4 mt-1">
               <span className="text-lg font-bold text-indigo-700">Total Estimate</span>

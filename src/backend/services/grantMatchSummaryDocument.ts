@@ -36,6 +36,7 @@ function computeContentHash(assembled: AssembledGrantMatchSummaryInput): string 
     matchedGrants: assembled.matchedGrants,
     hasMatches: assembled.hasMatches,
     incompleteFields: assembled.incompleteFields,
+    staffOverridden: assembled.staffOverridden,
   };
   return createHash('sha256').update(JSON.stringify(relevantFields)).digest('hex');
 }
