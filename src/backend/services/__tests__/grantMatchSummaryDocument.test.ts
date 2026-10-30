@@ -45,6 +45,7 @@ const assembledInput = {
   ],
   hasMatches: true,
   incompleteFields: [] as string[],
+  staffOverridden: false,
   preparedAtIso: new Date().toISOString(),
 };
 
@@ -116,6 +117,7 @@ function contentHashFor(input: typeof assembledInput): string {
     matchedGrants: input.matchedGrants,
     hasMatches: input.hasMatches,
     incompleteFields: input.incompleteFields,
+    staffOverridden: input.staffOverridden,
   };
   return createHash("sha256").update(JSON.stringify(relevantFields)).digest("hex");
 }
@@ -196,6 +198,26 @@ describe("generateAndStoreGrantMatchSummaryDocument", () => {
       fileName: "grant-match-summary-v2.pdf",
       regenerated: false,
     });
+  });
+
+  it("regenerates when only staffOverridden changed (a post-estimate override landed)", async () => {
+    prisma.grantMatchSummaryDocument.findFirst.mockResolvedValue({
+      id: "doc-existing",
+      status: "READY",
+      s3Key: "projects/proj-1/grant-match-summary/grant-match-summary-v2.pdf",
+      fileName: "grant-match-summary-v2.pdf",
+      contentHash: contentHashFor(assembledInput),
+      version: 2,
+    });
+    assembleGrantMatchSummaryInput.mockResolvedValue({ ...assembledInput, staffOverridden: true });
+
+    const result = await generateAndStoreGrantMatchSummaryDocument({
+      projectId: "proj-1",
+      actorUserId: "user-1",
+    });
+
+    expect(generateGrantMatchSummaryPdf).toHaveBeenCalledWith(expect.objectContaining({ staffOverridden: true }));
+    expect(result.regenerated).toBe(true);
   });
 
   it("regenerates with an incremented version when force is set, even with an unchanged hash", async () => {

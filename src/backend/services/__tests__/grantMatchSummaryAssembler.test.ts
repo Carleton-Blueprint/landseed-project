@@ -54,6 +54,7 @@ const { assembleGrantMatchSummaryInput } = require("../grantMatchSummaryAssemble
     }>;
     hasMatches: boolean;
     incompleteFields: string[];
+    staffOverridden: boolean;
     preparedAtIso: string;
   }>;
 };
@@ -114,6 +115,7 @@ describe("assembleGrantMatchSummaryInput", () => {
 
     const result = await assembleGrantMatchSummaryInput("proj-1");
 
+    expect(result.staffOverridden).toBe(false);
     expect(result).toMatchObject({
       projectId: "proj-1",
       eligibilityAssessmentId: "assess-1",
@@ -243,6 +245,8 @@ describe("assembleGrantMatchSummaryInput", () => {
 
     const result = await assembleGrantMatchSummaryInput("proj-5");
 
+    expect(result.staffOverridden).toBe(true);
+
     expect(result.matchedGrants).toEqual([
       {
         programName: "Manual Grant",
@@ -290,6 +294,10 @@ describe("assembleGrantMatchSummaryInput", () => {
     });
 
     const result = await assembleGrantMatchSummaryInput("proj-6");
+
+    // The client still saw an overridden quote, even though its grant
+    // changes don't apply to this newer assessment.
+    expect(result.staffOverridden).toBe(true);
 
     expect(result.matchedGrants).toEqual([
       {

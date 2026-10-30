@@ -45,12 +45,21 @@ function baseInput(overrides: Partial<AssembledGrantMatchSummaryInput> = {}): As
     matchedGrants: [],
     hasMatches: false,
     incompleteFields: [],
+    staffOverridden: false,
     preparedAtIso: new Date().toISOString(),
     ...overrides,
   };
 }
 
 describe("generateGrantMatchSummaryPdf", () => {
+  it("shows 'Overridden by LandSeed staff' only when staffOverridden is set", async () => {
+    const overridden = extractVisiblePdfText(await generateGrantMatchSummaryPdf(baseInput({ staffOverridden: true })));
+    const plain = extractVisiblePdfText(await generateGrantMatchSummaryPdf(baseInput()));
+
+    expect(overridden).toContain("Overridden by LandSeed staff");
+    expect(plain).not.toContain("Overridden by LandSeed staff");
+  });
+
   it("returns a valid single-page PDF and renders the no-matches message when there are no matched grants", async () => {
     const buffer = await generateGrantMatchSummaryPdf(baseInput());
 

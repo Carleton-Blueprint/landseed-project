@@ -23,6 +23,7 @@ import type { ModificationCode } from "@/backend/eligibility/types";
 import type { DiscoveredGrant, GrantDiscoveryScope } from "@/backend/eligibility/discoverySearchProvider";
 import { DEFAULT_PRICING_TIER, isTieredEstimate, type AnyRefinedEstimate } from "@/backend/services/pricingTiers";
 import { notifyEstimateUpdated } from "@/backend/services/estimateUpdatedNotification";
+import { grantMatchSummaryQueue } from "@/backend/queue";
 
 export const QUOTE_OVERRIDE_AUDIT_ACTION = "QUOTE_POST_ESTIMATE_OVERRIDE";
 
@@ -645,6 +646,18 @@ export async function overridePostEstimateQuote(
       console.error("Failed to send estimate-updated notification:", error);
     }
   }
+
+  // Regenerate the client's grant-match summary so it reflects the override's
+  // grant changes and shows "Overridden by LandSeed staff". Best-effort, like
+  // the notification above.
+  grantMatchSummaryQueue
+    .add(`grant-match-summary:${project.id}:override:${overrideRowId}`, {
+      projectId: project.id,
+      actorUserId: input.actorUserId,
+    })
+    .catch((error) => {
+      console.warn("Failed to queue grant match summary regeneration after quote override:", error);
+    });
 
   return {
     projectId: project.id,

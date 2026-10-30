@@ -28,6 +28,8 @@ export interface AssembledGrantMatchSummaryInput {
   matchedGrants: AssembledMatchedGrant[];
   hasMatches: boolean;
   incompleteFields: string[];
+  /** Latest quote has a post-estimate QuoteOverride; shows CLIENT_OVERRIDE_LABEL. */
+  staffOverridden: boolean;
   preparedAtIso: string;
 }
 
@@ -158,6 +160,7 @@ export async function assembleGrantMatchSummaryInput(
     matchedGrants,
     hasMatches: matchedGrants.length > 0,
     incompleteFields,
+    staffOverridden: Boolean(latestQuote?.override),
     preparedAtIso: new Date().toISOString(),
   };
 }

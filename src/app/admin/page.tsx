@@ -9,6 +9,7 @@ import { signPhotosForDisplay } from "lib/photoUrls";
 import { aggregateDeclaredModificationCodes } from "@/backend/eligibility/modificationNormalization";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 import { mapAiGrantsToEffectiveGrants, resolveEffectiveQuoteView } from "@/backend/services/quoteOverride";
+import { getOverrideAttributions } from "@/backend/services/overrideAttribution";
 
 export const metadata: Metadata = {
   title: "Advisor Panel — Landseed Project",
@@ -51,7 +52,7 @@ export default async function AdminDashboardPage() {
 
     const projectIds = rawProjects.map((p) => p.id);
 
-    const [allDocuments, allQuotes, allAssessments, allStatusHistory] = await Promise.all([
+    const [allDocuments, allQuotes, allAssessments, allStatusHistory, overrideAttributions] = await Promise.all([
       prisma.document.findMany({
         where: { projectId: { in: projectIds } },
         select: { projectId: true, id: true, documentType: true, reviewStatus: true },
@@ -80,6 +81,7 @@ export default async function AdminDashboardPage() {
           changedByUser: { select: { name: true, email: true } },
         },
       }),
+      getOverrideAttributions(projectIds),
     ]);
 
     const allFallbackExports = await prisma.manualFallbackExport.findMany({
@@ -186,6 +188,7 @@ export default async function AdminDashboardPage() {
           assessedAt: aExtended.createdAt.toISOString(),
           isOverridden: effective?.isOverridden ?? false,
         } : null,
+        overrideAttribution: overrideAttributions.get(p.id) ?? null,
         manualFallbackExport: latestFallbackExport ? {
           id: latestFallbackExport.id, status: latestFallbackExport.status,
           requestedAt: latestFallbackExport.requestedAt.toISOString(),
