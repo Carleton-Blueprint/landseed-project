@@ -44,6 +44,8 @@ interface GrantDiscoveryResponse {
   assessmentId: string;
   overallDecision: string;
   createdAt: string;
+  /** The override's decision/grant edits are applied to these grants. */
+  staffOverridden?: boolean;
   discovery?: {
     provider: string;
     discoveredGrants: DiscoveredGrant[];
@@ -382,14 +384,7 @@ function OverallDecisionBanner({
 /* Main Component                                                      */
 /* ------------------------------------------------------------------ */
 
-export function GrantDiscoverySummary({
-  projectId,
-  staffOverridden = false,
-}: {
-  projectId: string;
-  /** Latest quote has a post-estimate QuoteOverride. */
-  staffOverridden?: boolean;
-}) {
+export function GrantDiscoverySummary({ projectId }: { projectId: string }) {
   const [data, setData] = React.useState<GrantDiscoveryResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -511,7 +506,7 @@ export function GrantDiscoverySummary({
         <p className="mt-0.5 text-sm text-gray-500">
           Grants automatically discovered and evaluated against your project profile.
         </p>
-        {staffOverridden && <p className="mt-1 text-xs text-gray-500">{CLIENT_OVERRIDE_LABEL}</p>}
+        {data.staffOverridden && <p className="mt-1 text-xs text-gray-500">{CLIENT_OVERRIDE_LABEL}</p>}
       </div>
 
       {/* Overall decision banner */}

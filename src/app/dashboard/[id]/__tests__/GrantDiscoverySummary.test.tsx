@@ -6,7 +6,7 @@ import { GrantDiscoverySummary } from "../GrantDiscoverySummary";
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
-function mockAssessment() {
+function mockAssessment(staffOverridden?: boolean) {
   mockFetch.mockResolvedValue({
     ok: true,
     status: 200,
@@ -14,6 +14,7 @@ function mockAssessment() {
       assessmentId: "assessment-1",
       overallDecision: "ELIGIBLE",
       createdAt: "2026-10-30T12:00:00.000Z",
+      ...(staffOverridden === undefined ? {} : { staffOverridden }),
       discovery: { provider: "OPENAI", discoveredGrants: [] },
     }),
   });
@@ -24,16 +25,19 @@ describe("GrantDiscoverySummary staff override line", () => {
     mockFetch.mockReset();
   });
 
-  it("shows 'Overridden by LandSeed staff' when the latest quote has a post-estimate override", async () => {
-    mockAssessment();
+  it("shows 'Overridden by LandSeed staff' when the API reports the override's edits were applied", async () => {
+    mockAssessment(true);
 
-    render(<GrantDiscoverySummary projectId="proj-1" staffOverridden />);
+    render(<GrantDiscoverySummary projectId="proj-1" />);
 
     expect(await screen.findByText("Overridden by LandSeed staff")).toBeInTheDocument();
   });
 
-  it("shows nothing about overrides by default", async () => {
-    mockAssessment();
+  it.each([
+    ["false (override made against an older assessment)", false],
+    ["absent", undefined],
+  ])("shows nothing about overrides when staffOverridden is %s", async (_label, staffOverridden) => {
+    mockAssessment(staffOverridden);
 
     render(<GrantDiscoverySummary projectId="proj-1" />);
 
@@ -42,9 +46,9 @@ describe("GrantDiscoverySummary staff override line", () => {
   });
 
   it("never shows admin names or override types", async () => {
-    mockAssessment();
+    mockAssessment(true);
 
-    const { container } = render(<GrantDiscoverySummary projectId="proj-1" staffOverridden />);
+    const { container } = render(<GrantDiscoverySummary projectId="proj-1" />);
 
     await screen.findByText("Overridden by LandSeed staff");
     expect(container.textContent).not.toMatch(/ by (?!LandSeed staff)|Post-estimate|Pre-estimate|Re-assessed|Manual grants/);
