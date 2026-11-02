@@ -100,12 +100,14 @@ describe("GET /api/eligibility/[projectId]", () => {
 
     expect(body.overallDecision).toBe("MANUAL_REVIEW");
     expect(body.discovery.discoveredGrants).toEqual(baseAssessment.discoveredGrants);
+    expect(body.staffOverridden).toBe(false);
   });
 
-  it("merges an existing override's decision and grant changes into the response", async () => {
+  it("merges an override's decision and grant changes when made against the returned assessment", async () => {
     mockedQuoteFindFirst.mockResolvedValue({
       id: "quote-1",
       override: {
+        eligibilityAssessmentId: "assessment-1",
         eligibilityDecision: "ELIGIBLE",
         grantOverrides: {
           removedGrantIds: [],
@@ -127,5 +129,46 @@ describe("GET /api/eligibility/[projectId]", () => {
     expect(aiGrant).toMatchObject({ decision: "INELIGIBLE", rationale: "matches criteria" });
     const manualGrant = grants.find((g: { grantId: string }) => g.grantId === "manual-1");
     expect(manualGrant).toMatchObject({ title: "Manual Grant", decision: "ELIGIBLE", rationale: "Confirmed by phone" });
+  });
+
+  it("reports staffOverridden when the override's edits were applied", async () => {
+    mockedQuoteFindFirst.mockResolvedValue({
+      id: "quote-1",
+      override: {
+        eligibilityAssessmentId: "assessment-1",
+        eligibilityDecision: "ELIGIBLE",
+        grantOverrides: { removedGrantIds: [], decisionOverrides: [], addedGrants: [] },
+      },
+    });
+
+    const body = await (await GET(buildRequest(), buildParams())).json();
+
+    expect(body.staffOverridden).toBe(true);
+  });
+
+  it.each([
+    ["an older assessment (admin re-run since)", "assessment-older"],
+    ["no recorded assessment", null],
+  ])("ignores an override's decision and grant edits made against %s", async (_label, eligibilityAssessmentId) => {
+    mockedQuoteFindFirst.mockResolvedValue({
+      id: "quote-1",
+      override: {
+        eligibilityAssessmentId,
+        eligibilityDecision: "ELIGIBLE",
+        grantOverrides: {
+          removedGrantIds: ["grant-ai-1"],
+          decisionOverrides: [],
+          addedGrants: [
+            { id: "manual-1", title: "Manual Grant", scope: "MUNICIPAL", jurisdiction: "Toronto", decision: "ELIGIBLE", note: null },
+          ],
+        },
+      },
+    });
+
+    const body = await (await GET(buildRequest(), buildParams())).json();
+
+    expect(body.overallDecision).toBe("MANUAL_REVIEW");
+    expect(body.discovery.discoveredGrants).toEqual(baseAssessment.discoveredGrants);
+    expect(body.staffOverridden).toBe(false);
   });
 });

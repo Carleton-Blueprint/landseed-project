@@ -11,7 +11,7 @@ import { auth } from '@/auth';
 import { getLatestEligibilityAssessment } from '@/backend/eligibility/service';
 import { hasProjectAccess } from '@/backend/auth/projectAccess';
 import { prisma } from 'lib/prisma';
-import { applyGrantOverridesToRawGrants } from '@/backend/services/quoteOverride';
+import { applyGrantOverridesToRawGrants, overrideEligibilityEditsApply } from '@/backend/services/quoteOverride';
 import type { GrantOverrides } from '@/backend/services/quoteOverride';
 import type { DiscoveredGrant } from '@/backend/eligibility/discoverySearchProvider';
 
@@ -128,17 +128,20 @@ export async function GET(
     }
 
     // A post-estimate override (FR-4.3) may have adjusted the overall
-    // decision and/or the discovered-grants list since this assessment ran;
-    // merge it in so clients and staff see the same "effective" eligibility
-    // the admin dashboard shows, not the untouched AI output.
+    // decision and/or the discovered-grants list. Apply those edits only when
+    // they were made against this (latest) assessment — the same rule as the
+    // admin dashboard and PDF assemblers — so an admin re-run after the
+    // override drops them everywhere at once.
     const latestQuote = await prisma.quote.findFirst({
       where: { projectId },
       orderBy: { generatedAt: 'desc' },
       include: { override: true },
     });
     const override = latestQuote?.override ?? null;
-    const effectiveOverallDecision = override?.eligibilityDecision ?? assessment.overallDecision;
-    const effectiveDiscoveredGrants = override
+    const staffOverridden = overrideEligibilityEditsApply(override, assessment.assessmentId);
+    const effectiveOverallDecision =
+      staffOverridden && override ? override.eligibilityDecision : assessment.overallDecision;
+    const effectiveDiscoveredGrants = staffOverridden && override
       ? applyGrantOverridesToRawGrants(
           Array.isArray(assessment.discoveredGrants) ? (assessment.discoveredGrants as unknown as DiscoveredGrant[]) : [],
           override.grantOverrides as unknown as GrantOverrides
@@ -151,6 +154,8 @@ export async function GET(
       projectId: assessment.projectId,
       overallDecision: effectiveOverallDecision,
       createdAt: assessment.createdAt,
+      // Shown to clients as "Overridden by LandSeed staff" (no names).
+      staffOverridden,
       discovery: {
         provider: assessment.discoveryProvider,
         metadata: assessment.discoveryMetadata,

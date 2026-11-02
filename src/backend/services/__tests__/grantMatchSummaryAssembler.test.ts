@@ -22,8 +22,7 @@ type ProjectSummaryRecord = {
     discoveryProvider: string | null;
   }>;
   quotes?: Array<{
-    eligibilityAssessmentId: string | null;
-    override: { eligibilityDecision: string; grantOverrides: unknown } | null;
+    override: { eligibilityDecision: string; grantOverrides: unknown; eligibilityAssessmentId: string | null } | null;
   }>;
 };
 
@@ -228,8 +227,8 @@ describe("assembleGrantMatchSummaryInput", () => {
       ],
       quotes: [
         {
-          eligibilityAssessmentId: "assess-5",
           override: {
+            eligibilityAssessmentId: "assess-5",
             eligibilityDecision: "ELIGIBLE",
             grantOverrides: {
               removedGrantIds: ["hatc_canada"],
@@ -284,8 +283,8 @@ describe("assembleGrantMatchSummaryInput", () => {
       ],
       quotes: [
         {
-          eligibilityAssessmentId: "assess-6-old",
           override: {
+            eligibilityAssessmentId: "assess-6-old",
             eligibilityDecision: "INELIGIBLE",
             grantOverrides: { removedGrantIds: ["hatc_canada"], decisionOverrides: [], addedGrants: [] },
           },
@@ -295,9 +294,8 @@ describe("assembleGrantMatchSummaryInput", () => {
 
     const result = await assembleGrantMatchSummaryInput("proj-6");
 
-    // The client still saw an overridden quote, even though its grant
-    // changes don't apply to this newer assessment.
-    expect(result.staffOverridden).toBe(true);
+    // The override wasn't applied to this newer assessment, so no label.
+    expect(result.staffOverridden).toBe(false);
 
     expect(result.matchedGrants).toEqual([
       {
@@ -308,6 +306,47 @@ describe("assembleGrantMatchSummaryInput", () => {
         scopeDescription: "Federal tax credit for eligible accessibility renovations.",
       },
     ]);
+  });
+
+  it("ignores the override and shows no staff line when the override recorded no assessment", async () => {
+    prisma.project.findUnique.mockResolvedValue({
+      id: "proj-7",
+      address: "30 Unlinked Ln",
+      draftData: {},
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      user: { name: "Unlinked User" },
+      eligibilityAssessments: [
+        {
+          id: "assess-7",
+          createdAt: ASSESSED_AT,
+          discoveryProvider: "OPENAI",
+          discoveredGrants: [
+            {
+              grantId: "hatc_canada",
+              title: "Home Accessibility Tax Credit",
+              decision: "ELIGIBLE",
+              confidence: "HIGH",
+              estimatedFundingAmount: "Up to $20,000",
+              summary: "Federal tax credit for eligible accessibility renovations.",
+            },
+          ],
+        },
+      ],
+      quotes: [
+        {
+          override: {
+            eligibilityAssessmentId: null,
+            eligibilityDecision: "INELIGIBLE",
+            grantOverrides: { removedGrantIds: ["hatc_canada"], decisionOverrides: [], addedGrants: [] },
+          },
+        },
+      ],
+    });
+
+    const result = await assembleGrantMatchSummaryInput("proj-7");
+
+    expect(result.staffOverridden).toBe(false);
+    expect(result.matchedGrants.map((g) => g.programName)).toEqual(["Home Accessibility Tax Credit"]);
   });
 
   it("throws when the project does not exist", async () => {

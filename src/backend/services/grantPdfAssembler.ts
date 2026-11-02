@@ -3,7 +3,11 @@ import { deriveAddressFromIntakeData } from './intakeDraft';
 import { MODIFICATION_COST_CATALOG } from './modificationCostCatalog';
 import { aggregateDeclaredModificationCodes } from '@/backend/eligibility/modificationNormalization';
 import type { PromoteIntakeData } from "@/backend/schemas/intakeDraft";
-import { applyGrantOverridesToRawGrants, type GrantOverrides } from '@/backend/services/quoteOverride';
+import {
+  applyGrantOverridesToRawGrants,
+  overrideEligibilityEditsApply,
+  type GrantOverrides,
+} from '@/backend/services/quoteOverride';
 import type { DiscoveredGrant } from '@/backend/eligibility/discoverySearchProvider';
 
 export interface AssembledGrantPdfInput {
@@ -44,7 +48,7 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
       quotes: {
         orderBy: { createdAt: 'desc' },
         take: 1,
-        select: { estimateMin: true, estimateMax: true, total: true, eligibilityAssessmentId: true, override: true },
+        select: { estimateMin: true, estimateMax: true, total: true, override: true },
       },
       eligibilityAssessments: {
         orderBy: { createdAt: 'desc' },
@@ -136,12 +140,12 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
   if (modificationItemsRaw.length === 0) incompleteFields.push('modification type');
 
   // A post-estimate override (FR-4.3) may have adjusted pricing and/or grant
-  // eligibility since this quote/assessment were generated; only apply it
-  // when the latest quote still points at the latest assessment (a manual AI
-  // re-run after the quote would otherwise mismatch the override's grant ids).
+  // eligibility. Its pricing always applies; its decision/grant edits only
+  // when they were made against this (latest) assessment.
   const latestQuote = project.quotes[0];
   const assessment = project.eligibilityAssessments[0];
-  const override = latestQuote?.eligibilityAssessmentId === assessment?.id ? latestQuote?.override : null;
+  const override = latestQuote?.override ?? null;
+  const eligibilityOverride = overrideEligibilityEditsApply(override, assessment?.id) ? override : null;
 
   // Estimated cost: the override tracks one final total, not a range, so show
   // a single figure once overridden rather than the AI's now-stale range.
@@ -163,12 +167,12 @@ export async function assembleGrantPdfInput(projectId: string): Promise<Assemble
   // ELIGIBLE; make the zero-matches case explicit rather than falling through to a
   // generic placeholder.
   let grantProgramName = 'Landseed Grant Application';
-  const effectiveDecision = override?.eligibilityDecision ?? assessment?.overallDecision;
+  const effectiveDecision = eligibilityOverride?.eligibilityDecision ?? assessment?.overallDecision;
   if (effectiveDecision === 'ELIGIBLE') {
     const rawDiscovered = assessment?.discoveredGrants as unknown as DiscoveredGrant[] | null | undefined;
     const discovered = applyGrantOverridesToRawGrants(
       Array.isArray(rawDiscovered) ? rawDiscovered : [],
-      (override?.grantOverrides as unknown as GrantOverrides) ?? null
+      (eligibilityOverride?.grantOverrides as unknown as GrantOverrides) ?? null
     );
     if (discovered.length > 0 && discovered[0]?.title) {
       grantProgramName = discovered[0].title;

@@ -186,7 +186,7 @@ export default async function AdminDashboardPage() {
           allGrantIds: rawAiGrants.map((g) => g.grantId),
           provider: aExtended.discoveryProvider ?? "HEURISTIC",
           assessedAt: aExtended.createdAt.toISOString(),
-          isOverridden: effective?.isOverridden ?? false,
+          isOverridden: effective?.eligibilityOverridden ?? false,
         } : null,
         overrideAttribution: overrideAttributions.get(p.id) ?? null,
         manualFallbackExport: latestFallbackExport ? {
