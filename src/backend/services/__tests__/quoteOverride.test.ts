@@ -91,7 +91,8 @@ describe("overridePostEstimateQuote", () => {
       photos,
       quotes: [{ ...baseQuote, ...overrides }],
     });
-    mockedPrisma.eligibilityAssessment.findUnique.mockResolvedValue({
+    mockedPrisma.eligibilityAssessment.findFirst.mockResolvedValue({
+      id: "assessment-latest",
       overallDecision: "MANUAL_REVIEW",
       discoveredGrants: [
         {
@@ -252,10 +253,10 @@ describe("overridePostEstimateQuote", () => {
     warnSpy.mockRestore();
   });
 
-  it("falls back to the project's latest eligibility assessment when quote.eligibilityAssessmentId is unset", async () => {
-    mockProject({ eligibilityAssessmentId: null });
-    mockedPrisma.eligibilityAssessment.findUnique.mockResolvedValue(null);
+  it("edits against the project's latest assessment even when the quote links an older one", async () => {
+    mockProject({ eligibilityAssessmentId: "assessment-older" });
     mockedPrisma.eligibilityAssessment.findFirst.mockResolvedValue({
+      id: "assessment-latest",
       overallDecision: "MANUAL_REVIEW",
       discoveredGrants: [
         {
@@ -284,9 +285,44 @@ describe("overridePostEstimateQuote", () => {
     expect(mockedPrisma.eligibilityAssessment.findUnique).not.toHaveBeenCalled();
     expect(mockedPrisma.eligibilityAssessment.findFirst).toHaveBeenCalledWith({
       where: { projectId: "proj-1", isLatest: true },
-      select: { overallDecision: true, discoveredGrants: true },
+      select: { id: true, overallDecision: true, discoveredGrants: true },
     });
     expect(result.effective.discoveredGrants[0]).toMatchObject({ grantId: "grant-ai-1", decision: "INELIGIBLE" });
+    expect(mockedTxQuoteOverrideUpsert.mock.calls[0][0].create.eligibilityAssessmentId).toBe("assessment-latest");
+  });
+
+  it("rejects grant edits that reference the older linked assessment's grants rather than the latest's", async () => {
+    mockProject({ eligibilityAssessmentId: "assessment-older" });
+    mockedPrisma.eligibilityAssessment.findFirst.mockResolvedValue({
+      id: "assessment-latest",
+      overallDecision: "MANUAL_REVIEW",
+      discoveredGrants: [],
+    });
+
+    await expect(
+      overridePostEstimateQuote({ ...validInput, grantChanges: { removedGrantIds: ["grant-ai-1"] } })
+    ).rejects.toBeInstanceOf(QuoteOverrideError);
+  });
+
+  it("saves the latest assessment's id on both create and update of the override", async () => {
+    mockProject();
+
+    await overridePostEstimateQuote(validInput);
+
+    const upsertArgs = mockedTxQuoteOverrideUpsert.mock.calls[0][0];
+    expect(upsertArgs.create.eligibilityAssessmentId).toBe("assessment-latest");
+    expect(upsertArgs.update.eligibilityAssessmentId).toBe("assessment-latest");
+  });
+
+  it("saves a null assessment id when the project has no assessment", async () => {
+    mockProject();
+    mockedPrisma.eligibilityAssessment.findFirst.mockResolvedValue(null);
+
+    await overridePostEstimateQuote(validInput);
+
+    const upsertArgs = mockedTxQuoteOverrideUpsert.mock.calls[0][0];
+    expect(upsertArgs.create.eligibilityAssessmentId).toBeNull();
+    expect(upsertArgs.update.eligibilityAssessmentId).toBeNull();
   });
 
   it("reports totalChanged false when the new total equals the prior effective total, and does not notify", async () => {

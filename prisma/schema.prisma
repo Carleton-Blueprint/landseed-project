@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
@@ -303,21 +303,26 @@ model Quote {
  * current effective state.
  */
 model QuoteOverride {
-  id                  String              @id @default(cuid())
-  quoteId             String              @unique
-  overriddenByUserId  String
-  reason              String
-  subtotal            Decimal             @db.Decimal(10, 2)
-  total               Decimal             @db.Decimal(10, 2)
-  previousTotal       Decimal             @db.Decimal(10, 2)
-  lineItems           Json
-  modificationCodes   Json
-  eligibilityDecision EligibilityDecision
-  grantOverrides      Json
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  quote               Quote               @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  overriddenByUser    User                @relation(fields: [overriddenByUserId], references: [id])
+  id                      String                 @id @default(cuid())
+  quoteId                 String                 @unique
+  overriddenByUserId      String
+  reason                  String
+  subtotal                Decimal                @db.Decimal(10, 2)
+  total                   Decimal                @db.Decimal(10, 2)
+  previousTotal           Decimal                @db.Decimal(10, 2)
+  lineItems               Json
+  modificationCodes       Json
+  eligibilityDecision     EligibilityDecision
+  grantOverrides          Json
+  /// The assessment the decision/grant edits were made against. Those edits
+  /// only apply while this is still the project's latest assessment; pricing
+  /// edits always apply.
+  eligibilityAssessmentId String?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  quote                   Quote                  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  overriddenByUser        User                   @relation(fields: [overriddenByUserId], references: [id])
+  eligibilityAssessment   EligibilityAssessment? @relation(fields: [eligibilityAssessmentId], references: [id], onDelete: SetNull)
 
   @@index([quoteId])
 }
@@ -466,15 +471,15 @@ model AdminDigestDeliveryFailure {
 }
 
 model EligibilityAssessment {
-  id                             String              @id @default(cuid())
+  id                             String                      @id @default(cuid())
   projectId                      String
   overallDecision                EligibilityDecision
   programDecisions               Json
   reasonCodes                    Json
   missingRequirements            Json
-  isLatest                       Boolean             @default(true)
-  createdAt                      DateTime            @default(now())
-  updatedAt                      DateTime            @updatedAt
+  isLatest                       Boolean                     @default(true)
+  createdAt                      DateTime                    @default(now())
+  updatedAt                      DateTime                    @updatedAt
   discoveredGrants               Json?
   discoveryMetadata              Json?
   discoveryProvider              String?
@@ -488,9 +493,10 @@ model EligibilityAssessment {
   source                         EligibilityAssessmentSource @default(AUTOMATIC)
   adminAction                    EligibilityAdminAction?
   createdByUserId                String?
-  project                        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdByUser                  User?               @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  project                        Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdByUser                  User?                       @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   quotes                         Quote[]
+  quoteOverrides                 QuoteOverride[]
   // Also enforced in the DB (not expressible in this DSL): a partial unique
   // index on (projectId) WHERE isLatest = true - see migration
   // 20260820150000_add_eligibility_assessment_latest_unique_index.

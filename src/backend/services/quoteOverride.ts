@@ -486,21 +486,14 @@ export async function overridePostEstimateQuote(
     throw quoteNotFoundError();
   }
 
-  // quote.eligibilityAssessmentId is frequently unset (quote generation doesn't always
-  // backfill it) — every other read path (admin dashboard, eligibility API, PDF
-  // assemblers) resolves "this project's AI eligibility" via projectId + isLatest, so
-  // fall back to that here too rather than treating the project as having zero grants.
-  const assessment =
-    (quote.eligibilityAssessmentId
-      ? await prisma.eligibilityAssessment.findUnique({
-          where: { id: quote.eligibilityAssessmentId },
-          select: { overallDecision: true, discoveredGrants: true },
-        })
-      : null) ??
-    (await prisma.eligibilityAssessment.findFirst({
-      where: { projectId: project.id, isLatest: true },
-      select: { overallDecision: true, discoveredGrants: true },
-    }));
+  // Always edit against the project's latest assessment (not
+  // quote.eligibilityAssessmentId, which is unset in the normal intake flow and
+  // can point at an older assessment). Its id is saved on the override below,
+  // so the grant ids the admin edits always belong to the assessment recorded.
+  const assessment = await prisma.eligibilityAssessment.findFirst({
+    where: { projectId: project.id, isLatest: true },
+    select: { id: true, overallDecision: true, discoveredGrants: true },
+  });
 
   const photosById = new Map(project.photos.map((p) => [p.id, p]));
   let photoEntries;
@@ -570,6 +563,7 @@ export async function overridePostEstimateQuote(
       modificationCodes: newModificationCodes as unknown as Prisma.InputJsonValue,
       eligibilityDecision,
       grantOverrides: grantChanges as unknown as Prisma.InputJsonValue,
+      eligibilityAssessmentId: assessment?.id ?? null,
     };
 
     const overrideRow = await tx.quoteOverride.upsert({
