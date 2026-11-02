@@ -114,7 +114,26 @@ export interface EffectiveQuoteView {
   modificationCodes: ModificationCode[];
   eligibilityDecision: EligibilityDecision | null;
   discoveredGrants: EffectiveGrant[];
+  /** A QuoteOverride exists, so pricing (and modification codes) come from it. */
   isOverridden: boolean;
+  /** The override's decision/grant edits were applied (see overrideEligibilityEditsApply). */
+  eligibilityOverridden: boolean;
+}
+
+/**
+ * Whether an override's decision and grant edits apply to the given (latest)
+ * assessment: only when it was made against that exact assessment. After an
+ * admin re-runs eligibility, the override's grant ids belong to an older
+ * assessment, so its eligibility edits stop applying. Pricing and
+ * modification-code edits always apply regardless. Every reader of an
+ * override (eligibility API, PDF assemblers, admin dashboard) goes through
+ * this so they all agree.
+ */
+export function overrideEligibilityEditsApply(
+  override: { eligibilityAssessmentId: string | null } | null | undefined,
+  latestAssessmentId: string | null | undefined
+): boolean {
+  return Boolean(override?.eligibilityAssessmentId) && override!.eligibilityAssessmentId === latestAssessmentId;
 }
 
 function validatePricing(input: unknown): QuoteOverridePricing {
@@ -355,9 +374,9 @@ export function applyGrantOverridesToRawGrants(
 
 /**
  * Merges a Quote's raw AI-generated pricing/eligibility with any
- * QuoteOverride layered on top of it. This is the single place every read
- * path (admin dashboard, client estimate page, eligibility API) should call
- * into, so overrides don't need bespoke merge logic scattered around.
+ * QuoteOverride layered on top of it. Pricing always comes from the override;
+ * decision and grants only when overrideEligibilityEditsApply. Pass the
+ * project's latest assessment.
  */
 export function resolveEffectiveQuoteView(
   quote: {
@@ -372,8 +391,9 @@ export function resolveEffectiveQuoteView(
     modificationCodes: unknown;
     eligibilityDecision: EligibilityDecision;
     grantOverrides: unknown;
+    eligibilityAssessmentId: string | null;
   } | null,
-  assessment: { overallDecision: EligibilityDecision; discoveredGrants: unknown } | null,
+  assessment: { id: string; overallDecision: EligibilityDecision; discoveredGrants: unknown } | null,
   rawModificationCodes: ModificationCode[]
 ): EffectiveQuoteView {
   const aiGrants: DiscoveredGrant[] = Array.isArray(assessment?.discoveredGrants)
@@ -393,6 +413,20 @@ export function resolveEffectiveQuoteView(
       eligibilityDecision: assessment?.overallDecision ?? null,
       discoveredGrants: mapAiGrantsToEffectiveGrants(aiGrants),
       isOverridden: false,
+      eligibilityOverridden: false,
+    };
+  }
+
+  if (!overrideEligibilityEditsApply(override, assessment?.id)) {
+    return {
+      subtotal: Number(override.subtotal),
+      total: Number(override.total),
+      lineItems: override.lineItems as QuoteOverrideLineItem[],
+      modificationCodes: override.modificationCodes as ModificationCode[],
+      eligibilityDecision: assessment?.overallDecision ?? null,
+      discoveredGrants: mapAiGrantsToEffectiveGrants(aiGrants),
+      isOverridden: true,
+      eligibilityOverridden: false,
     };
   }
 
@@ -427,6 +461,7 @@ export function resolveEffectiveQuoteView(
     eligibilityDecision: override.eligibilityDecision,
     discoveredGrants: [...effectiveAiGrants, ...addedGrants],
     isOverridden: true,
+    eligibilityOverridden: true,
   };
 }
 
@@ -486,21 +521,14 @@ export async function overridePostEstimateQuote(
     throw quoteNotFoundError();
   }
 
-  // quote.eligibilityAssessmentId is frequently unset (quote generation doesn't always
-  // backfill it) — every other read path (admin dashboard, eligibility API, PDF
-  // assemblers) resolves "this project's AI eligibility" via projectId + isLatest, so
-  // fall back to that here too rather than treating the project as having zero grants.
-  const assessment =
-    (quote.eligibilityAssessmentId
-      ? await prisma.eligibilityAssessment.findUnique({
-          where: { id: quote.eligibilityAssessmentId },
-          select: { overallDecision: true, discoveredGrants: true },
-        })
-      : null) ??
-    (await prisma.eligibilityAssessment.findFirst({
-      where: { projectId: project.id, isLatest: true },
-      select: { overallDecision: true, discoveredGrants: true },
-    }));
+  // Always edit against the project's latest assessment (not
+  // quote.eligibilityAssessmentId, which is unset in the normal intake flow and
+  // can point at an older assessment). Its id is saved on the override below,
+  // so the grant ids the admin edits always belong to the assessment recorded.
+  const assessment = await prisma.eligibilityAssessment.findFirst({
+    where: { projectId: project.id, isLatest: true },
+    select: { id: true, overallDecision: true, discoveredGrants: true },
+  });
 
   const photosById = new Map(project.photos.map((p) => [p.id, p]));
   let photoEntries;
@@ -570,6 +598,7 @@ export async function overridePostEstimateQuote(
       modificationCodes: newModificationCodes as unknown as Prisma.InputJsonValue,
       eligibilityDecision,
       grantOverrides: grantChanges as unknown as Prisma.InputJsonValue,
+      eligibilityAssessmentId: assessment?.id ?? null,
     };
 
     const overrideRow = await tx.quoteOverride.upsert({
@@ -600,11 +629,13 @@ export async function overridePostEstimateQuote(
         modificationCodes: newModificationCodes,
         eligibilityDecision,
         grantOverrides: grantChanges,
+        eligibilityAssessmentId: assessment?.id ?? null,
       },
       assessment,
       newModificationCodes
     ).discoveredGrants,
     isOverridden: true,
+    eligibilityOverridden: assessment !== null,
   };
 
   const totalChanged = afterView.total !== previousTotal;

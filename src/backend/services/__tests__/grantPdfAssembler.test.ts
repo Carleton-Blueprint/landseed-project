@@ -19,8 +19,12 @@ type ProjectPdfRecord = {
     estimateMin: { toNumber(): number } | null;
     estimateMax: { toNumber(): number } | null;
     total?: number;
-    eligibilityAssessmentId?: string | null;
-    override?: { eligibilityDecision: string; total: number; grantOverrides: unknown } | null;
+    override?: {
+      eligibilityDecision: string;
+      total: number;
+      grantOverrides: unknown;
+      eligibilityAssessmentId: string | null;
+    } | null;
   }>;
   eligibilityAssessments: Array<{ id?: string; overallDecision: string; discoveredGrants: unknown }>;
   manualModeSubmission?: { modificationType: string | null } | null;
@@ -234,8 +238,8 @@ describe("assembleGrantPdfInput", () => {
         {
           estimateMin: decimal(1000),
           estimateMax: decimal(2000),
-          eligibilityAssessmentId: "assess-7",
           override: {
+            eligibilityAssessmentId: "assess-7",
             eligibilityDecision: "ELIGIBLE",
             total: 1500,
             grantOverrides: {
@@ -263,7 +267,7 @@ describe("assembleGrantPdfInput", () => {
     expect(result.grantProgramName).toBe("Manual Grant");
   });
 
-  it("ignores the override when the quote points at a different (stale) assessment", async () => {
+  it("keeps the overridden total but ignores the override's eligibility edits when made against an older assessment", async () => {
     prisma.project.findUnique.mockResolvedValue({
       id: "proj-8",
       address: "20 Stale Ln",
@@ -275,8 +279,12 @@ describe("assembleGrantPdfInput", () => {
         {
           estimateMin: decimal(1000),
           estimateMax: decimal(2000),
-          eligibilityAssessmentId: "assess-8-old",
-          override: { eligibilityDecision: "INELIGIBLE", total: 1500, grantOverrides: null },
+          override: {
+            eligibilityAssessmentId: "assess-8-old",
+            eligibilityDecision: "INELIGIBLE",
+            total: 1500,
+            grantOverrides: null,
+          },
         },
       ],
       eligibilityAssessments: [
@@ -286,7 +294,33 @@ describe("assembleGrantPdfInput", () => {
 
     const result = await assembleGrantPdfInput("proj-8");
 
-    expect(result.estimatedCost).toBe("$1,000 – $2,000");
+    expect(result.estimatedCost).toBe("$1,500");
+    expect(result.grantProgramName).toBe("Home Accessibility Grant");
+  });
+
+  it("keeps the overridden total but ignores eligibility edits when the override recorded no assessment", async () => {
+    prisma.project.findUnique.mockResolvedValue({
+      id: "proj-9",
+      address: "30 Unlinked Ln",
+      draftData: { ownershipStatus: "owner" },
+      userId: "user-9",
+      photos: [{ declaredModificationCodes: ["GRAB_BARS"] }],
+      user: { name: "Unlinked User", email: "unlinked@example.com", phone: "555-6666" },
+      quotes: [
+        {
+          estimateMin: decimal(1000),
+          estimateMax: decimal(2000),
+          override: { eligibilityAssessmentId: null, eligibilityDecision: "INELIGIBLE", total: 1750, grantOverrides: null },
+        },
+      ],
+      eligibilityAssessments: [
+        { id: "assess-9", overallDecision: "ELIGIBLE", discoveredGrants: [{ title: "Home Accessibility Grant" }] },
+      ],
+    });
+
+    const result = await assembleGrantPdfInput("proj-9");
+
+    expect(result.estimatedCost).toBe("$1,750");
     expect(result.grantProgramName).toBe("Home Accessibility Grant");
   });
 

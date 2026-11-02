@@ -7,7 +7,11 @@ import { DiscoveredGrant, GrantDiscoveryMetadata } from '@/backend/eligibility/d
 import { EligibilityDecision } from '@/backend/eligibility/types';
 import type { AiOutputSource } from '@/backend/audit/aiProvenance';
 import type { PromoteIntakeData } from '@/backend/schemas/intakeDraft';
-import { applyGrantOverridesToRawGrants, type GrantOverrides } from '@/backend/services/quoteOverride';
+import {
+  applyGrantOverridesToRawGrants,
+  overrideEligibilityEditsApply,
+  type GrantOverrides,
+} from '@/backend/services/quoteOverride';
 
 export interface AssembledMatchedGrant {
   programName: string;
@@ -28,7 +32,7 @@ export interface AssembledGrantMatchSummaryInput {
   matchedGrants: AssembledMatchedGrant[];
   hasMatches: boolean;
   incompleteFields: string[];
-  /** Latest quote has a post-estimate QuoteOverride; shows CLIENT_OVERRIDE_LABEL. */
+  /** A post-estimate QuoteOverride was applied to this assessment; shows CLIENT_OVERRIDE_LABEL. */
   staffOverridden: boolean;
   preparedAtIso: string;
 }
@@ -68,7 +72,7 @@ export async function assembleGrantMatchSummaryInput(
       quotes: {
         orderBy: { generatedAt: 'desc' },
         take: 1,
-        select: { eligibilityAssessmentId: true, override: true },
+        select: { override: true },
       },
     },
   });
@@ -128,11 +132,13 @@ export async function assembleGrantMatchSummaryInput(
   if (modificationType === '[Incomplete]') incompleteFields.push('modification type');
 
   // A post-estimate override (FR-4.3) may have added/removed/re-decided
-  // grants since this assessment ran; only apply it when the project's
-  // latest quote still points at this exact assessment (a manual AI re-run
-  // after the quote would otherwise mismatch the override's grant ids).
+  // grants; apply those edits only when they were made against this exact
+  // assessment (an admin AI re-run after the override makes its grant ids
+  // stale), the same rule as the eligibility API and admin dashboard.
   const latestQuote = project.quotes?.[0];
-  const override = latestQuote?.eligibilityAssessmentId === assessment.id ? latestQuote.override : null;
+  const override = overrideEligibilityEditsApply(latestQuote?.override, assessment.id)
+    ? latestQuote!.override
+    : null;
 
   const rawDiscoveredGrants = (assessment.discoveredGrants ?? []) as unknown as DiscoveredGrant[];
   const discoveredGrants = applyGrantOverridesToRawGrants(
@@ -160,7 +166,9 @@ export async function assembleGrantMatchSummaryInput(
     matchedGrants,
     hasMatches: matchedGrants.length > 0,
     incompleteFields,
-    staffOverridden: Boolean(latestQuote?.override),
+    // Only when the override's edits were applied above, so the label never
+    // sits on top of grants the override didn't touch.
+    staffOverridden: override !== null,
     preparedAtIso: new Date().toISOString(),
   };
 }

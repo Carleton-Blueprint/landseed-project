@@ -421,7 +421,7 @@ export default async function ProjectDetailPage({
         />
 
         {/* ═══════ AI-Sourced Grant Discovery Summary ═══════ */}
-        <GrantDiscoverySummary projectId={project.id} staffOverridden={Boolean(project.quotes[0]?.override)} />
+        <GrantDiscoverySummary projectId={project.id} />
 
         {/* ═══════ Mandatory Consultation Scheduler ═══════ */}
         {project.status !== "draft" && (

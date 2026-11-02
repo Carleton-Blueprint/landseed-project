@@ -7,6 +7,7 @@ import {
   overridePostEstimateQuote,
   resolveEffectiveQuoteView,
   applyGrantOverridesToRawGrants,
+  overrideEligibilityEditsApply,
   QuoteOverrideError,
 } from "../quoteOverride";
 
@@ -91,7 +92,8 @@ describe("overridePostEstimateQuote", () => {
       photos,
       quotes: [{ ...baseQuote, ...overrides }],
     });
-    mockedPrisma.eligibilityAssessment.findUnique.mockResolvedValue({
+    mockedPrisma.eligibilityAssessment.findFirst.mockResolvedValue({
+      id: "assessment-latest",
       overallDecision: "MANUAL_REVIEW",
       discoveredGrants: [
         {
@@ -252,10 +254,10 @@ describe("overridePostEstimateQuote", () => {
     warnSpy.mockRestore();
   });
 
-  it("falls back to the project's latest eligibility assessment when quote.eligibilityAssessmentId is unset", async () => {
-    mockProject({ eligibilityAssessmentId: null });
-    mockedPrisma.eligibilityAssessment.findUnique.mockResolvedValue(null);
+  it("edits against the project's latest assessment even when the quote links an older one", async () => {
+    mockProject({ eligibilityAssessmentId: "assessment-older" });
     mockedPrisma.eligibilityAssessment.findFirst.mockResolvedValue({
+      id: "assessment-latest",
       overallDecision: "MANUAL_REVIEW",
       discoveredGrants: [
         {
@@ -284,9 +286,44 @@ describe("overridePostEstimateQuote", () => {
     expect(mockedPrisma.eligibilityAssessment.findUnique).not.toHaveBeenCalled();
     expect(mockedPrisma.eligibilityAssessment.findFirst).toHaveBeenCalledWith({
       where: { projectId: "proj-1", isLatest: true },
-      select: { overallDecision: true, discoveredGrants: true },
+      select: { id: true, overallDecision: true, discoveredGrants: true },
     });
     expect(result.effective.discoveredGrants[0]).toMatchObject({ grantId: "grant-ai-1", decision: "INELIGIBLE" });
+    expect(mockedTxQuoteOverrideUpsert.mock.calls[0][0].create.eligibilityAssessmentId).toBe("assessment-latest");
+  });
+
+  it("rejects grant edits that reference the older linked assessment's grants rather than the latest's", async () => {
+    mockProject({ eligibilityAssessmentId: "assessment-older" });
+    mockedPrisma.eligibilityAssessment.findFirst.mockResolvedValue({
+      id: "assessment-latest",
+      overallDecision: "MANUAL_REVIEW",
+      discoveredGrants: [],
+    });
+
+    await expect(
+      overridePostEstimateQuote({ ...validInput, grantChanges: { removedGrantIds: ["grant-ai-1"] } })
+    ).rejects.toBeInstanceOf(QuoteOverrideError);
+  });
+
+  it("saves the latest assessment's id on both create and update of the override", async () => {
+    mockProject();
+
+    await overridePostEstimateQuote(validInput);
+
+    const upsertArgs = mockedTxQuoteOverrideUpsert.mock.calls[0][0];
+    expect(upsertArgs.create.eligibilityAssessmentId).toBe("assessment-latest");
+    expect(upsertArgs.update.eligibilityAssessmentId).toBe("assessment-latest");
+  });
+
+  it("saves a null assessment id when the project has no assessment", async () => {
+    mockProject();
+    mockedPrisma.eligibilityAssessment.findFirst.mockResolvedValue(null);
+
+    await overridePostEstimateQuote(validInput);
+
+    const upsertArgs = mockedTxQuoteOverrideUpsert.mock.calls[0][0];
+    expect(upsertArgs.create.eligibilityAssessmentId).toBeNull();
+    expect(upsertArgs.update.eligibilityAssessmentId).toBeNull();
   });
 
   it("reports totalChanged false when the new total equals the prior effective total, and does not notify", async () => {
@@ -328,8 +365,24 @@ describe("overridePostEstimateQuote", () => {
   });
 });
 
+describe("overrideEligibilityEditsApply", () => {
+  it("is true only when the override was made against the given assessment", () => {
+    expect(overrideEligibilityEditsApply({ eligibilityAssessmentId: "a-1" }, "a-1")).toBe(true);
+    expect(overrideEligibilityEditsApply({ eligibilityAssessmentId: "a-1" }, "a-2")).toBe(false);
+  });
+
+  it("is false with no override, no recorded assessment, or no latest assessment", () => {
+    expect(overrideEligibilityEditsApply(null, "a-1")).toBe(false);
+    expect(overrideEligibilityEditsApply(undefined, "a-1")).toBe(false);
+    expect(overrideEligibilityEditsApply({ eligibilityAssessmentId: null }, "a-1")).toBe(false);
+    expect(overrideEligibilityEditsApply({ eligibilityAssessmentId: null }, null)).toBe(false);
+    expect(overrideEligibilityEditsApply({ eligibilityAssessmentId: "a-1" }, undefined)).toBe(false);
+  });
+});
+
 describe("resolveEffectiveQuoteView", () => {
   const assessment = {
+    id: "assessment-latest",
     overallDecision: "MANUAL_REVIEW" as const,
     discoveredGrants: [
       {
@@ -374,40 +427,73 @@ describe("resolveEffectiveQuoteView", () => {
     );
 
     expect(view.isOverridden).toBe(false);
+    expect(view.eligibilityOverridden).toBe(false);
     expect(view.total).toBe(110);
     expect(view.eligibilityDecision).toBe("MANUAL_REVIEW");
     expect(view.discoveredGrants).toHaveLength(2);
     expect(view.discoveredGrants.every((g) => g.source === "ai")).toBe(true);
   });
 
-  it("applies removedGrantIds, decisionOverrides, and addedGrants on top of the AI list", () => {
-    const view = resolveEffectiveQuoteView(
-      { subtotal: 90, total: 110 },
-      {
-        subtotal: 100,
-        total: 120,
-        lineItems: [],
-        modificationCodes: ["GRAB_BARS"],
-        eligibilityDecision: "ELIGIBLE" as never,
-        grantOverrides: {
-          removedGrantIds: ["grant-ai-2"],
-          decisionOverrides: [{ grantId: "grant-ai-1", decision: "INELIGIBLE" }],
-          addedGrants: [
-            { id: "manual-1", title: "Manual Grant", scope: "MUNICIPAL", jurisdiction: "Toronto", decision: "ELIGIBLE", note: null },
-          ],
-        },
+  function override(eligibilityAssessmentId: string | null) {
+    return {
+      subtotal: 100,
+      total: 120,
+      lineItems: [{ description: "Grab bars", quantity: 1, materialTotal: 50, laborTotal: 50 }],
+      modificationCodes: ["GRAB_BARS"],
+      eligibilityDecision: "ELIGIBLE" as never,
+      grantOverrides: {
+        removedGrantIds: ["grant-ai-2"],
+        decisionOverrides: [{ grantId: "grant-ai-1", decision: "INELIGIBLE" }],
+        addedGrants: [
+          { id: "manual-1", title: "Manual Grant", scope: "MUNICIPAL", jurisdiction: "Toronto", decision: "ELIGIBLE", note: null },
+        ],
       },
-      assessment,
-      ["GRAB_BARS"]
-    );
+      eligibilityAssessmentId,
+    };
+  }
+
+  it("applies removedGrantIds, decisionOverrides, and addedGrants when made against the latest assessment", () => {
+    const view = resolveEffectiveQuoteView({ subtotal: 90, total: 110 }, override("assessment-latest"), assessment, ["GRAB_BARS"]);
 
     expect(view.isOverridden).toBe(true);
+    expect(view.eligibilityOverridden).toBe(true);
+    expect(view.eligibilityDecision).toBe("ELIGIBLE");
     expect(view.discoveredGrants).toHaveLength(2);
     const aiGrant = view.discoveredGrants.find((g) => g.grantId === "grant-ai-1");
     expect(aiGrant).toMatchObject({ decision: "INELIGIBLE", source: "ai" });
     expect(view.discoveredGrants.find((g) => g.grantId === "grant-ai-2")).toBeUndefined();
     const manualGrant = view.discoveredGrants.find((g) => g.grantId === "manual-1");
     expect(manualGrant).toMatchObject({ title: "Manual Grant", source: "admin_added" });
+  });
+
+  it.each([
+    ["an older assessment (admin re-run since)", "assessment-older"],
+    ["no recorded assessment", null],
+  ])("keeps override pricing but drops decision/grant edits when made against %s", (_label, eligibilityAssessmentId) => {
+    const view = resolveEffectiveQuoteView(
+      { subtotal: 90, total: 110 },
+      override(eligibilityAssessmentId),
+      assessment,
+      ["WALK_IN_SHOWER"]
+    );
+
+    expect(view.isOverridden).toBe(true);
+    expect(view.eligibilityOverridden).toBe(false);
+    expect(view.subtotal).toBe(100);
+    expect(view.total).toBe(120);
+    expect(view.lineItems).toHaveLength(1);
+    expect(view.modificationCodes).toEqual(["GRAB_BARS"]);
+    expect(view.eligibilityDecision).toBe("MANUAL_REVIEW");
+    expect(view.discoveredGrants.map((g) => g.grantId)).toEqual(["grant-ai-1", "grant-ai-2"]);
+    expect(view.discoveredGrants.every((g) => g.source === "ai")).toBe(true);
+  });
+
+  it("keeps override pricing when there is no assessment at all", () => {
+    const view = resolveEffectiveQuoteView({ subtotal: 90, total: 110 }, override("assessment-latest"), null, []);
+
+    expect(view.total).toBe(120);
+    expect(view.eligibilityOverridden).toBe(false);
+    expect(view.eligibilityDecision).toBeNull();
   });
 });
 
