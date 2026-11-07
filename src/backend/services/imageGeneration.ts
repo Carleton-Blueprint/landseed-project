@@ -2,7 +2,7 @@
  * Image generation for accessibility modification visualizations.
  *
  * generateAccessibilityVisual() is the live path: it sends the client's original
- * photo plus the identified modification types to OpenAI's gpt-image-1 edit
+ * photo plus the identified modification types to OpenAI's gpt-image-2.6-sunburst edit
  * endpoint and stores the result in S3. generateMockAccessibilityVisual() is not
  * a flag-gated alternative — it's the placeholder used only once BullMQ retries
  * on the live call are exhausted (see applyAccessibilityVisualMockFallback() and
@@ -70,17 +70,19 @@ export async function generateMockAccessibilityVisual(
 }
 
 /* ------------------------------------------------------------------ */
-/* Live generation (OpenAI gpt-image-1)                                */
+/* Live generation (OpenAI gpt-image-2.6-sunburst)                     */
 /* ------------------------------------------------------------------ */
 
 export const ACCESSIBILITY_RENDITION_S3_PREFIX = "accessibility-renditions" as const;
-export const GPT_IMAGE_MODEL = "gpt-image-1" as const;
+// gpt-image-1 was shut down by OpenAI on 2026-10-23 (calls now return 400
+// "model does not exist"); gpt-image-2.6-sunburst is a listed replacement.
+export const GPT_IMAGE_MODEL = "gpt-image-2.6-sunburst" as const;
 
-// Published gpt-image-1 per-token pricing, in USD per 1,000,000 tokens.
+// Published gpt-image-2.6-sunburst per-token pricing, in USD per 1,000,000 tokens.
 const GPT_IMAGE_PRICE_PER_MILLION_TOKENS_USD = {
   textInput: 5,
-  imageInput: 10,
-  imageOutput: 40,
+  imageInput: 8,
+  imageOutput: 30,
 };
 
 export interface AccessibilityVisualGenerationResult {
@@ -129,7 +131,7 @@ export function buildAccessibilityRenditionS3Key(
 }
 
 /**
- * Calls the OpenAI gpt-image-1 edit endpoint with the client's original photo and
+ * Calls the OpenAI gpt-image-2.6-sunburst edit endpoint with the client's original photo and
  * the identified modification codes, then stores the resulting image in S3.
  * Throws on any failure (network, API, or upload) — callers are responsible for
  * catching this, preserving the existing placeholder, and logging the failure.

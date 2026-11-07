@@ -110,7 +110,7 @@ describe("generateAccessibilityVisual", () => {
     );
 
     expect(mockEdit).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-image-1", prompt: expect.stringContaining("Grab Bars") })
+      expect.objectContaining({ model: "gpt-image-2.6-sunburst", prompt: expect.stringContaining("Grab Bars") })
     );
     expect(mockedUploadStreamToS3).toHaveBeenCalledWith(
       expect.any(Buffer),
@@ -118,9 +118,9 @@ describe("generateAccessibilityVisual", () => {
       "image/png",
       expect.any(Number)
     );
-    // (500/1e6)*5 + (200/1e6)*10 + (1000/1e6)*40 = 0.0025 + 0.002 + 0.04 = 0.0445
-    expect(result.costUsd).toBeCloseTo(0.0445, 6);
-    expect(result.model).toBe("gpt-image-1");
+    // (500/1e6)*5 + (200/1e6)*8 + (1000/1e6)*30 = 0.0025 + 0.0016 + 0.03 = 0.0341
+    expect(result.costUsd).toBeCloseTo(0.0341, 6);
+    expect(result.model).toBe("gpt-image-2.6-sunburst");
     expect(result.s3Url).toContain("accessibility-renditions");
   });
 
