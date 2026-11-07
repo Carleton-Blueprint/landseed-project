@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url, uploadStreamToS3 } from "lib/s3";
 import { getOpenAIClient } from "lib/openai";
@@ -216,6 +217,7 @@ describe("generateAccessibilityVisual", () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    delete process.env.IMAGE_EDIT_MASK_ENABLED;
   });
 
   it("uploads the edited image to S3 and computes cost from token usage", async () => {
@@ -289,6 +291,51 @@ describe("generateAccessibilityVisual", () => {
     expect(onPlacementPlan).toHaveBeenCalledWith(result.placementPlan);
   });
 
+  it("sends a mask built from the plan's boxes when IMAGE_EDIT_MASK_ENABLED=true and the photo is readable", async () => {
+    process.env.IMAGE_EDIT_MASK_ENABLED = "true";
+    const realPhoto = await sharp({ create: { width: 400, height: 300, channels: 3, background: "#888" } })
+      .jpeg()
+      .toBuffer();
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => realPhoto.buffer.slice(realPhoto.byteOffset, realPhoto.byteOffset + realPhoto.length),
+    }) as unknown as typeof fetch;
+    mockChatCreate.mockResolvedValue({ choices: [{ message: { content: plannerResponse } }] });
+    mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
+
+    const result = await generateAccessibilityVisual(
+      { id: "photo-1", projectId: "project-1", url: "https://example.com/original.jpg" },
+      ["GRAB_BARS"]
+    );
+
+    const [request] = mockEdit.mock.calls[0];
+    expect(request.mask).toEqual(expect.objectContaining({ name: "photo-1-mask.png", options: { type: "image/png" } }));
+    const maskMeta = await sharp(request.mask.buffer).metadata();
+    expect([maskMeta.width, maskMeta.height]).toEqual([400, 300]);
+    expect(result.placementMask.applied).toBe(true);
+  });
+
+  it.each([
+    ["unset", undefined],
+    ["false", "false"],
+  ])("builds no mask when IMAGE_EDIT_MASK_ENABLED is %s, even with a usable plan", async (_label, value) => {
+    if (value === undefined) {
+      delete process.env.IMAGE_EDIT_MASK_ENABLED;
+    } else {
+      process.env.IMAGE_EDIT_MASK_ENABLED = value;
+    }
+    mockChatCreate.mockResolvedValue({ choices: [{ message: { content: plannerResponse } }] });
+    mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
+
+    const result = await generateAccessibilityVisual(
+      { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png" },
+      ["GRAB_BARS"]
+    );
+
+    expect(mockEdit.mock.calls[0][0]).not.toHaveProperty("mask");
+    expect(result.placementMask).toEqual({ applied: false, reason: "DISABLED" });
+  });
+
   it("falls back to the static placement rules when planning fails", async () => {
     mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
 
@@ -303,6 +350,8 @@ describe("generateAccessibilityVisual", () => {
     expect(result.placementPlan).toEqual(
       expect.objectContaining({ status: "FAILED", error: "planner unavailable" })
     );
+    expect(mockEdit.mock.calls[0][0]).not.toHaveProperty("mask");
+    expect(result.placementMask).toEqual({ applied: false, reason: "DISABLED" });
   });
 
   it("signs the source URL when it points at S3", async () => {
@@ -427,6 +476,8 @@ describe("processAccessibilityImageGenerationJob", () => {
             usage: { promptTokens: 900, completionTokens: 120 },
             plan: expect.objectContaining({ visibleElements: ["toilet"] }),
           }),
+          // IMAGE_EDIT_MASK_ENABLED is off by default.
+          placementMask: { applied: false, reason: "DISABLED" },
         }),
       })
     );

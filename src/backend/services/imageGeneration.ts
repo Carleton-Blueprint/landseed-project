@@ -3,8 +3,8 @@
  *
  * generateAccessibilityVisual() is the live path: it plans where each
  * modification goes in the client's original photo (imagePlacementPlanner.ts),
- * sends the photo plus that plan to OpenAI's gpt-image-1 edit endpoint, and
- * stores the result in S3. generateMockAccessibilityVisual() is not
+ * sends the photo, that plan and a mask built from it (imagePlacementMask.ts)
+ * to OpenAI's image edit endpoint, and stores the result in S3. generateMockAccessibilityVisual() is not
  * a flag-gated alternative — it's the placeholder used only once BullMQ retries
  * on the live call are exhausted (see applyAccessibilityVisualMockFallback() and
  * its caller in aiJobsWorker.ts).
@@ -25,6 +25,13 @@ import {
   type PlacementPlan,
   type PlacementPlanResult,
 } from "@/backend/services/imagePlacementPlanner";
+import {
+  buildPlacementMaskForPlan,
+  isImageEditMaskEnabled,
+  buildPlacementMaskAuditMetadata,
+  normalizeImageOrientation,
+  type PlacementMaskResult,
+} from "@/backend/services/imagePlacementMask";
 import type { ModificationCode } from "@/backend/eligibility/types";
 import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
@@ -99,6 +106,7 @@ export interface AccessibilityVisualGenerationResult {
   model: string;
   promptVersion: number;
   placementPlan: PlacementPlanResult;
+  placementMask: PlacementMaskResult;
 }
 
 interface GptImageUsage {
@@ -313,7 +321,9 @@ export async function generateAccessibilityVisual(
     );
   }
 
-  const sourceBuffer = Buffer.from(await sourceResponse.arrayBuffer());
+  // Oriented up front so the planner's boxes, the mask and the edited image
+  // all share the same pixel coordinates.
+  const sourceBuffer = await normalizeImageOrientation(Buffer.from(await sourceResponse.arrayBuffer()));
   const sourceType = detectSourceImageType(sourceBuffer);
   const sourceFile = await toFile(sourceBuffer, `${photo.id}.${sourceType.extension}`, {
     type: sourceType.mimeType,
@@ -325,15 +335,20 @@ export async function generateAccessibilityVisual(
   );
   options?.onPlacementPlan?.(placementPlan);
 
+  const plan = placementPlan.status === "READY" ? placementPlan.plan : null;
+  const placementMask: PlacementMaskResult = isImageEditMaskEnabled()
+    ? await buildPlacementMaskForPlan(sourceBuffer, isPlacementPlanApplicable(plan) ? plan : null)
+    : { applied: false, reason: "DISABLED" };
+
   const client = getOpenAIClient();
-  const prompt = buildAccessibilityVisualEditPrompt(
-    modificationCodes,
-    placementPlan.status === "READY" ? placementPlan.plan : null
-  );
+  const prompt = buildAccessibilityVisualEditPrompt(modificationCodes, plan);
 
   const editResponse = await client.images.edit({
     model: GPT_IMAGE_MODEL,
     image: sourceFile,
+    ...(placementMask.applied
+      ? { mask: await toFile(placementMask.mask, `${photo.id}-mask.png`, { type: "image/png" }) }
+      : {}),
     prompt,
     // "auto" lets the model pick the output aspect ratio closest to the
     // source photo instead of cropping/squashing everything into a square.
@@ -357,6 +372,7 @@ export async function generateAccessibilityVisual(
     model: GPT_IMAGE_MODEL,
     promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
     placementPlan,
+    placementMask,
   };
 }
 
@@ -439,6 +455,7 @@ export async function processAccessibilityImageGenerationJob(
         model: result.model,
         promptVersion: result.promptVersion,
         placementPlan: buildPlacementPlanAuditMetadata(result.placementPlan),
+        placementMask: buildPlacementMaskAuditMetadata(result.placementMask),
         costUsd: result.costUsd,
         durationMs: Date.now() - startedAt,
         s3Key: result.s3Key,

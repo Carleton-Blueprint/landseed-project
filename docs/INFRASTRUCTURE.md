@@ -254,6 +254,10 @@ tasks or timers, and in production the worker is kept separate from the
   if infected).
 - `APP_BASE_URL` and `NEXTAUTH_URL` must be the production `https://` URL on
   the worker too, or every link in worker-sent emails points at localhost.
+- `IMAGE_EDIT_MASK_ENABLED`: `true` sends a mask built from the placement
+  planner's boxes with each image edit. Off by default: in testing
+  (2026-11-07), masks didn't keep gpt-image-2.6 edits inside the boxes and
+  often changed more of the scene than unmasked edits.
 - **Crypto keys must match the web tier.** `AUDIT_SIGNING_PRIVATE_KEY`,
   `AUDIT_SIGNING_PUBLIC_KEY`, `AUDIT_SIGNING_KEY_ID`, and `MFA_ENCRYPTION_KEY`
   must be identical on the worker service and the web host for the same
