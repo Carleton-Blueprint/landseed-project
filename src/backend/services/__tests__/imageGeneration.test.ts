@@ -3,9 +3,11 @@ import { getSignedDownloadUrlFromS3Url, uploadStreamToS3 } from "lib/s3";
 import { getOpenAIClient } from "lib/openai";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { MODIFICATION_CODES } from "@/backend/eligibility/types";
+import type { PlacementPlan } from "../imagePlacementPlanner";
 import {
   ACCESSIBILITY_VISUAL_PROMPT_VERSION,
   buildAccessibilityVisualEditPrompt,
+  buildPlacementPlanAuditMetadata,
   detectSourceImageType,
   generateAccessibilityVisual,
   processAccessibilityImageGenerationJob,
@@ -86,6 +88,69 @@ describe("buildAccessibilityVisualEditPrompt", () => {
   });
 });
 
+describe("buildAccessibilityVisualEditPrompt with a placement plan", () => {
+  const plan: PlacementPlan = {
+    visibleElements: ["toilet", "vanity", "bathtub"],
+    placements: [
+      {
+        modificationCode: "GRAB_BARS",
+        applicable: true,
+        placement: "One horizontal bar on the wall to the right of the toilet",
+        box: { x: 0.6, y: 0.4, width: 0.2, height: 0.08 },
+        reason: null,
+      },
+      {
+        modificationCode: "STAIR_LIFT",
+        applicable: false,
+        placement: null,
+        box: null,
+        reason: "No stairs visible",
+      },
+    ],
+  };
+
+  it("matches the plan-aware prompt snapshot", () => {
+    expect(buildAccessibilityVisualEditPrompt(["GRAB_BARS", "STAIR_LIFT"], plan)).toMatchSnapshot();
+  });
+
+  it("adds the photo-specific placement and area, and moves not-applicable items to a do-not-add list", () => {
+    const prompt = buildAccessibilityVisualEditPrompt(["GRAB_BARS", "STAIR_LIFT"], plan);
+    expect(prompt).toContain("Visible in this photo: toilet, vanity, bathtub.");
+    expect(prompt).toContain("   - In this photo: One horizontal bar on the wall to the right of the toilet");
+    expect(prompt).toContain("   - Approximate area: 60%–80% across from the left edge, 40%–48% down from the top edge.");
+    expect(prompt).toContain("Do NOT add these (no realistic location in this photo):\n- Stair Lift — No stairs visible");
+    expect(prompt).not.toContain("2. Stair Lift");
+  });
+
+  it("ignores a plan that marks every modification not applicable", () => {
+    const allSkipped: PlacementPlan = { visibleElements: ["sofa"], placements: [plan.placements[1]] };
+    expect(buildAccessibilityVisualEditPrompt(["STAIR_LIFT"], allSkipped)).toBe(
+      buildAccessibilityVisualEditPrompt(["STAIR_LIFT"])
+    );
+  });
+});
+
+describe("buildPlacementPlanAuditMetadata", () => {
+  it("returns null when planning never ran", () => {
+    expect(buildPlacementPlanAuditMetadata(null)).toBeNull();
+  });
+
+  it("marks a READY plan with nothing applicable as not applied", () => {
+    const metadata = buildPlacementPlanAuditMetadata({
+      status: "READY",
+      plan: {
+        visibleElements: [],
+        placements: [{ modificationCode: "RAMP", applicable: false, placement: null, box: null, reason: "x" }],
+      },
+      rawResponse: "{}",
+      model: "gpt-4o-mini",
+      promptVersion: 1,
+      usage: null,
+    });
+    expect(metadata).toEqual(expect.objectContaining({ status: "READY", applied: false }));
+  });
+});
+
 describe("detectSourceImageType", () => {
   it("detects JPEG", () => {
     expect(detectSourceImageType(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))).toEqual({
@@ -114,15 +179,32 @@ describe("buildAccessibilityRenditionS3Key", () => {
   });
 });
 
+const plannerResponse = JSON.stringify({
+  visibleElements: ["toilet"],
+  placements: [
+    {
+      modificationCode: "GRAB_BARS",
+      applicable: true,
+      placement: "One horizontal bar on the wall to the right of the toilet",
+      box: { x: 0.6, y: 0.4, width: 0.2, height: 0.08 },
+    },
+  ],
+});
+
 describe("generateAccessibilityVisual", () => {
   const originalFetch = global.fetch;
   let mockEdit: jest.Mock;
+  let mockChatCreate: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
 
     mockEdit = jest.fn();
-    mockedGetOpenAIClient.mockReturnValue({ images: { edit: mockEdit } });
+    mockChatCreate = jest.fn().mockRejectedValue(new Error("planner unavailable"));
+    mockedGetOpenAIClient.mockReturnValue({
+      images: { edit: mockEdit },
+      chat: { completions: { create: mockChatCreate } },
+    });
 
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -186,6 +268,43 @@ describe("generateAccessibilityVisual", () => {
     );
   });
 
+  it("feeds the placement plan into the edit prompt and returns it", async () => {
+    mockChatCreate.mockResolvedValue({ choices: [{ message: { content: plannerResponse } }] });
+    mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
+    const onPlacementPlan = jest.fn();
+
+    const result = await generateAccessibilityVisual(
+      { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png" },
+      ["GRAB_BARS"],
+      { onPlacementPlan }
+    );
+
+    expect(mockChatCreate.mock.invocationCallOrder[0]).toBeLessThan(mockEdit.mock.invocationCallOrder[0]);
+    expect(mockEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("In this photo: One horizontal bar on the wall to the right of the toilet"),
+      })
+    );
+    expect(result.placementPlan.status).toBe("READY");
+    expect(onPlacementPlan).toHaveBeenCalledWith(result.placementPlan);
+  });
+
+  it("falls back to the static placement rules when planning fails", async () => {
+    mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
+
+    const result = await generateAccessibilityVisual(
+      { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png" },
+      ["GRAB_BARS"]
+    );
+
+    expect(mockEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: buildAccessibilityVisualEditPrompt(["GRAB_BARS"]) })
+    );
+    expect(result.placementPlan).toEqual(
+      expect.objectContaining({ status: "FAILED", error: "planner unavailable" })
+    );
+  });
+
   it("signs the source URL when it points at S3", async () => {
     mockedGetSignedDownloadUrlFromS3Url.mockResolvedValue("https://signed.example.com/original.png");
     mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
@@ -233,6 +352,7 @@ describe("processAccessibilityImageGenerationJob", () => {
   };
 
   let mockEdit: jest.Mock;
+  let mockChatCreate: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -241,8 +361,13 @@ describe("processAccessibilityImageGenerationJob", () => {
     mockedPrisma.photo.update.mockResolvedValue({});
 
     mockEdit = jest.fn().mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
+    mockChatCreate = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: plannerResponse } }],
+      usage: { prompt_tokens: 900, completion_tokens: 120 },
+    });
     mockedGetOpenAIClient.mockReturnValue({
       images: { edit: mockEdit },
+      chat: { completions: { create: mockChatCreate } },
     });
 
     global.fetch = jest.fn().mockResolvedValue({
@@ -283,6 +408,57 @@ describe("processAccessibilityImageGenerationJob", () => {
           outputSource: "LIVE",
           isFallback: false,
           promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
+        }),
+      })
+    );
+  });
+
+  it("records the full placement plan in the SUCCESS audit metadata", async () => {
+    await processAccessibilityImageGenerationJob({ photoId: "photo-1" });
+
+    expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "SUCCESS",
+        metadata: expect.objectContaining({
+          placementPlan: expect.objectContaining({
+            status: "READY",
+            applied: true,
+            rawResponse: plannerResponse,
+            usage: { promptTokens: 900, completionTokens: 120 },
+            plan: expect.objectContaining({ visibleElements: ["toilet"] }),
+          }),
+        }),
+      })
+    );
+  });
+
+  it("records a failed plan in the audit metadata when planning falls back", async () => {
+    mockChatCreate.mockRejectedValue(new Error("planner unavailable"));
+
+    await processAccessibilityImageGenerationJob({ photoId: "photo-1" });
+
+    expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "SUCCESS",
+        metadata: expect.objectContaining({
+          placementPlan: expect.objectContaining({ status: "FAILED", applied: false, error: "planner unavailable" }),
+        }),
+      })
+    );
+  });
+
+  it("still audits the placement plan when the edit fails after planning", async () => {
+    mockEdit.mockRejectedValue(new Error("OpenAI rate limited"));
+
+    await expect(processAccessibilityImageGenerationJob({ photoId: "photo-1" })).rejects.toThrow(
+      "OpenAI rate limited"
+    );
+
+    expect(mockedLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "FAILURE",
+        metadata: expect.objectContaining({
+          placementPlan: expect.objectContaining({ status: "READY", applied: true, rawResponse: plannerResponse }),
         }),
       })
     );

@@ -1,9 +1,10 @@
 /**
  * Image generation for accessibility modification visualizations.
  *
- * generateAccessibilityVisual() is the live path: it sends the client's original
- * photo plus the identified modification types to OpenAI's gpt-image-1 edit
- * endpoint and stores the result in S3. generateMockAccessibilityVisual() is not
+ * generateAccessibilityVisual() is the live path: it plans where each
+ * modification goes in the client's original photo (imagePlacementPlanner.ts),
+ * sends the photo plus that plan to OpenAI's gpt-image-1 edit endpoint, and
+ * stores the result in S3. generateMockAccessibilityVisual() is not
  * a flag-gated alternative — it's the placeholder used only once BullMQ retries
  * on the live call are exhausted (see applyAccessibilityVisualMockFallback() and
  * its caller in aiJobsWorker.ts).
@@ -17,6 +18,13 @@ import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 import { getModificationPlacementRule } from "@/backend/services/imageModificationPlacement";
+import {
+  planModificationPlacement,
+  type ModificationPlacementPlanEntry,
+  type PlacementBox,
+  type PlacementPlan,
+  type PlacementPlanResult,
+} from "@/backend/services/imagePlacementPlanner";
 import type { ModificationCode } from "@/backend/eligibility/types";
 import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
@@ -90,6 +98,7 @@ export interface AccessibilityVisualGenerationResult {
   costUsd: number;
   model: string;
   promptVersion: number;
+  placementPlan: PlacementPlanResult;
 }
 
 interface GptImageUsage {
@@ -100,19 +109,42 @@ interface GptImageUsage {
 
 // Bump whenever buildAccessibilityVisualEditPrompt's wording changes, so the
 // audit trail records which prompt produced each rendition. v1 was the
-// original label-only prompt.
-export const ACCESSIBILITY_VISUAL_PROMPT_VERSION = 2 as const;
+// original label-only prompt; v2 added static placement rules; v3 adds the
+// per-photo placement plan.
+export const ACCESSIBILITY_VISUAL_PROMPT_VERSION = 3 as const;
 
-function formatPlacementSection(code: string, index: number): string {
+function formatPercent(fraction: number): string {
+  return `${Math.round(fraction * 100)}%`;
+}
+
+function formatBox(box: PlacementBox): string {
+  return `${formatPercent(box.x)}–${formatPercent(box.x + box.width)} across from the left edge, ${formatPercent(box.y)}–${formatPercent(box.y + box.height)} down from the top edge`;
+}
+
+function formatPlacementSection(
+  code: string,
+  index: number,
+  planEntry: ModificationPlacementPlanEntry | undefined
+): string {
   const label = getModificationLabel(code);
   const rule = getModificationPlacementRule(code);
 
+  const photoSpecific = [
+    ...(planEntry?.placement ? [`   - In this photo: ${planEntry.placement}`] : []),
+    ...(planEntry?.box ? [`   - Approximate area: ${formatBox(planEntry.box)}.`] : []),
+  ];
+
   if (!rule) {
-    return `${index + 1}. ${label}\n   - Install it only where it would realistically be installed in this room.`;
+    return [
+      `${index + 1}. ${label}`,
+      ...photoSpecific,
+      "   - Install it only where it would realistically be installed in this room.",
+    ].join("\n");
   }
 
   return [
     `${index + 1}. ${label}`,
+    ...photoSpecific,
     `   - Quantity: ${rule.quantity}`,
     `   - Placement: ${rule.placement}`,
     `   - Mounting: ${rule.mounting}`,
@@ -121,18 +153,52 @@ function formatPlacementSection(code: string, index: number): string {
   ].join("\n");
 }
 
-export function buildAccessibilityVisualEditPrompt(modificationCodes: string[] = []): string {
-  const codes = [...new Set(modificationCodes)];
+/**
+ * A plan is only worth applying if it leaves at least one item to add. When
+ * the planner marks every requested modification not applicable, it's more
+ * likely wrong than the client's own tags, so fall back to the static rules.
+ */
+export function isPlacementPlanApplicable(plan: PlacementPlan | null | undefined): plan is PlacementPlan {
+  return Boolean(plan?.placements.some((entry) => entry.applicable));
+}
+
+export function buildAccessibilityVisualEditPrompt(
+  modificationCodes: string[] = [],
+  placementPlan?: PlacementPlan | null
+): string {
+  const plan = isPlacementPlanApplicable(placementPlan) ? placementPlan : null;
+  const planEntries = new Map(plan?.placements.map((entry) => [entry.modificationCode, entry]));
+  const allCodes = [...new Set(modificationCodes)];
+  const skipped = allCodes.filter((code) => planEntries.get(code)?.applicable === false);
+  const codes = allCodes.filter((code) => !skipped.includes(code));
+
   const items = codes.length
-    ? codes.map(formatPlacementSection).join("\n\n")
+    ? codes.map((code, index) => formatPlacementSection(code, index, planEntries.get(code))).join("\n\n")
     : "1. general accessibility improvements\n   - Install them only where they would realistically be installed in this room.";
+
+  const visible = plan?.visibleElements.length
+    ? ["", `Visible in this photo: ${plan.visibleElements.join(", ")}.`]
+    : [];
+
+  const doNotAdd = skipped.length
+    ? [
+        "",
+        "Do NOT add these (no realistic location in this photo):",
+        ...skipped.map((code) => {
+          const reason = planEntries.get(code)?.reason;
+          return `- ${getModificationLabel(code)}${reason ? ` — ${reason}` : ""}`;
+        }),
+      ]
+    : [];
 
   return [
     "Edit this photo of a home to show the accessibility modification(s) below installed, in a photorealistic style that matches the room's existing materials, lighting and camera angle.",
+    ...visible,
     "",
     "Add ONLY these items:",
     "",
     items,
+    ...doNotAdd,
     "",
     "Strict rules:",
     "- Add ONLY the items listed above. Do not add any other fixtures, furniture, decor or accessibility equipment.",
@@ -140,6 +206,37 @@ export function buildAccessibilityVisualEditPrompt(modificationCodes: string[] =
     "- Keep the same framing, perspective and room layout.",
     "- If an item has no realistic location visible in this photo, leave that part of the photo unchanged rather than inventing a location.",
   ].join("\n");
+}
+
+/**
+ * Audit-trail shape for the placement plan: the full AI output (raw response
+ * and normalized plan) plus whether it actually shaped the edit prompt.
+ */
+export function buildPlacementPlanAuditMetadata(
+  result: PlacementPlanResult | null
+): Record<string, unknown> | null {
+  if (!result) {
+    return null;
+  }
+
+  return result.status === "READY"
+    ? {
+        status: result.status,
+        applied: isPlacementPlanApplicable(result.plan),
+        model: result.model,
+        promptVersion: result.promptVersion,
+        plan: result.plan,
+        rawResponse: result.rawResponse,
+        usage: result.usage,
+      }
+    : {
+        status: result.status,
+        applied: false,
+        model: result.model,
+        promptVersion: result.promptVersion,
+        error: result.error,
+        rawResponse: result.rawResponse,
+      };
 }
 
 type SupportedSourceImageType = "image/png" | "image/jpeg" | "image/webp";
@@ -198,7 +295,12 @@ export function buildAccessibilityRenditionS3Key(
  */
 export async function generateAccessibilityVisual(
   photo: { id: string; projectId: string; url: string },
-  modificationCodes: string[] = []
+  modificationCodes: string[] = [],
+  options?: {
+    // Called as soon as the plan exists, so the caller can still audit it if
+    // the edit itself fails afterwards.
+    onPlacementPlan?: (result: PlacementPlanResult) => void;
+  }
 ): Promise<AccessibilityVisualGenerationResult> {
   const signedSourceUrl = isPrivateS3PhotoUrl(photo.url)
     ? await getSignedDownloadUrlFromS3Url(photo.url, 300)
@@ -217,8 +319,17 @@ export async function generateAccessibilityVisual(
     type: sourceType.mimeType,
   });
 
+  const placementPlan = await planModificationPlacement(
+    { buffer: sourceBuffer, mimeType: sourceType.mimeType },
+    modificationCodes
+  );
+  options?.onPlacementPlan?.(placementPlan);
+
   const client = getOpenAIClient();
-  const prompt = buildAccessibilityVisualEditPrompt(modificationCodes);
+  const prompt = buildAccessibilityVisualEditPrompt(
+    modificationCodes,
+    placementPlan.status === "READY" ? placementPlan.plan : null
+  );
 
   const editResponse = await client.images.edit({
     model: GPT_IMAGE_MODEL,
@@ -245,6 +356,7 @@ export async function generateAccessibilityVisual(
     costUsd: computeGenerationCostUsd(editResponse.usage as GptImageUsage | undefined),
     model: GPT_IMAGE_MODEL,
     promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
+    placementPlan,
   };
 }
 
@@ -292,11 +404,13 @@ export async function processAccessibilityImageGenerationJob(
   // promoteIntakeDraft's PHOTOS_MISSING_TAGS check), so no fallback is needed.
   const modificationCodes = photo.declaredModificationCodes;
   const startedAt = Date.now();
+  let placementPlan: PlacementPlanResult | null = null;
 
   try {
     const result = await generateAccessibilityVisual(
       { id: photo.id, projectId: photo.projectId, url: photo.url },
-      modificationCodes
+      modificationCodes,
+      { onPlacementPlan: (plan) => (placementPlan = plan) }
     );
 
     await prisma.photo.update({
@@ -324,6 +438,7 @@ export async function processAccessibilityImageGenerationJob(
       metadata: {
         model: result.model,
         promptVersion: result.promptVersion,
+        placementPlan: buildPlacementPlanAuditMetadata(result.placementPlan),
         costUsd: result.costUsd,
         durationMs: Date.now() - startedAt,
         s3Key: result.s3Key,
@@ -354,6 +469,7 @@ export async function processAccessibilityImageGenerationJob(
       metadata: {
         errorMessage,
         promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
+        placementPlan: buildPlacementPlanAuditMetadata(placementPlan),
         durationMs: Date.now() - startedAt,
         outputSource: "NONE",
         isFallback: false,

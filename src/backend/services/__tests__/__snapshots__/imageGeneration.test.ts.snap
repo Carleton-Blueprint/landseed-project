@@ -204,3 +204,31 @@ Strict rules:
 - Keep the same framing, perspective and room layout.
 - If an item has no realistic location visible in this photo, leave that part of the photo unchanged rather than inventing a location."
 `;
+
+exports[`buildAccessibilityVisualEditPrompt with a placement plan matches the plan-aware prompt snapshot 1`] = `
+"Edit this photo of a home to show the accessibility modification(s) below installed, in a photorealistic style that matches the room's existing materials, lighting and camera angle.
+
+Visible in this photo: toilet, vanity, bathtub.
+
+Add ONLY these items:
+
+1. Grab Bars
+   - In this photo: One horizontal bar on the wall to the right of the toilet
+   - Approximate area: 60%–80% across from the left edge, 40%–48% down from the top edge.
+   - Quantity: 1–2 bars in total.
+   - Placement: Only on the wall directly beside the toilet, or on the wall inside the shower or above the tub rim.
+   - Mounting: Mounted horizontally (or vertically at a shower entry), anchored to the wall with round flanges at both ends, 33–36 inches (84–91 cm) above the floor.
+   - Size: 12–36 inches long, about 1.25–1.5 inches in diameter, brushed stainless steel or a finish matching the existing fixtures.
+   - Never place bars on vanities, countertops, cabinets, mirrors, doors or windows.
+   - Never place bars on open walls away from the toilet, shower or tub.
+   - Never add more than 2 bars.
+
+Do NOT add these (no realistic location in this photo):
+- Stair Lift — No stairs visible
+
+Strict rules:
+- Add ONLY the items listed above. Do not add any other fixtures, furniture, decor or accessibility equipment.
+- Keep every other surface, wall, floor, fixture and object exactly as it appears in the original photo.
+- Keep the same framing, perspective and room layout.
+- If an item has no realistic location visible in this photo, leave that part of the photo unchanged rather than inventing a location."
+`;
