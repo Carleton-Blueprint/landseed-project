@@ -179,13 +179,11 @@ describe("createEligibilityAssessmentSnapshot", () => {
   });
 
   describe("AUTOMATIC race guard (inside the advisory lock)", () => {
-    const startedAt = new Date("2026-10-30T12:00:00Z");
-
     function automaticInput() {
-      return { ...baseInput(), source: "AUTOMATIC", adminAction: undefined, createdByUserId: undefined, automaticRunStartedAt: startedAt };
+      return { ...baseInput(), source: "AUTOMATIC", adminAction: undefined, createdByUserId: undefined };
     }
 
-    function txWithGuard(guard: { adminSinceRunStarted: boolean; quoteOverrideExists: boolean }) {
+    function txWithGuard(guard: { adminAssessmentExists: boolean; quoteOverrideExists: boolean }) {
       return {
         $executeRaw: jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(1),
         $queryRaw: jest
@@ -196,7 +194,7 @@ describe("createEligibilityAssessmentSnapshot", () => {
     }
 
     it("checks after taking the lock, then updates and inserts with null admin fields when nothing blocks it", async () => {
-      const tx = txWithGuard({ adminSinceRunStarted: false, quoteOverrideExists: false });
+      const tx = txWithGuard({ adminAssessmentExists: false, quoteOverrideExists: false });
       prisma.$transaction.mockImplementation(async (callback) =>
         (callback as (tx: unknown) => Promise<unknown>)(tx)
       );
@@ -209,28 +207,28 @@ describe("createEligibilityAssessmentSnapshot", () => {
       const guardSql = tx.$queryRaw.mock.calls[0][0] as { sql: string; values: unknown[] };
       expect(guardSql.sql).toContain('"source" = \'ADMIN\'');
       expect(guardSql.sql).toContain('"QuoteOverride"');
-      expect(guardSql.values).toContain(startedAt);
+      expect(guardSql.values.some((value) => value instanceof Date)).toBe(false);
       const insertSql = tx.$queryRaw.mock.calls[1][0] as { sql: string; values: unknown[] };
       expect(insertSql.values).toContain("AUTOMATIC");
       expect(insertSql.values).not.toContain("admin-1");
       expect(insertSql.values).not.toContain("REASSESS");
     });
 
-    it("skips without updating or inserting when an ADMIN row landed after the run started", async () => {
-      const tx = txWithGuard({ adminSinceRunStarted: true, quoteOverrideExists: false });
+    it("skips without updating or inserting when an ADMIN row exists", async () => {
+      const tx = txWithGuard({ adminAssessmentExists: true, quoteOverrideExists: false });
       prisma.$transaction.mockImplementation(async (callback) =>
         (callback as (tx: unknown) => Promise<unknown>)(tx)
       );
 
       const result = await createEligibilityAssessmentSnapshot(automaticInput());
 
-      expect(result).toEqual({ skipped: true, reason: "ADMIN_ASSESSMENT_SINCE_RUN_STARTED" });
+      expect(result).toEqual({ skipped: true, reason: "ADMIN_ASSESSMENT_EXISTS" });
       expect(tx.$executeRaw).toHaveBeenCalledTimes(1); // the lock only
       expect(tx.$queryRaw).toHaveBeenCalledTimes(1); // the guard only
     });
 
     it("skips without updating or inserting when the latest quote has a QuoteOverride", async () => {
-      const tx = txWithGuard({ adminSinceRunStarted: false, quoteOverrideExists: true });
+      const tx = txWithGuard({ adminAssessmentExists: false, quoteOverrideExists: true });
       prisma.$transaction.mockImplementation(async (callback) =>
         (callback as (tx: unknown) => Promise<unknown>)(tx)
       );

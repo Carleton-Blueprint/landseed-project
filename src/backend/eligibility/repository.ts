@@ -32,15 +32,13 @@ export interface AdminEligibilityAssessmentSnapshotInput extends EligibilityAsse
 
 export interface AutomaticEligibilityAssessmentSnapshotInput extends EligibilityAssessmentSnapshotFields {
   source: "AUTOMATIC";
-  /** When this run started (before grant discovery), for the in-lock race guard. */
-  automaticRunStartedAt: Date;
 }
 
 export type CreateEligibilityAssessmentSnapshotInput =
   | AdminEligibilityAssessmentSnapshotInput
   | AutomaticEligibilityAssessmentSnapshotInput;
 
-export type EligibilitySnapshotSkipReason = "ADMIN_ASSESSMENT_SINCE_RUN_STARTED" | "QUOTE_OVERRIDE_EXISTS";
+export type EligibilitySnapshotSkipReason = "ADMIN_ASSESSMENT_EXISTS" | "QUOTE_OVERRIDE_EXISTS";
 
 /** Returned instead of a row when an AUTOMATIC write lost to an admin result. */
 export interface SkippedEligibilityAssessmentSnapshot {
@@ -110,21 +108,18 @@ export async function createEligibilityAssessmentSnapshot(
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))`;
 
     // Race guard for AUTOMATIC writes, re-checked under the lock (triggers.ts
-    // checks up front, but grant discovery runs between that check and here).
-    // Skip if an admin result landed after this run started, or the latest
-    // quote has a post-estimate QuoteOverride. Note: createdAt is DB time and
-    // automaticRunStartedAt is app time, so clock skew of a second or two can
-    // shift the boundary slightly.
+    // checks up front, but grant discovery runs between that check and here,
+    // so an admin result can land in between). Skip if any ADMIN row exists,
+    // or the latest quote has a post-estimate QuoteOverride.
     if (input.source === "AUTOMATIC") {
-      const [guard] = await tx.$queryRaw<Array<{ adminSinceRunStarted: boolean; quoteOverrideExists: boolean }>>(
+      const [guard] = await tx.$queryRaw<Array<{ adminAssessmentExists: boolean; quoteOverrideExists: boolean }>>(
         Prisma.sql`
           SELECT
             EXISTS (
               SELECT 1 FROM "EligibilityAssessment"
               WHERE "projectId" = ${input.projectId}
                 AND "source" = 'ADMIN'
-                AND "createdAt" > ${input.automaticRunStartedAt}
-            ) AS "adminSinceRunStarted",
+            ) AS "adminAssessmentExists",
             EXISTS (
               SELECT 1 FROM "QuoteOverride"
               WHERE "quoteId" = (
@@ -137,8 +132,8 @@ export async function createEligibilityAssessmentSnapshot(
         `
       );
 
-      if (guard?.adminSinceRunStarted) {
-        return { skipped: true, reason: "ADMIN_ASSESSMENT_SINCE_RUN_STARTED" } as const;
+      if (guard?.adminAssessmentExists) {
+        return { skipped: true, reason: "ADMIN_ASSESSMENT_EXISTS" } as const;
       }
       if (guard?.quoteOverrideExists) {
         return { skipped: true, reason: "QUOTE_OVERRIDE_EXISTS" } as const;

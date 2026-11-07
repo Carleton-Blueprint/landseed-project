@@ -4,8 +4,9 @@
 /**
  * Real Postgres (DATABASE_URL) required; no mocked Prisma client. Exercises
  * createEligibilityAssessmentSnapshot's in-lock race guard: an AUTOMATIC write
- * must not land on top of an ADMIN result that committed while it was in
- * flight, or on a project whose latest quote has a post-estimate QuoteOverride.
+ * must not land on a project with any ADMIN result (including one that
+ * committed while it was in flight), or on a project whose latest quote has a
+ * post-estimate QuoteOverride.
  */
 
 import { prisma } from "lib/prisma";
@@ -25,8 +26,8 @@ const baseFields = {
   missingRequirements: [],
 };
 
-function automaticInput(projectId: string, automaticRunStartedAt: Date): AutomaticEligibilityAssessmentSnapshotInput {
-  return { ...baseFields, projectId, source: "AUTOMATIC", automaticRunStartedAt };
+function automaticInput(projectId: string): AutomaticEligibilityAssessmentSnapshotInput {
+  return { ...baseFields, projectId, source: "AUTOMATIC" };
 }
 
 function adminInput(projectId: string, userId: string): AdminEligibilityAssessmentSnapshotInput {
@@ -71,8 +72,6 @@ describe("createEligibilityAssessmentSnapshot race guard (real DB)", () => {
   });
 
   it("discards an AUTOMATIC write blocked on the lock while an ADMIN result commits", async () => {
-    const automaticRunStartedAt = new Date(Date.now() - 1000);
-
     let releaseAdmin!: () => void;
     const adminMayCommit = new Promise<void>((resolve) => (releaseAdmin = resolve));
     let adminLocked!: () => void;
@@ -93,25 +92,23 @@ describe("createEligibilityAssessmentSnapshot race guard (real DB)", () => {
     );
 
     await adminHasLock;
-    const automaticWrite = createEligibilityAssessmentSnapshot(automaticInput(projectId, automaticRunStartedAt));
+    const automaticWrite = createEligibilityAssessmentSnapshot(automaticInput(projectId));
     await waitForAdvisoryLockWaiter();
     releaseAdmin();
     await adminTx;
 
     const result = await automaticWrite;
 
-    expect(result).toEqual({ skipped: true, reason: "ADMIN_ASSESSMENT_SINCE_RUN_STARTED" });
+    expect(result).toEqual({ skipped: true, reason: "ADMIN_ASSESSMENT_EXISTS" });
     const rows = await prisma.eligibilityAssessment.findMany({ where: { projectId } });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ source: "ADMIN", isLatest: true, createdByUserId: userId });
   });
 
   it("leaves exactly one isLatest row, the ADMIN one, when both writes race", async () => {
-    const automaticRunStartedAt = new Date(Date.now() - 1000);
-
     const [adminResult, automaticResult] = await Promise.all([
       createEligibilityAssessmentSnapshot(adminInput(projectId, userId)),
-      createEligibilityAssessmentSnapshot(automaticInput(projectId, automaticRunStartedAt)),
+      createEligibilityAssessmentSnapshot(automaticInput(projectId)),
     ]);
 
     expect(adminResult).toMatchObject({ source: "ADMIN" });
@@ -121,20 +118,25 @@ describe("createEligibilityAssessmentSnapshot race guard (real DB)", () => {
     // Whichever took the lock first, the automatic write either never landed
     // or landed first and was then superseded.
     if ("skipped" in (automaticResult ?? {})) {
-      expect(automaticResult).toEqual({ skipped: true, reason: "ADMIN_ASSESSMENT_SINCE_RUN_STARTED" });
+      expect(automaticResult).toEqual({ skipped: true, reason: "ADMIN_ASSESSMENT_EXISTS" });
     }
   });
 
-  it("inserts an AUTOMATIC write when the only ADMIN row predates the run", async () => {
+  it("discards an AUTOMATIC write when an older ADMIN row exists", async () => {
     await createEligibilityAssessmentSnapshot(adminInput(projectId, userId));
-    const automaticRunStartedAt = new Date(Date.now() + 1000);
 
-    const result = await createEligibilityAssessmentSnapshot(automaticInput(projectId, automaticRunStartedAt));
+    const result = await createEligibilityAssessmentSnapshot(automaticInput(projectId));
 
-    expect(result).toMatchObject({ source: "AUTOMATIC", adminAction: null, createdByUserId: null, isLatest: true });
+    expect(result).toEqual({ skipped: true, reason: "ADMIN_ASSESSMENT_EXISTS" });
     const latest = await prisma.eligibilityAssessment.findMany({ where: { projectId, isLatest: true } });
     expect(latest).toHaveLength(1);
-    expect(latest[0].source).toBe("AUTOMATIC");
+    expect(latest[0].source).toBe("ADMIN");
+  });
+
+  it("inserts an AUTOMATIC write when no ADMIN row exists", async () => {
+    const result = await createEligibilityAssessmentSnapshot(automaticInput(projectId));
+
+    expect(result).toMatchObject({ source: "AUTOMATIC", adminAction: null, createdByUserId: null, isLatest: true });
   });
 
   it("discards an AUTOMATIC write when the latest quote has a QuoteOverride", async () => {
@@ -154,7 +156,7 @@ describe("createEligibilityAssessmentSnapshot race guard (real DB)", () => {
       },
     });
 
-    const result = await createEligibilityAssessmentSnapshot(automaticInput(projectId, new Date()));
+    const result = await createEligibilityAssessmentSnapshot(automaticInput(projectId));
 
     expect(result).toEqual({ skipped: true, reason: "QUOTE_OVERRIDE_EXISTS" });
     expect(await prisma.eligibilityAssessment.count({ where: { projectId } })).toBe(0);
@@ -163,7 +165,7 @@ describe("createEligibilityAssessmentSnapshot race guard (real DB)", () => {
   it("inserts an AUTOMATIC write when the latest quote has no QuoteOverride", async () => {
     await prisma.quote.create({ data: { projectId, subtotal: 1000, total: 1000 } });
 
-    const result = await createEligibilityAssessmentSnapshot(automaticInput(projectId, new Date()));
+    const result = await createEligibilityAssessmentSnapshot(automaticInput(projectId));
 
     expect(result).toMatchObject({ source: "AUTOMATIC", isLatest: true });
   });

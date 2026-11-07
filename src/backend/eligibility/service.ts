@@ -77,10 +77,6 @@ export async function evaluateProjectEligibility(
   performedBy?: Pick<User, 'id'>,
   options: { adminAction?: EligibilityAdminActionValue } = {}
 ): Promise<EvaluateEligibilityServiceResult | EvaluateEligibilityServiceSkipped | EvaluateEligibilityServiceError> {
-  // Captured before discovery so the repository can tell whether an admin
-  // result landed while this (automatic) run was in flight.
-  const startedAt = new Date();
-
   try {
     // Step 1: Assemble EligibilityInput from project
     const input = assembleEligibilityInput(project);
@@ -95,7 +91,7 @@ export async function evaluateProjectEligibility(
           adminAction: options.adminAction ?? 'REASSESS',
           createdByUserId: performedBy.id,
         }
-      : { source: 'AUTOMATIC' as const, automaticRunStartedAt: startedAt };
+      : { source: 'AUTOMATIC' as const };
 
     const assessment = await createEligibilityAssessmentSnapshot({
       projectId: project.id,
