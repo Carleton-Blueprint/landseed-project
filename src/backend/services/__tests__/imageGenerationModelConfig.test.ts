@@ -2,6 +2,7 @@ import {
   DEFAULT_IMAGE_GENERATION_MODEL,
   computeImageGenerationCostUsd,
   getImageGenerationModel,
+  getImageGenerationQuality,
 } from "../imageGenerationModelConfig";
 
 describe("getImageGenerationModel", () => {
@@ -64,5 +65,43 @@ describe("computeImageGenerationCostUsd", () => {
   it("returns 0 without usage and null for an unpriced model", () => {
     expect(computeImageGenerationCostUsd("gpt-image-2", undefined)).toBe(0);
     expect(computeImageGenerationCostUsd("gpt-image-1", { output_tokens: 1000 })).toBeNull();
+  });
+});
+
+describe("getImageGenerationQuality", () => {
+  let warn: jest.SpyInstance;
+
+  beforeEach(() => {
+    warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    delete process.env.IMAGE_GENERATION_QUALITY;
+    warn.mockRestore();
+  });
+
+  it("defaults to medium when unset or blank", () => {
+    expect(getImageGenerationQuality()).toBe("medium");
+    process.env.IMAGE_GENERATION_QUALITY = "  ";
+    expect(getImageGenerationQuality()).toBe("medium");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(["low", "medium", "high", "auto"])("accepts %s", (quality) => {
+    process.env.IMAGE_GENERATION_QUALITY = quality;
+    expect(getImageGenerationQuality()).toBe(quality);
+  });
+
+  it("is case- and whitespace-insensitive", () => {
+    process.env.IMAGE_GENERATION_QUALITY = " HIGH ";
+    expect(getImageGenerationQuality()).toBe("high");
+  });
+
+  it("falls back to medium and warns once for an invalid value", () => {
+    process.env.IMAGE_GENERATION_QUALITY = "ultra";
+    expect(getImageGenerationQuality()).toBe("medium");
+    expect(getImageGenerationQuality()).toBe("medium");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('Invalid IMAGE_GENERATION_QUALITY "ultra"');
   });
 });

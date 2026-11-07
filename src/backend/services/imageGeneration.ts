@@ -35,8 +35,10 @@ import {
 import {
   computeImageGenerationCostUsd,
   getImageGenerationModel,
+  getImageGenerationQuality,
   roundCostUsd,
   type ImageEditUsage,
+  type ImageGenerationQuality,
 } from "@/backend/services/imageGenerationModelConfig";
 import type { ModificationCode } from "@/backend/eligibility/types";
 import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
@@ -108,6 +110,7 @@ export interface AccessibilityVisualGenerationResult {
   costUsd: number | null;
   costBreakdownUsd: { planning: number | null; editing: number | null };
   model: string;
+  quality: ImageGenerationQuality;
   promptVersion: number;
   placementPlan: PlacementPlanResult;
   placementMask: PlacementMaskResult;
@@ -336,6 +339,7 @@ export async function generateAccessibilityVisual(
 
   const client = getOpenAIClient();
   const model = getImageGenerationModel();
+  const quality = getImageGenerationQuality();
   const prompt = buildAccessibilityVisualEditPrompt(modificationCodes, plan);
 
   const editResponse = await client.images.edit({
@@ -348,7 +352,7 @@ export async function generateAccessibilityVisual(
     // "auto" lets the model pick the output aspect ratio closest to the
     // source photo instead of cropping/squashing everything into a square.
     size: "auto",
-    quality: "medium",
+    quality,
   });
 
   const imageData = editResponse.data?.[0]?.b64_json;
@@ -368,6 +372,7 @@ export async function generateAccessibilityVisual(
       computeImageGenerationCostUsd(model, editResponse.usage as ImageEditUsage | undefined)
     ),
     model,
+    quality,
     promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
     placementPlan,
     placementMask,
@@ -451,6 +456,7 @@ export async function processAccessibilityImageGenerationJob(
       description: "Accessibility visual rendition generated successfully",
       metadata: {
         model: result.model,
+        quality: result.quality,
         promptVersion: result.promptVersion,
         placementPlan: buildPlacementPlanAuditMetadata(result.placementPlan),
         placementMask: buildPlacementMaskAuditMetadata(result.placementMask),
@@ -485,6 +491,7 @@ export async function processAccessibilityImageGenerationJob(
       metadata: {
         errorMessage,
         model: getImageGenerationModel(),
+        quality: getImageGenerationQuality(),
         promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
         placementPlan: buildPlacementPlanAuditMetadata(placementPlan),
         durationMs: Date.now() - startedAt,

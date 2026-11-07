@@ -72,3 +72,32 @@ export function computeImageGenerationCostUsd(model: string, usage: ImageEditUsa
       (textOutputTokens / 1_000_000) * price.textOutput
   );
 }
+
+export const IMAGE_GENERATION_QUALITIES = ["low", "medium", "high", "auto"] as const;
+export type ImageGenerationQuality = (typeof IMAGE_GENERATION_QUALITIES)[number];
+export const DEFAULT_IMAGE_GENERATION_QUALITY: ImageGenerationQuality = "medium";
+
+// Warn once per bad value rather than on every generation job.
+const warnedInvalidQualities = new Set<string>();
+
+/**
+ * IMAGE_GENERATION_QUALITY (worker). Quality changes how many output tokens
+ * the edit bills, and cost is computed from the returned usage, so cost
+ * tracking stays accurate at any quality without a separate price table.
+ */
+export function getImageGenerationQuality(): ImageGenerationQuality {
+  const raw = process.env.IMAGE_GENERATION_QUALITY?.trim().toLowerCase();
+  if (!raw) {
+    return DEFAULT_IMAGE_GENERATION_QUALITY;
+  }
+  if ((IMAGE_GENERATION_QUALITIES as readonly string[]).includes(raw)) {
+    return raw as ImageGenerationQuality;
+  }
+  if (!warnedInvalidQualities.has(raw)) {
+    warnedInvalidQualities.add(raw);
+    console.warn(
+      `[imageGeneration] Invalid IMAGE_GENERATION_QUALITY "${raw}"; expected one of ${IMAGE_GENERATION_QUALITIES.join(", ")}. Using "${DEFAULT_IMAGE_GENERATION_QUALITY}".`
+    );
+  }
+  return DEFAULT_IMAGE_GENERATION_QUALITY;
+}

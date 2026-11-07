@@ -273,6 +273,24 @@ describe("generateAccessibilityVisual", () => {
     }
   });
 
+  it("passes IMAGE_GENERATION_QUALITY to images.edit (medium when unset)", async () => {
+    mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
+    const photo = { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png" };
+
+    const defaulted = await generateAccessibilityVisual(photo, ["GRAB_BARS"]);
+    expect(mockEdit.mock.calls[0][0].quality).toBe("medium");
+    expect(defaulted.quality).toBe("medium");
+
+    process.env.IMAGE_GENERATION_QUALITY = "high";
+    try {
+      const high = await generateAccessibilityVisual(photo, ["GRAB_BARS"]);
+      expect(mockEdit.mock.calls[1][0].quality).toBe("high");
+      expect(high.quality).toBe("high");
+    } finally {
+      delete process.env.IMAGE_GENERATION_QUALITY;
+    }
+  });
+
   it("requests an auto-sized edit and sends JPEG sources with the JPEG type", async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -521,6 +539,7 @@ describe("processAccessibilityImageGenerationJob", () => {
           outputSource: "LIVE",
           isFallback: false,
           promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
+          quality: "medium",
         }),
       })
     );
@@ -615,7 +634,7 @@ describe("processAccessibilityImageGenerationJob", () => {
         category: "AI_GENERATION",
         outcome: "FAILURE",
         resourceId: "photo-1",
-        metadata: expect.objectContaining({ outputSource: "NONE", isFallback: false }),
+        metadata: expect.objectContaining({ outputSource: "NONE", isFallback: false, quality: "medium" }),
       })
     );
   });
