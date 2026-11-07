@@ -178,7 +178,7 @@ describe("buildAccessibilityRenditionS3Key", () => {
   it("namespaces the key by project and photo id", () => {
     const key = buildAccessibilityRenditionS3Key("project-1", "photo-1");
     expect(key).toMatch(/^accessibility-renditions\/project-1\/photo-1-/);
-    expect(key.endsWith(".png")).toBe(true);
+    expect(key.endsWith(".webp")).toBe(true);
   });
 });
 
@@ -241,8 +241,8 @@ describe("generateAccessibilityVisual", () => {
     );
     expect(mockedUploadStreamToS3).toHaveBeenCalledWith(
       expect.any(Buffer),
-      expect.stringMatching(/^accessibility-renditions\/project-1\/photo-1-/),
-      "image/png",
+      expect.stringMatching(/^accessibility-renditions\/project-1\/photo-1-.*\.webp$/),
+      "image/webp",
       expect.any(Number)
     );
     // gpt-image-2.6-sunburst: (500/1e6)*5 + (200/1e6)*8 + (1000/1e6)*30 = 0.0341
@@ -288,6 +288,25 @@ describe("generateAccessibilityVisual", () => {
       expect(high.quality).toBe("high");
     } finally {
       delete process.env.IMAGE_GENERATION_QUALITY;
+    }
+  });
+
+  it("asks OpenAI for WebP output at IMAGE_GENERATION_OUTPUT_COMPRESSION (85 when unset)", async () => {
+    mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
+    const photo = { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png" };
+
+    const defaulted = await generateAccessibilityVisual(photo, ["GRAB_BARS"]);
+    expect(mockEdit.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ output_format: "webp", output_compression: 85 })
+    );
+    expect(defaulted).toEqual(expect.objectContaining({ outputFormat: "webp", outputCompression: 85 }));
+
+    process.env.IMAGE_GENERATION_OUTPUT_COMPRESSION = "70";
+    try {
+      await generateAccessibilityVisual(photo, ["GRAB_BARS"]);
+      expect(mockEdit.mock.calls[1][0].output_compression).toBe(70);
+    } finally {
+      delete process.env.IMAGE_GENERATION_OUTPUT_COMPRESSION;
     }
   });
 
@@ -540,6 +559,8 @@ describe("processAccessibilityImageGenerationJob", () => {
           isFallback: false,
           promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
           quality: "medium",
+          outputFormat: "webp",
+          outputCompression: 85,
         }),
       })
     );
@@ -634,7 +655,13 @@ describe("processAccessibilityImageGenerationJob", () => {
         category: "AI_GENERATION",
         outcome: "FAILURE",
         resourceId: "photo-1",
-        metadata: expect.objectContaining({ outputSource: "NONE", isFallback: false, quality: "medium" }),
+        metadata: expect.objectContaining({
+          outputSource: "NONE",
+          isFallback: false,
+          quality: "medium",
+          outputFormat: "webp",
+          outputCompression: 85,
+        }),
       })
     );
   });

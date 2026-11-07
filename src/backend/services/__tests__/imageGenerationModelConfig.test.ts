@@ -3,6 +3,7 @@ import {
   computeImageGenerationCostUsd,
   getImageGenerationModel,
   getImageGenerationQuality,
+  getImageOutputCompression,
 } from "../imageGenerationModelConfig";
 
 describe("getImageGenerationModel", () => {
@@ -103,5 +104,39 @@ describe("getImageGenerationQuality", () => {
     expect(getImageGenerationQuality()).toBe("medium");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toContain('Invalid IMAGE_GENERATION_QUALITY "ultra"');
+  });
+});
+
+describe("getImageOutputCompression", () => {
+  let warn: jest.SpyInstance;
+
+  beforeEach(() => {
+    warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    delete process.env.IMAGE_GENERATION_OUTPUT_COMPRESSION;
+    warn.mockRestore();
+  });
+
+  it("defaults to 85 when unset or blank", () => {
+    expect(getImageOutputCompression()).toBe(85);
+    process.env.IMAGE_GENERATION_OUTPUT_COMPRESSION = " ";
+    expect(getImageOutputCompression()).toBe(85);
+  });
+
+  it.each([
+    ["0", 0],
+    ["70", 70],
+    [" 100 ", 100],
+  ])("accepts %p", (raw, expected) => {
+    process.env.IMAGE_GENERATION_OUTPUT_COMPRESSION = raw;
+    expect(getImageOutputCompression()).toBe(expected);
+  });
+
+  it.each(["101", "-1", "85.5", "high"])("falls back to 85 and warns for %p", (raw) => {
+    process.env.IMAGE_GENERATION_OUTPUT_COMPRESSION = raw;
+    expect(getImageOutputCompression()).toBe(85);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(`"${raw}"`));
   });
 });

@@ -36,6 +36,9 @@ import {
   computeImageGenerationCostUsd,
   getImageGenerationModel,
   getImageGenerationQuality,
+  getImageOutputCompression,
+  IMAGE_OUTPUT_CONTENT_TYPE,
+  IMAGE_OUTPUT_FORMAT,
   roundCostUsd,
   type ImageEditUsage,
   type ImageGenerationQuality,
@@ -111,6 +114,8 @@ export interface AccessibilityVisualGenerationResult {
   costBreakdownUsd: { planning: number | null; editing: number | null };
   model: string;
   quality: ImageGenerationQuality;
+  outputFormat: typeof IMAGE_OUTPUT_FORMAT;
+  outputCompression: number;
   promptVersion: number;
   placementPlan: PlacementPlanResult;
   placementMask: PlacementMaskResult;
@@ -289,7 +294,7 @@ export function buildAccessibilityRenditionS3Key(
   projectId: string,
   photoId: string
 ): string {
-  return `${ACCESSIBILITY_RENDITION_S3_PREFIX}/${projectId}/${photoId}-${randomUUID()}.png`;
+  return `${ACCESSIBILITY_RENDITION_S3_PREFIX}/${projectId}/${photoId}-${randomUUID()}.${IMAGE_OUTPUT_FORMAT}`;
 }
 
 /**
@@ -340,6 +345,7 @@ export async function generateAccessibilityVisual(
   const client = getOpenAIClient();
   const model = getImageGenerationModel();
   const quality = getImageGenerationQuality();
+  const outputCompression = getImageOutputCompression();
   const prompt = buildAccessibilityVisualEditPrompt(modificationCodes, plan);
 
   const editResponse = await client.images.edit({
@@ -353,6 +359,8 @@ export async function generateAccessibilityVisual(
     // source photo instead of cropping/squashing everything into a square.
     size: "auto",
     quality,
+    output_format: IMAGE_OUTPUT_FORMAT,
+    output_compression: outputCompression,
   });
 
   const imageData = editResponse.data?.[0]?.b64_json;
@@ -362,7 +370,7 @@ export async function generateAccessibilityVisual(
 
   const renderedBuffer = Buffer.from(imageData, "base64");
   const s3Key = buildAccessibilityRenditionS3Key(photo.projectId, photo.id);
-  const s3Url = await uploadStreamToS3(renderedBuffer, s3Key, "image/png", renderedBuffer.length);
+  const s3Url = await uploadStreamToS3(renderedBuffer, s3Key, IMAGE_OUTPUT_CONTENT_TYPE, renderedBuffer.length);
 
   return {
     s3Url,
@@ -373,6 +381,8 @@ export async function generateAccessibilityVisual(
     ),
     model,
     quality,
+    outputFormat: IMAGE_OUTPUT_FORMAT,
+    outputCompression,
     promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
     placementPlan,
     placementMask,
@@ -457,6 +467,8 @@ export async function processAccessibilityImageGenerationJob(
       metadata: {
         model: result.model,
         quality: result.quality,
+        outputFormat: result.outputFormat,
+        outputCompression: result.outputCompression,
         promptVersion: result.promptVersion,
         placementPlan: buildPlacementPlanAuditMetadata(result.placementPlan),
         placementMask: buildPlacementMaskAuditMetadata(result.placementMask),
@@ -492,6 +504,8 @@ export async function processAccessibilityImageGenerationJob(
         errorMessage,
         model: getImageGenerationModel(),
         quality: getImageGenerationQuality(),
+        outputFormat: IMAGE_OUTPUT_FORMAT,
+        outputCompression: getImageOutputCompression(),
         promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
         placementPlan: buildPlacementPlanAuditMetadata(placementPlan),
         durationMs: Date.now() - startedAt,
