@@ -2,8 +2,11 @@ import { prisma } from "lib/prisma";
 import { getSignedDownloadUrlFromS3Url, uploadStreamToS3 } from "lib/s3";
 import { getOpenAIClient } from "lib/openai";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
+import { MODIFICATION_CODES } from "@/backend/eligibility/types";
 import {
+  ACCESSIBILITY_VISUAL_PROMPT_VERSION,
   buildAccessibilityVisualEditPrompt,
+  detectSourceImageType,
   generateAccessibilityVisual,
   processAccessibilityImageGenerationJob,
   buildAccessibilityRenditionS3Key,
@@ -49,9 +52,27 @@ const mockedGetOpenAIClient = getOpenAIClient as jest.Mock;
 const mockedLogAuditEventNonBlocking = logAuditEventNonBlocking as jest.Mock;
 
 describe("buildAccessibilityVisualEditPrompt", () => {
-  it("describes the requested modifications by label", () => {
+  it.each(Object.values(MODIFICATION_CODES))("matches the placement prompt snapshot for %s", (code) => {
+    expect(buildAccessibilityVisualEditPrompt([code])).toMatchSnapshot();
+  });
+
+  it("numbers each requested modification with its own placement rules", () => {
     const prompt = buildAccessibilityVisualEditPrompt(["GRAB_BARS", "WALK_IN_SHOWER"]);
-    expect(prompt).toContain("Grab Bars, Walk-In Shower");
+    expect(prompt).toContain("1. Grab Bars");
+    expect(prompt).toContain("2. Walk-In Shower");
+    expect(prompt).toContain("33–36 inches");
+    expect(prompt).toContain("Never place bars on vanities");
+  });
+
+  it("restricts the edit to the listed items", () => {
+    const prompt = buildAccessibilityVisualEditPrompt(["HANDRAILS"]);
+    expect(prompt).toContain("Add ONLY the items listed above");
+    expect(prompt).toContain("Keep every other surface");
+  });
+
+  it("does not repeat a duplicated code", () => {
+    const prompt = buildAccessibilityVisualEditPrompt(["GRAB_BARS", "GRAB_BARS"]);
+    expect(prompt.match(/Grab Bars/g)).toHaveLength(1);
   });
 
   it("falls back to a generic description when no codes are given", () => {
@@ -62,6 +83,26 @@ describe("buildAccessibilityVisualEditPrompt", () => {
   it("humanizes unknown codes", () => {
     const prompt = buildAccessibilityVisualEditPrompt(["CUSTOM_RAMP"]);
     expect(prompt).toContain("CUSTOM RAMP");
+  });
+});
+
+describe("detectSourceImageType", () => {
+  it("detects JPEG", () => {
+    expect(detectSourceImageType(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))).toEqual({
+      mimeType: "image/jpeg",
+      extension: "jpg",
+    });
+  });
+
+  it("detects WebP", () => {
+    const webp = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
+    expect(detectSourceImageType(webp)).toEqual({ mimeType: "image/webp", extension: "webp" });
+  });
+
+  it("detects PNG and falls back to PNG for unknown bytes", () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect(detectSourceImageType(png).mimeType).toBe("image/png");
+    expect(detectSourceImageType(Buffer.from("unknown")).mimeType).toBe("image/png");
   });
 });
 
@@ -121,7 +162,28 @@ describe("generateAccessibilityVisual", () => {
     // (500/1e6)*5 + (200/1e6)*10 + (1000/1e6)*40 = 0.0025 + 0.002 + 0.04 = 0.0445
     expect(result.costUsd).toBeCloseTo(0.0445, 6);
     expect(result.model).toBe("gpt-image-1");
+    expect(result.promptVersion).toBe(ACCESSIBILITY_VISUAL_PROMPT_VERSION);
     expect(result.s3Url).toContain("accessibility-renditions");
+  });
+
+  it("requests an auto-sized edit and sends JPEG sources with the JPEG type", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00]).buffer,
+    }) as unknown as typeof fetch;
+    mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }] });
+
+    await generateAccessibilityVisual(
+      { id: "photo-1", projectId: "project-1", url: "https://example.com/original.jpg" },
+      ["GRAB_BARS"]
+    );
+
+    expect(mockEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        size: "auto",
+        image: expect.objectContaining({ name: "photo-1.jpg", options: { type: "image/jpeg" } }),
+      })
+    );
   });
 
   it("signs the source URL when it points at S3", async () => {
@@ -217,7 +279,11 @@ describe("processAccessibilityImageGenerationJob", () => {
         category: "AI_GENERATION",
         outcome: "SUCCESS",
         resourceId: "photo-1",
-        metadata: expect.objectContaining({ outputSource: "LIVE", isFallback: false }),
+        metadata: expect.objectContaining({
+          outputSource: "LIVE",
+          isFallback: false,
+          promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
+        }),
       })
     );
   });

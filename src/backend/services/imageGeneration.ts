@@ -16,6 +16,7 @@ import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { prisma } from "lib/prisma";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
+import { getModificationPlacementRule } from "@/backend/services/imageModificationPlacement";
 import type { ModificationCode } from "@/backend/eligibility/types";
 import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
@@ -88,6 +89,7 @@ export interface AccessibilityVisualGenerationResult {
   s3Key: string;
   costUsd: number;
   model: string;
+  promptVersion: number;
 }
 
 interface GptImageUsage {
@@ -96,12 +98,72 @@ interface GptImageUsage {
   input_tokens_details?: { text_tokens?: number; image_tokens?: number };
 }
 
-export function buildAccessibilityVisualEditPrompt(modificationCodes: string[] = []): string {
-  const modifications = modificationCodes.length
-    ? modificationCodes.map(getModificationLabel).join(", ")
-    : "general accessibility improvements";
+// Bump whenever buildAccessibilityVisualEditPrompt's wording changes, so the
+// audit trail records which prompt produced each rendition. v1 was the
+// original label-only prompt.
+export const ACCESSIBILITY_VISUAL_PROMPT_VERSION = 2 as const;
 
-  return `Edit this photo of a home to show the following accessibility modification(s) installed, in a photorealistic style consistent with the room's existing materials and lighting: ${modifications}. Keep the rest of the room unchanged.`;
+function formatPlacementSection(code: string, index: number): string {
+  const label = getModificationLabel(code);
+  const rule = getModificationPlacementRule(code);
+
+  if (!rule) {
+    return `${index + 1}. ${label}\n   - Install it only where it would realistically be installed in this room.`;
+  }
+
+  return [
+    `${index + 1}. ${label}`,
+    `   - Quantity: ${rule.quantity}`,
+    `   - Placement: ${rule.placement}`,
+    `   - Mounting: ${rule.mounting}`,
+    `   - Size: ${rule.scale}`,
+    ...rule.never.map((line) => `   - ${line}`),
+  ].join("\n");
+}
+
+export function buildAccessibilityVisualEditPrompt(modificationCodes: string[] = []): string {
+  const codes = [...new Set(modificationCodes)];
+  const items = codes.length
+    ? codes.map(formatPlacementSection).join("\n\n")
+    : "1. general accessibility improvements\n   - Install them only where they would realistically be installed in this room.";
+
+  return [
+    "Edit this photo of a home to show the accessibility modification(s) below installed, in a photorealistic style that matches the room's existing materials, lighting and camera angle.",
+    "",
+    "Add ONLY these items:",
+    "",
+    items,
+    "",
+    "Strict rules:",
+    "- Add ONLY the items listed above. Do not add any other fixtures, furniture, decor or accessibility equipment.",
+    "- Keep every other surface, wall, floor, fixture and object exactly as it appears in the original photo.",
+    "- Keep the same framing, perspective and room layout.",
+    "- If an item has no realistic location visible in this photo, leave that part of the photo unchanged rather than inventing a location.",
+  ].join("\n");
+}
+
+type SupportedSourceImageType = "image/png" | "image/jpeg" | "image/webp";
+
+/**
+ * Sniffs the image type from magic bytes. Uploads are restricted to
+ * JPEG/PNG/WebP (see /api/upload), but the stored object's Content-Type
+ * isn't reliable, so read the bytes instead. Falls back to PNG.
+ */
+export function detectSourceImageType(buffer: Buffer): {
+  mimeType: SupportedSourceImageType;
+  extension: string;
+} {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return { mimeType: "image/jpeg", extension: "jpg" };
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString("ascii", 0, 4) === "RIFF" &&
+    buffer.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return { mimeType: "image/webp", extension: "webp" };
+  }
+  return { mimeType: "image/png", extension: "png" };
 }
 
 function computeGenerationCostUsd(usage: GptImageUsage | undefined): number {
@@ -150,7 +212,10 @@ export async function generateAccessibilityVisual(
   }
 
   const sourceBuffer = Buffer.from(await sourceResponse.arrayBuffer());
-  const sourceFile = await toFile(sourceBuffer, `${photo.id}.png`, { type: "image/png" });
+  const sourceType = detectSourceImageType(sourceBuffer);
+  const sourceFile = await toFile(sourceBuffer, `${photo.id}.${sourceType.extension}`, {
+    type: sourceType.mimeType,
+  });
 
   const client = getOpenAIClient();
   const prompt = buildAccessibilityVisualEditPrompt(modificationCodes);
@@ -159,7 +224,9 @@ export async function generateAccessibilityVisual(
     model: GPT_IMAGE_MODEL,
     image: sourceFile,
     prompt,
-    size: "1024x1024",
+    // "auto" lets the model pick the output aspect ratio closest to the
+    // source photo instead of cropping/squashing everything into a square.
+    size: "auto",
     quality: "medium",
   });
 
@@ -177,6 +244,7 @@ export async function generateAccessibilityVisual(
     s3Key,
     costUsd: computeGenerationCostUsd(editResponse.usage as GptImageUsage | undefined),
     model: GPT_IMAGE_MODEL,
+    promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
   };
 }
 
@@ -255,6 +323,7 @@ export async function processAccessibilityImageGenerationJob(
       description: "Accessibility visual rendition generated successfully",
       metadata: {
         model: result.model,
+        promptVersion: result.promptVersion,
         costUsd: result.costUsd,
         durationMs: Date.now() - startedAt,
         s3Key: result.s3Key,
@@ -284,6 +353,7 @@ export async function processAccessibilityImageGenerationJob(
       description: "Accessibility visual rendition generation failed; retaining existing placeholder",
       metadata: {
         errorMessage,
+        promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
         durationMs: Date.now() - startedAt,
         outputSource: "NONE",
         isFallback: false,
