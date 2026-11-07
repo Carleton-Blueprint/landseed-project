@@ -148,6 +148,7 @@ describe("buildPlacementPlanAuditMetadata", () => {
       model: "gpt-4o-mini",
       promptVersion: 1,
       usage: null,
+      costUsd: 0,
     });
     expect(metadata).toEqual(expect.objectContaining({ status: "READY", applied: false }));
   });
@@ -311,6 +312,47 @@ describe("generateAccessibilityVisual", () => {
     );
     expect(result.placementPlan.status).toBe("READY");
     expect(onPlacementPlan).toHaveBeenCalledWith(result.placementPlan);
+  });
+
+  it("adds the planner's cost to the edit's cost and reports both shares", async () => {
+    mockChatCreate.mockResolvedValue({
+      choices: [{ message: { content: plannerResponse } }],
+      usage: { prompt_tokens: 10_000, completion_tokens: 1_000 },
+    });
+    mockEdit.mockResolvedValue({
+      data: [{ b64_json: Buffer.from("x").toString("base64") }],
+      usage: { output_tokens: 1000, input_tokens_details: { text_tokens: 500, image_tokens: 200 } },
+    });
+
+    const result = await generateAccessibilityVisual(
+      { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png" },
+      ["GRAB_BARS"]
+    );
+
+    // planning (gpt-4o-mini) 0.0021 + editing (gpt-image-2.6-sunburst) 0.0341
+    expect(result.costBreakdownUsd).toEqual({ planning: 0.0021, editing: 0.0341 });
+    expect(result.costUsd).toBeCloseTo(0.0362, 6);
+  });
+
+  it("reports total cost as unknown when the planner model is unpriced", async () => {
+    process.env.IMAGE_PLACEMENT_AI_MODEL = "mystery-vision-model";
+    mockChatCreate.mockResolvedValue({
+      choices: [{ message: { content: plannerResponse } }],
+      usage: { prompt_tokens: 10_000, completion_tokens: 1_000 },
+    });
+    mockEdit.mockResolvedValue({ data: [{ b64_json: Buffer.from("x").toString("base64") }], usage: { output_tokens: 1000 } });
+
+    try {
+      const result = await generateAccessibilityVisual(
+        { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png" },
+        ["GRAB_BARS"]
+      );
+
+      expect(result.costBreakdownUsd).toEqual({ planning: null, editing: 0.03 });
+      expect(result.costUsd).toBeNull();
+    } finally {
+      delete process.env.IMAGE_PLACEMENT_AI_MODEL;
+    }
   });
 
   it("sends a mask built from the plan's boxes when IMAGE_EDIT_MASK_ENABLED=true and the photo is readable", async () => {
@@ -496,8 +538,10 @@ describe("processAccessibilityImageGenerationJob", () => {
             applied: true,
             rawResponse: plannerResponse,
             usage: { promptTokens: 900, completionTokens: 120 },
+            costUsd: 0.0002,
             plan: expect.objectContaining({ visibleElements: ["toilet"] }),
           }),
+          costBreakdownUsd: { planning: 0.0002, editing: 0 },
           // IMAGE_EDIT_MASK_ENABLED is off by default.
           placementMask: { applied: false, reason: "DISABLED" },
         }),

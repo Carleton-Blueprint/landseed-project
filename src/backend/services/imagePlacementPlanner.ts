@@ -12,7 +12,11 @@
  * imageModificationPlacement.ts.
  */
 import { getOpenAIClient } from "lib/openai";
-import { PHOTO_ANALYSIS_MODEL_NAME } from "@/backend/services/photoAnalysisModelConfig";
+import {
+  computePlacementPlannerCostUsd,
+  getPlacementPlannerModel,
+  type PlannerUsage,
+} from "@/backend/services/imagePlacementModelConfig";
 import { getModificationPlacementRule } from "@/backend/services/imageModificationPlacement";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
 import type { ModificationCode } from "@/backend/eligibility/types";
@@ -44,27 +48,19 @@ export interface PlacementPlan {
   placements: ModificationPlacementPlanEntry[];
 }
 
-export interface PlacementPlanUsage {
-  promptTokens: number;
-  completionTokens: number;
+export type PlacementPlanUsage = PlannerUsage;
+
+interface PlacementPlanCommon {
+  model: string;
+  promptVersion: number;
+  usage: PlacementPlanUsage | null;
+  /** Null when the planner model has no known price (see imagePlacementModelConfig.ts). */
+  costUsd: number | null;
 }
 
 export type PlacementPlanResult =
-  | {
-      status: "READY";
-      plan: PlacementPlan;
-      rawResponse: string;
-      model: string;
-      promptVersion: number;
-      usage: PlacementPlanUsage | null;
-    }
-  | {
-      status: "FAILED";
-      error: string;
-      rawResponse: string | null;
-      model: string;
-      promptVersion: number;
-    };
+  | (PlacementPlanCommon & { status: "READY"; plan: PlacementPlan; rawResponse: string })
+  | (PlacementPlanCommon & { status: "FAILED"; error: string; rawResponse: string | null });
 
 function getModificationLabel(code: string): string {
   return MODIFICATION_COST_CATALOG[code as ModificationCode]?.label ?? code.replace(/_/g, " ");
@@ -178,15 +174,26 @@ export async function planModificationPlacement(
   source: { buffer: Buffer; mimeType: string },
   modificationCodes: string[]
 ): Promise<PlacementPlanResult> {
-  const model = PHOTO_ANALYSIS_MODEL_NAME;
-  const base = { model, promptVersion: PLACEMENT_PLANNER_PROMPT_VERSION };
+  const model = getPlacementPlannerModel();
   const codes = [...new Set(modificationCodes)];
+  let rawResponse: string | null = null;
+  let usage: PlacementPlanUsage | null = null;
+
+  // Every return goes through here so a failure after a billed response
+  // (e.g. unparseable JSON) still reports its tokens and cost.
+  const failed = (error: string): PlacementPlanResult => ({
+    status: "FAILED",
+    error,
+    rawResponse,
+    model,
+    promptVersion: PLACEMENT_PLANNER_PROMPT_VERSION,
+    usage,
+    costUsd: computePlacementPlannerCostUsd(model, usage),
+  });
 
   if (codes.length === 0) {
-    return { ...base, status: "FAILED", error: "No modification codes to plan", rawResponse: null };
+    return failed("No modification codes to plan");
   }
-
-  let rawResponse: string | null = null;
 
   try {
     const client = getOpenAIClient();
@@ -210,41 +217,36 @@ export async function planModificationPlacement(
       { timeout: PLANNER_TIMEOUT_MS }
     );
 
+    usage = response.usage
+      ? { promptTokens: response.usage.prompt_tokens, completionTokens: response.usage.completion_tokens }
+      : null;
     rawResponse = response.choices?.[0]?.message?.content ?? null;
     if (!rawResponse) {
-      return { ...base, status: "FAILED", error: "OpenAI returned no content", rawResponse };
+      return failed("OpenAI returned no content");
     }
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(rawResponse);
     } catch {
-      return { ...base, status: "FAILED", error: "Failed to parse placement plan as JSON", rawResponse };
+      return failed("Failed to parse placement plan as JSON");
     }
 
     const plan = normalizePlacementPlan(parsed, codes);
     if (!plan) {
-      return { ...base, status: "FAILED", error: "Placement plan had no usable entries", rawResponse };
+      return failed("Placement plan had no usable entries");
     }
 
     return {
-      ...base,
       status: "READY",
       plan,
       rawResponse,
-      usage: response.usage
-        ? {
-            promptTokens: response.usage.prompt_tokens,
-            completionTokens: response.usage.completion_tokens,
-          }
-        : null,
+      model,
+      promptVersion: PLACEMENT_PLANNER_PROMPT_VERSION,
+      usage,
+      costUsd: computePlacementPlannerCostUsd(model, usage),
     };
   } catch (error) {
-    return {
-      ...base,
-      status: "FAILED",
-      error: error instanceof Error ? error.message : "Unknown placement planning error",
-      rawResponse,
-    };
+    return failed(error instanceof Error ? error.message : "Unknown placement planning error");
   }
 }

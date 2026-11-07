@@ -35,6 +35,7 @@ import {
 import {
   computeImageGenerationCostUsd,
   getImageGenerationModel,
+  roundCostUsd,
   type ImageEditUsage,
 } from "@/backend/services/imageGenerationModelConfig";
 import type { ModificationCode } from "@/backend/eligibility/types";
@@ -99,8 +100,13 @@ export const ACCESSIBILITY_RENDITION_S3_PREFIX = "accessibility-renditions" as c
 export interface AccessibilityVisualGenerationResult {
   s3Url: string;
   s3Key: string;
-  /** Null when the model has no known price (see imageGenerationModelConfig.ts). */
+  /**
+   * Planning + editing. Null when either model has no known price (see
+   * imageGenerationModelConfig.ts / imagePlacementModelConfig.ts), so an
+   * unpriced model reads as "unknown" rather than an undercount.
+   */
   costUsd: number | null;
+  costBreakdownUsd: { planning: number | null; editing: number | null };
   model: string;
   promptVersion: number;
   placementPlan: PlacementPlanResult;
@@ -228,6 +234,7 @@ export function buildPlacementPlanAuditMetadata(
         plan: result.plan,
         rawResponse: result.rawResponse,
         usage: result.usage,
+        costUsd: result.costUsd,
       }
     : {
         status: result.status,
@@ -236,6 +243,8 @@ export function buildPlacementPlanAuditMetadata(
         promptVersion: result.promptVersion,
         error: result.error,
         rawResponse: result.rawResponse,
+        usage: result.usage,
+        costUsd: result.costUsd,
       };
 }
 
@@ -261,6 +270,16 @@ export function detectSourceImageType(buffer: Buffer): {
     return { mimeType: "image/webp", extension: "webp" };
   }
   return { mimeType: "image/png", extension: "png" };
+}
+
+function buildCostSummary(
+  planning: number | null,
+  editing: number | null
+): Pick<AccessibilityVisualGenerationResult, "costUsd" | "costBreakdownUsd"> {
+  return {
+    costUsd: planning === null || editing === null ? null : roundCostUsd(planning + editing),
+    costBreakdownUsd: { planning, editing },
+  };
 }
 
 export function buildAccessibilityRenditionS3Key(
@@ -344,7 +363,10 @@ export async function generateAccessibilityVisual(
   return {
     s3Url,
     s3Key,
-    costUsd: computeImageGenerationCostUsd(model, editResponse.usage as ImageEditUsage | undefined),
+    ...buildCostSummary(
+      placementPlan.costUsd,
+      computeImageGenerationCostUsd(model, editResponse.usage as ImageEditUsage | undefined)
+    ),
     model,
     promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
     placementPlan,
@@ -433,6 +455,7 @@ export async function processAccessibilityImageGenerationJob(
         placementPlan: buildPlacementPlanAuditMetadata(result.placementPlan),
         placementMask: buildPlacementMaskAuditMetadata(result.placementMask),
         costUsd: result.costUsd,
+        costBreakdownUsd: result.costBreakdownUsd,
         durationMs: Date.now() - startedAt,
         s3Key: result.s3Key,
         outputSource: "LIVE",
