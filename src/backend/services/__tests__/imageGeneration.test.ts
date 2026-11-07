@@ -5,6 +5,7 @@ import { getOpenAIClient } from "lib/openai";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { MODIFICATION_CODES } from "@/backend/eligibility/types";
 import type { PlacementPlan } from "../imagePlacementPlanner";
+import { DEFAULT_IMAGE_GENERATION_MODEL } from "../imageGenerationModelConfig";
 import {
   ACCESSIBILITY_VISUAL_PROMPT_VERSION,
   buildAccessibilityVisualEditPrompt,
@@ -235,7 +236,7 @@ describe("generateAccessibilityVisual", () => {
     );
 
     expect(mockEdit).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-image-1", prompt: expect.stringContaining("Grab Bars") })
+      expect.objectContaining({ model: DEFAULT_IMAGE_GENERATION_MODEL, prompt: expect.stringContaining("Grab Bars") })
     );
     expect(mockedUploadStreamToS3).toHaveBeenCalledWith(
       expect.any(Buffer),
@@ -243,11 +244,32 @@ describe("generateAccessibilityVisual", () => {
       "image/png",
       expect.any(Number)
     );
-    // (500/1e6)*5 + (200/1e6)*10 + (1000/1e6)*40 = 0.0025 + 0.002 + 0.04 = 0.0445
-    expect(result.costUsd).toBeCloseTo(0.0445, 6);
-    expect(result.model).toBe("gpt-image-1");
+    // gpt-image-2.6-sunburst: (500/1e6)*5 + (200/1e6)*8 + (1000/1e6)*30 = 0.0341
+    expect(result.costUsd).toBeCloseTo(0.0341, 6);
+    expect(result.model).toBe(DEFAULT_IMAGE_GENERATION_MODEL);
     expect(result.promptVersion).toBe(ACCESSIBILITY_VISUAL_PROMPT_VERSION);
     expect(result.s3Url).toContain("accessibility-renditions");
+  });
+
+  it("uses IMAGE_GENERATION_MODEL and reports null cost for an unpriced model", async () => {
+    process.env.IMAGE_GENERATION_MODEL = "some-future-image-model";
+    mockEdit.mockResolvedValue({
+      data: [{ b64_json: Buffer.from("x").toString("base64") }],
+      usage: { output_tokens: 1000 },
+    });
+
+    try {
+      const result = await generateAccessibilityVisual(
+        { id: "photo-1", projectId: "project-1", url: "https://example.com/original.png" },
+        ["GRAB_BARS"]
+      );
+
+      expect(mockEdit).toHaveBeenCalledWith(expect.objectContaining({ model: "some-future-image-model" }));
+      expect(result.model).toBe("some-future-image-model");
+      expect(result.costUsd).toBeNull();
+    } finally {
+      delete process.env.IMAGE_GENERATION_MODEL;
+    }
   });
 
   it("requests an auto-sized edit and sends JPEG sources with the JPEG type", async () => {

@@ -32,6 +32,11 @@ import {
   normalizeImageOrientation,
   type PlacementMaskResult,
 } from "@/backend/services/imagePlacementMask";
+import {
+  computeImageGenerationCostUsd,
+  getImageGenerationModel,
+  type ImageEditUsage,
+} from "@/backend/services/imageGenerationModelConfig";
 import type { ModificationCode } from "@/backend/eligibility/types";
 import type { AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
 
@@ -86,33 +91,20 @@ export async function generateMockAccessibilityVisual(
 }
 
 /* ------------------------------------------------------------------ */
-/* Live generation (OpenAI gpt-image-1)                                */
+/* Live generation (OpenAI image edit)                                 */
 /* ------------------------------------------------------------------ */
 
 export const ACCESSIBILITY_RENDITION_S3_PREFIX = "accessibility-renditions" as const;
-export const GPT_IMAGE_MODEL = "gpt-image-1" as const;
-
-// Published gpt-image-1 per-token pricing, in USD per 1,000,000 tokens.
-const GPT_IMAGE_PRICE_PER_MILLION_TOKENS_USD = {
-  textInput: 5,
-  imageInput: 10,
-  imageOutput: 40,
-};
 
 export interface AccessibilityVisualGenerationResult {
   s3Url: string;
   s3Key: string;
-  costUsd: number;
+  /** Null when the model has no known price (see imageGenerationModelConfig.ts). */
+  costUsd: number | null;
   model: string;
   promptVersion: number;
   placementPlan: PlacementPlanResult;
   placementMask: PlacementMaskResult;
-}
-
-interface GptImageUsage {
-  input_tokens?: number;
-  output_tokens?: number;
-  input_tokens_details?: { text_tokens?: number; image_tokens?: number };
 }
 
 // Bump whenever buildAccessibilityVisualEditPrompt's wording changes, so the
@@ -271,23 +263,6 @@ export function detectSourceImageType(buffer: Buffer): {
   return { mimeType: "image/png", extension: "png" };
 }
 
-function computeGenerationCostUsd(usage: GptImageUsage | undefined): number {
-  if (!usage) {
-    return 0;
-  }
-
-  const textTokens = usage.input_tokens_details?.text_tokens ?? 0;
-  const imageInputTokens = usage.input_tokens_details?.image_tokens ?? 0;
-  const outputTokens = usage.output_tokens ?? 0;
-
-  const cost =
-    (textTokens / 1_000_000) * GPT_IMAGE_PRICE_PER_MILLION_TOKENS_USD.textInput +
-    (imageInputTokens / 1_000_000) * GPT_IMAGE_PRICE_PER_MILLION_TOKENS_USD.imageInput +
-    (outputTokens / 1_000_000) * GPT_IMAGE_PRICE_PER_MILLION_TOKENS_USD.imageOutput;
-
-  return Math.round(cost * 10_000) / 10_000;
-}
-
 export function buildAccessibilityRenditionS3Key(
   projectId: string,
   photoId: string
@@ -296,7 +271,7 @@ export function buildAccessibilityRenditionS3Key(
 }
 
 /**
- * Calls the OpenAI gpt-image-1 edit endpoint with the client's original photo and
+ * Calls the OpenAI image edit endpoint (model from IMAGE_GENERATION_MODEL) with the client's original photo and
  * the identified modification codes, then stores the resulting image in S3.
  * Throws on any failure (network, API, or upload) — callers are responsible for
  * catching this, preserving the existing placeholder, and logging the failure.
@@ -341,10 +316,11 @@ export async function generateAccessibilityVisual(
     : { applied: false, reason: "DISABLED" };
 
   const client = getOpenAIClient();
+  const model = getImageGenerationModel();
   const prompt = buildAccessibilityVisualEditPrompt(modificationCodes, plan);
 
   const editResponse = await client.images.edit({
-    model: GPT_IMAGE_MODEL,
+    model,
     image: sourceFile,
     ...(placementMask.applied
       ? { mask: await toFile(placementMask.mask, `${photo.id}-mask.png`, { type: "image/png" }) }
@@ -368,8 +344,8 @@ export async function generateAccessibilityVisual(
   return {
     s3Url,
     s3Key,
-    costUsd: computeGenerationCostUsd(editResponse.usage as GptImageUsage | undefined),
-    model: GPT_IMAGE_MODEL,
+    costUsd: computeImageGenerationCostUsd(model, editResponse.usage as ImageEditUsage | undefined),
+    model,
     promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
     placementPlan,
     placementMask,
@@ -485,6 +461,7 @@ export async function processAccessibilityImageGenerationJob(
       description: "Accessibility visual rendition generation failed; retaining existing placeholder",
       metadata: {
         errorMessage,
+        model: getImageGenerationModel(),
         promptVersion: ACCESSIBILITY_VISUAL_PROMPT_VERSION,
         placementPlan: buildPlacementPlanAuditMetadata(placementPlan),
         durationMs: Date.now() - startedAt,
