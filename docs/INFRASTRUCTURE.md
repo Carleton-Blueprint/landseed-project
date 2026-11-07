@@ -17,7 +17,7 @@ workers) are shared infrastructure that both environments talk to.
 | Production URL | `https://landseed-project-production.up.railway.app` (default Railway URL — custom domain pending, §10) |
 | Neon project | `landseed` (ID `cold-star-48934454`), owned by LandSeed's Neon org, region `us-east-2` (Ohio), **Free plan**. Branches: `production` (Railway web app + worker) and `dev` (local development / tests). `DATABASE_URL` = pooled string, `DIRECT_URL` = direct string (Prisma migrations). Replaced the stopgap project on a personal account as of 2026-10-04. |
 | Railway project | `landseed-inplace-production`, in LandSeed's Railway workspace. Hosts everything in production — the old Vercel project/team was deleted. |
-| Railway services | `landseed-project` (Next.js web app, `npm run build` / `npm start`), `worker` (runs `npm run worker:all`), `clamav` (private only), `Redis` (public TCP proxy) |
+| Railway services | `landseed-project` (Next.js web app, `npm run build` / `npm start`), `worker` (runs `npm run worker:all`), `clamav` (private only), `Redis` (private; RDB + AOF persistence on a volume) |
 | Cloudflare R2 | LandSeed's Cloudflare account, buckets `landseed-prod` (Railway) and `landseed-dev` (local development) |
 
 ## 1. Topology
@@ -125,7 +125,7 @@ and Redis) so staging traffic never touches production data.
 | Service | Purpose | Notes |
 | --- | --- | --- |
 | Postgres | primary datastore (Prisma) | connection string in `DATABASE_URL` |
-| Redis (Railway) | BullMQ queues and login rate limiting | must use the **public** Railway TCP proxy host, not `*.railway.internal`, so Netlify can reach it |
+| Redis (Railway) | BullMQ queues and login rate limiting | production uses the internal `*.railway.internal` host; staging (Netlify) needs the **public** TCP proxy host — see [Redis reachability](#redis-reachability) |
 | R2 / S3 (Cloudflare) | photo and document storage | bucket plus access keys |
 | Resend | transactional email | used by the email worker, not the web tier |
 | OpenAI | photo analysis and image generation | used by the AI worker |
@@ -135,11 +135,21 @@ and Redis) so staging traffic never touches production data.
 ### Redis reachability
 
 Redis is the hand-off point between the web tier and the workers. Both sides
-must reach the same Redis instance over its public endpoint. In Railway, enable
-the Redis service TCP Proxy and use `REDIS_PUBLIC_URL` (host ends in
-`.proxy.rlwy.net` on a high port, not `6379`). The internal
-`redis.railway.internal` host resolves only inside Railway and will fail from
-Netlify with `ENOTFOUND`.
+must reach the same Redis instance.
+
+- **Production (Railway):** the web app and worker both run inside Railway, so
+  `REDIS_URL` uses the internal `redis.railway.internal:6379` host and no TCP
+  proxy is needed.
+- **Staging (Netlify):** the internal host resolves only inside Railway and
+  fails from Netlify with `ENOTFOUND`. Enable the Redis service TCP Proxy and
+  use `REDIS_PUBLIC_URL` (host ends in `.proxy.rlwy.net` on a high port, not
+  `6379`).
+
+Production Redis must persist to disk, because estimate generation is queued
+as a delayed BullMQ job (up to 24h, `ESTIMATE_GENERATION_DELAY_MINUTES`) and
+a restart without persistence drops it. The Redis service start command
+includes `--save 60 1 --appendonly yes --dir $RAILWAY_VOLUME_MOUNT_PATH`,
+with a volume attached.
 
 ### ClamAV (virus scanning)
 
@@ -173,7 +183,7 @@ tier and the worker service.
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection (per environment) |
-| `REDIS_URL` | Redis public proxy URL (per environment) |
+| `REDIS_URL` | Redis URL per environment: internal host on Railway, public proxy URL on Netlify |
 | `NEXTAUTH_SECRET` | Auth.js session signing secret |
 | `AUTH_TRUST_HOST` | `true` on Netlify only; not needed on Railway |
 | `AUTH_URL`, `NEXTAUTH_URL` | full site URL including `https://`; required on both hosts |
@@ -187,6 +197,7 @@ tier and the worker service.
 | Variable | Effect |
 | --- | --- |
 | `EMAIL_PROVIDER` | defaults to `resend`; leave unset unless changing providers |
+| `ESTIMATE_GENERATION_DELAY_MINUTES` | delay before the preliminary estimate runs after intake, so admins can override first; default 15, max 1440 (production uses 1440). Set on the worker too |
 | `GRANT_DISCOVERY_AI_MODEL` | select the grant-discovery model |
 | `PHOTO_ANALYSIS_AI_MODEL` | select the photo-analysis model |
 | `PRICING_DEBUG`, `PHOTO_ANALYSIS_DEBUG`, `GRANT_DISCOVERY_DEBUG` | debug logging; leave unset in production |
@@ -286,7 +297,8 @@ tasks or timers, and in production the worker is kept separate from the
 
 Independent of host, every environment needs all of the following to be true:
 
-1. Redis is reachable from the web tier and the workers over its public host.
+1. Redis is reachable from the web tier and the workers (internal host on
+   Railway, public proxy host from Netlify).
 2. The same environment's web host and worker service share identical
    `AUDIT_SIGNING_*` and `MFA_ENCRYPTION_KEY` values.
 3. Database migrations have been applied (`prisma migrate deploy`).
@@ -310,7 +322,9 @@ Production (Railway):
       the real `https://` deployment URL on both `landseed-project` and
       `worker` (see [section 2](#2-web-application-hosting))
 - [ ] Public domain's target port matches the port Next.js listens on
-- [ ] `REDIS_URL` points at the production public Redis host
+- [ ] `REDIS_URL` points at the production Redis internal host, on both
+      `landseed-project` and `worker`
+- [ ] Redis start command has `--save` and `--appendonly yes` with a volume
 - [ ] Migrations applied to the production database, after a snapshot
 - [ ] Worker service running `worker:all` against production Redis and Postgres
 - [ ] Crypto keys (`AUDIT_SIGNING_*`, `MFA_ENCRYPTION_KEY`) match between the
@@ -366,7 +380,8 @@ accounts and credentials inventory) rather than get forgotten.
 
 - **Railway billing.** The web app, worker, ClamAV and Redis all live in the
   `landseed-inplace-production` project in LandSeed's Railway workspace.
-  Public networking (needed for Redis's TCP proxy and the web app's domain)
+  Public networking (needed for the web app's domain, and Redis's TCP proxy if
+  staging uses it)
   requires a paid plan (Hobby, ~$5/mo base plus usage) — confirm whose
   payment method is on file. At handoff, document actual plan/tier and
   monthly cost here, alongside the equivalent for Neon, R2, Resend, OpenAI,

@@ -314,24 +314,9 @@ describe('Eligibility Service', () => {
       await evaluateProjectEligibility(baseProject);
 
       const input = createEligibilityAssessmentSnapshot.mock.calls[0][0] as Record<string, unknown>;
-      expect(input).toEqual(expect.objectContaining({ source: 'AUTOMATIC', automaticRunStartedAt: expect.any(Date) }));
+      expect(input).toEqual(expect.objectContaining({ source: 'AUTOMATIC' }));
       expect(input).not.toHaveProperty('adminAction');
       expect(input).not.toHaveProperty('createdByUserId');
-    });
-
-    it('captures automaticRunStartedAt before grant discovery runs', async () => {
-      let discoveryCalledAt = 0;
-      discoverAndEvaluateGrants.mockImplementation(async () => {
-        discoveryCalledAt = Date.now();
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        return baseEvaluation();
-      });
-      createEligibilityAssessmentSnapshot.mockResolvedValue({ id: 'assessment-1', createdAt: new Date() });
-
-      await evaluateProjectEligibility(baseProject);
-
-      const input = createEligibilityAssessmentSnapshot.mock.calls[0][0] as { automaticRunStartedAt: Date };
-      expect(input.automaticRunStartedAt.getTime()).toBeLessThanOrEqual(discoveryCalledAt);
     });
 
     it('returns a skipped result and runs no side effects when the repository discards an automatic write', async () => {
@@ -343,7 +328,7 @@ describe('Eligibility Service', () => {
       discoverAndEvaluateGrants.mockResolvedValue(baseEvaluation());
       createEligibilityAssessmentSnapshot.mockResolvedValue({
         skipped: true,
-        reason: 'ADMIN_ASSESSMENT_SINCE_RUN_STARTED',
+        reason: 'ADMIN_ASSESSMENT_EXISTS',
       });
       const { generateQuote } = require('@/backend/services/quote') as { generateQuote: jest.Mock };
       const { produceManualReviewFlagJob } = require('../manualReviewProducer') as {
@@ -361,7 +346,7 @@ describe('Eligibility Service', () => {
       expect(result).toEqual({
         skipped: true,
         projectId: 'proj-1',
-        reason: 'ADMIN_ASSESSMENT_SINCE_RUN_STARTED',
+        reason: 'ADMIN_ASSESSMENT_EXISTS',
       });
       expect(logAuditEventNonBlocking).not.toHaveBeenCalled();
       expect(produceManualReviewFlagJob).not.toHaveBeenCalled();
@@ -370,7 +355,7 @@ describe('Eligibility Service', () => {
       expect(generateAndStoreGrantDocument).not.toHaveBeenCalled();
       expect(queueAddSpy).not.toHaveBeenCalled();
       queueAddSpy.mockRestore();
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('ADMIN_ASSESSMENT_SINCE_RUN_STARTED'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('ADMIN_ASSESSMENT_EXISTS'));
       consoleLogSpy.mockRestore();
     });
 

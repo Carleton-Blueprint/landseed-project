@@ -165,7 +165,6 @@ describe("post-estimate override scenarios (real DB)", () => {
     await createEligibilityAssessmentSnapshot({
       ...snapshotFields(projectId),
       source: "AUTOMATIC",
-      automaticRunStartedAt: new Date(),
     });
   });
 

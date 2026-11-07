@@ -9,7 +9,7 @@
  * - Skips if the latest quote has a post-estimate QuoteOverride. Defensive:
  *   automatic runs can't currently fire after submission, but a new isLatest
  *   assessment would detach the override's grantId references.
- * - Skips if an ADMIN assessment exists within ELIGIBILITY_ADMIN_GRACE_HOURS.
+ * - Skips if any ADMIN assessment exists for the project (no time limit).
  * - Skips if the latest assessment is AUTOMATIC and under 30 seconds old
  *   (debounce).
  * - Non-blocking: failures logged but don't block main operation
@@ -24,34 +24,11 @@ const PROJECT_WITH_PHOTOS_INCLUDE = {
 
 const AUTOMATIC_DEBOUNCE_SECONDS = 30;
 
-export const ELIGIBILITY_ADMIN_GRACE_HOURS_ENV = 'ELIGIBILITY_ADMIN_GRACE_HOURS';
-export const DEFAULT_ELIGIBILITY_ADMIN_GRACE_HOURS = 12;
-
-function parsePositiveIntegerEnv(value: string | undefined): number | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return undefined;
-  }
-
-  return parsed;
-}
-
-export function getAdminGraceHours(): number {
-  return (
-    parsePositiveIntegerEnv(process.env[ELIGIBILITY_ADMIN_GRACE_HOURS_ENV]) ??
-    DEFAULT_ELIGIBILITY_ADMIN_GRACE_HOURS
-  );
-}
-
 export interface QueueEligibilityEvaluationOptions {
   /**
    * Admin user id when re-running after a pre-estimate modification override.
-   * Skips the grace window and debounce (the admin changed the inputs), and
-   * saves the assessment as ADMIN / PRE_ESTIMATE_OVERRIDE.
+   * Skips the admin-precedence check and debounce (the admin changed the
+   * inputs), and saves the assessment as ADMIN / PRE_ESTIMATE_OVERRIDE.
    */
   preEstimateOverrideBy?: string;
 }
@@ -79,18 +56,13 @@ async function shouldEvaluateNow(
     return { evaluate: true };
   }
 
-  const graceHours = getAdminGraceHours();
-  const recentAdminAssessment = await prisma.eligibilityAssessment.findFirst({
-    where: {
-      projectId,
-      source: 'ADMIN',
-      createdAt: { gte: new Date(Date.now() - graceHours * 60 * 60 * 1000) },
-    },
+  const adminAssessment = await prisma.eligibilityAssessment.findFirst({
+    where: { projectId, source: 'ADMIN' },
     select: { id: true },
   });
 
-  if (recentAdminAssessment) {
-    return { evaluate: false, reason: `admin assessment within the last ${graceHours}h` };
+  if (adminAssessment) {
+    return { evaluate: false, reason: 'an admin assessment exists' };
   }
 
   const lastAssessment = await prisma.eligibilityAssessment.findFirst({

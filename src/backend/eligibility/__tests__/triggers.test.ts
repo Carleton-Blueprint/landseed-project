@@ -45,7 +45,7 @@ const { evaluateProjectEligibility } = require("../service") as {
   evaluateProjectEligibility: jest.Mock<(...args: unknown[]) => Promise<undefined>>;
 };
 
-const { queueEligibilityEvaluation, getAdminGraceHours } = require("../triggers") as typeof import("../triggers");
+const { queueEligibilityEvaluation } = require("../triggers") as typeof import("../triggers");
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -53,16 +53,14 @@ type AssessmentRow = { createdAt: Date; source: "AUTOMATIC" | "ADMIN" };
 
 /**
  * Backs eligibilityAssessment.findFirst with an in-memory list, honouring the
- * two query shapes shouldEvaluateNow uses: the ADMIN-within-window lookup and
- * the isLatest lookup (last element is latest).
+ * two query shapes shouldEvaluateNow uses: the any-ADMIN lookup and the
+ * isLatest lookup (last element is latest).
  */
 function mockAssessments(rows: AssessmentRow[]) {
   prisma.eligibilityAssessment.findFirst.mockImplementation(async (args: unknown) => {
-    const where = (args as { where: { source?: string; createdAt?: { gte: Date } } }).where;
+    const where = (args as { where: { source?: string } }).where;
     if (where.source) {
-      const match = rows.find(
-        (row) => row.source === where.source && row.createdAt >= (where.createdAt?.gte ?? new Date(0))
-      );
+      const match = rows.find((row) => row.source === where.source);
       return match ? { id: "assessment-admin" } : null;
     }
     return rows.length > 0 ? rows[rows.length - 1] : null;
@@ -89,7 +87,6 @@ describe("triggers", () => {
     jest.clearAllMocks();
     consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
     consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
-    delete process.env.ELIGIBILITY_ADMIN_GRACE_HOURS;
     // Default: no prior assessment and no quote -> should evaluate
     mockAssessments([]);
     prisma.quote.findFirst.mockResolvedValue(null);
@@ -156,39 +153,27 @@ describe("triggers", () => {
       expect(evaluateProjectEligibility).toHaveBeenCalledWith(project);
     });
 
-    it("skips when an ADMIN assessment exists within the grace window", async () => {
+    it("skips when a recent ADMIN assessment exists", async () => {
       const project = buildProject();
       prisma.project.findUnique.mockResolvedValue(project);
-      mockAssessments([{ source: "ADMIN", createdAt: new Date(Date.now() - 11 * HOUR_MS) }]);
+      mockAssessments([{ source: "ADMIN", createdAt: new Date(Date.now() - HOUR_MS) }]);
 
       await queueEligibilityEvaluation(project.id);
       await flushImmediate();
 
       expect(evaluateProjectEligibility).not.toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("admin assessment within the last 12h"));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("an admin assessment exists"));
     });
 
-    it("evaluates once the ADMIN assessment is older than the grace window, with no 30s debounce", async () => {
+    it("still skips when the ADMIN assessment is days old", async () => {
       const project = buildProject();
       prisma.project.findUnique.mockResolvedValue(project);
-      mockAssessments([{ source: "ADMIN", createdAt: new Date(Date.now() - 13 * HOUR_MS) }]);
+      mockAssessments([{ source: "ADMIN", createdAt: new Date(Date.now() - 72 * HOUR_MS) }]);
 
       await queueEligibilityEvaluation(project.id);
       await flushImmediate();
 
-      expect(evaluateProjectEligibility).toHaveBeenCalledWith(project);
-    });
-
-    it("honours ELIGIBILITY_ADMIN_GRACE_HOURS", async () => {
-      process.env.ELIGIBILITY_ADMIN_GRACE_HOURS = "2";
-      const project = buildProject();
-      prisma.project.findUnique.mockResolvedValue(project);
-      mockAssessments([{ source: "ADMIN", createdAt: new Date(Date.now() - 3 * HOUR_MS) }]);
-
-      await queueEligibilityEvaluation(project.id);
-      await flushImmediate();
-
-      expect(evaluateProjectEligibility).toHaveBeenCalledWith(project);
+      expect(evaluateProjectEligibility).not.toHaveBeenCalled();
     });
 
     it("skips whenever the latest quote has a QuoteOverride, regardless of age", async () => {
@@ -215,7 +200,7 @@ describe("triggers", () => {
     });
 
     describe("pre-estimate override re-run", () => {
-      it("skips the grace window and debounce, and saves as ADMIN / PRE_ESTIMATE_OVERRIDE", async () => {
+      it("skips the admin-precedence check and debounce, and saves as ADMIN / PRE_ESTIMATE_OVERRIDE", async () => {
         const project = buildProject();
         prisma.project.findUnique.mockResolvedValue(project);
         mockAssessments([
@@ -254,21 +239,6 @@ describe("triggers", () => {
       await flushImmediate();
 
       expect(consoleWarnSpy).toHaveBeenCalled();
-    });
-  });
-
-  describe("getAdminGraceHours", () => {
-    it("defaults to 12 when unset or invalid", () => {
-      expect(getAdminGraceHours()).toBe(12);
-      process.env.ELIGIBILITY_ADMIN_GRACE_HOURS = "abc";
-      expect(getAdminGraceHours()).toBe(12);
-      process.env.ELIGIBILITY_ADMIN_GRACE_HOURS = "0";
-      expect(getAdminGraceHours()).toBe(12);
-    });
-
-    it("reads a positive integer from the env", () => {
-      process.env.ELIGIBILITY_ADMIN_GRACE_HOURS = "24";
-      expect(getAdminGraceHours()).toBe(24);
     });
   });
 });
