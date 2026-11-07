@@ -264,6 +264,12 @@ tasks or timers, and in production the worker is kept separate from the
     modification goes before the edit. Falls back to `PHOTO_ANALYSIS_AI_MODEL`
     (then `gpt-4o-mini`) when unset. Pricing lives in
     `imagePlacementModelConfig.ts`.
+  - `IMAGE_GENERATION_QUALITY`: `low`, `medium`, `high` or `auto`. Defaults
+    to `medium`; an invalid value logs a warning and uses `medium`. Cost
+    follows the billed tokens, so it stays accurate at any quality.
+  - `IMAGE_GENERATION_OUTPUT_COMPRESSION`: WebP compression for renditions,
+    an integer 0–100, default `85`. Renditions are stored as `.webp`
+    (`image/webp`). Older PNG renditions in R2 keep working as they are.
 - `IMAGE_EDIT_MASK_ENABLED`: `true` sends a mask built from the placement
   planner's boxes with each image edit. Off by default: in testing
   (2026-11-07), masks didn't keep gpt-image-2.6 edits inside the boxes and
