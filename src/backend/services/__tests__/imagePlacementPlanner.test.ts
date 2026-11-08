@@ -100,11 +100,22 @@ describe("normalizePlacementPlan", () => {
 
 describe("planModificationPlacement", () => {
   let mockCreate: jest.Mock;
+  const originalPlannerModel = process.env.IMAGE_PLACEMENT_AI_MODEL;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Pin the model so local .env values don't change the expected costs.
+    process.env.IMAGE_PLACEMENT_AI_MODEL = "gpt-6.1-terra";
     mockCreate = jest.fn();
     mockedGetOpenAIClient.mockReturnValue({ chat: { completions: { create: mockCreate } } });
+  });
+
+  afterAll(() => {
+    if (originalPlannerModel === undefined) {
+      delete process.env.IMAGE_PLACEMENT_AI_MODEL;
+    } else {
+      process.env.IMAGE_PLACEMENT_AI_MODEL = originalPlannerModel;
+    }
   });
 
   it("sends the photo as a data URL in JSON mode and returns the normalized plan", async () => {
@@ -137,9 +148,9 @@ describe("planModificationPlacement", () => {
         rawResponse,
         promptVersion: PLACEMENT_PLANNER_PROMPT_VERSION,
         usage: { promptTokens: 900, completionTokens: 120 },
-        model: "gpt-4o-mini",
-        // (900/1e6)*0.15 + (120/1e6)*0.6
-        costUsd: 0.0002,
+        model: "gpt-6.1-terra",
+        // (900/1e6)*1 + (120/1e6)*5
+        costUsd: 0.0015,
       })
     );
     expect(result.status === "READY" && result.plan.placements[0].box).toEqual({
@@ -174,26 +185,23 @@ describe("planModificationPlacement", () => {
         error: "Failed to parse placement plan as JSON",
         rawResponse: "not json",
         usage: { promptTokens: 10_000, completionTokens: 1_000 },
-        costUsd: 0.0021,
+        costUsd: 0.015,
       })
     );
   });
 
   it("calls the model from IMAGE_PLACEMENT_AI_MODEL and records it", async () => {
-    process.env.IMAGE_PLACEMENT_AI_MODEL = "gpt-6.1-terra";
+    process.env.IMAGE_PLACEMENT_AI_MODEL = "gpt-6-luna";
     mockCreate.mockResolvedValue({
       choices: [{ message: { content: JSON.stringify({ placements: [{ modificationCode: "GRAB_BARS" }] }) } }],
       usage: { prompt_tokens: 10_000, completion_tokens: 1_000 },
     });
 
-    try {
-      const result = await planModificationPlacement(source, ["GRAB_BARS"]);
+    const result = await planModificationPlacement(source, ["GRAB_BARS"]);
 
-      expect(mockCreate.mock.calls[0][0].model).toBe("gpt-6.1-terra");
-      expect(result).toEqual(expect.objectContaining({ status: "READY", model: "gpt-6.1-terra", costUsd: 0.015 }));
-    } finally {
-      delete process.env.IMAGE_PLACEMENT_AI_MODEL;
-    }
+    expect(mockCreate.mock.calls[0][0].model).toBe("gpt-6-luna");
+    // (10_000/1e6)*0.1 + (1_000/1e6)*0.5
+    expect(result).toEqual(expect.objectContaining({ status: "READY", model: "gpt-6-luna", costUsd: 0.0015 }));
   });
 
   it("returns FAILED when the plan has no usable entries", async () => {

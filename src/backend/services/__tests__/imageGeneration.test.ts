@@ -145,7 +145,7 @@ describe("buildPlacementPlanAuditMetadata", () => {
         placements: [{ modificationCode: "RAMP", applicable: false, placement: null, box: null, reason: "x" }],
       },
       rawResponse: "{}",
-      model: "gpt-4o-mini",
+      model: "gpt-6.1-terra",
       promptVersion: 1,
       usage: null,
       costUsd: 0,
@@ -198,9 +198,20 @@ describe("generateAccessibilityVisual", () => {
   const originalFetch = global.fetch;
   let mockEdit: jest.Mock;
   let mockChatCreate: jest.Mock;
+  const originalPlannerModel = process.env.IMAGE_PLACEMENT_AI_MODEL;
+
+  afterAll(() => {
+    if (originalPlannerModel === undefined) {
+      delete process.env.IMAGE_PLACEMENT_AI_MODEL;
+    } else {
+      process.env.IMAGE_PLACEMENT_AI_MODEL = originalPlannerModel;
+    }
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Pin the planner model so local .env values don't change the expected costs.
+    process.env.IMAGE_PLACEMENT_AI_MODEL = "gpt-6.1-terra";
 
     mockEdit = jest.fn();
     mockChatCreate = jest.fn().mockRejectedValue(new Error("planner unavailable"));
@@ -366,9 +377,9 @@ describe("generateAccessibilityVisual", () => {
       ["GRAB_BARS"]
     );
 
-    // planning (gpt-4o-mini) 0.0021 + editing (gpt-image-2.6-sunburst) 0.0341
-    expect(result.costBreakdownUsd).toEqual({ planning: 0.0021, editing: 0.0341 });
-    expect(result.costUsd).toBeCloseTo(0.0362, 6);
+    // planning (gpt-6.1-terra) 0.015 + editing (gpt-image-2.6-sunburst) 0.0341
+    expect(result.costBreakdownUsd).toEqual({ planning: 0.015, editing: 0.0341 });
+    expect(result.costUsd).toBeCloseTo(0.0491, 6);
   });
 
   it("reports total cost as unknown when the planner model is unpriced", async () => {
@@ -503,9 +514,20 @@ describe("processAccessibilityImageGenerationJob", () => {
 
   let mockEdit: jest.Mock;
   let mockChatCreate: jest.Mock;
+  const originalPlannerModel = process.env.IMAGE_PLACEMENT_AI_MODEL;
+
+  afterAll(() => {
+    if (originalPlannerModel === undefined) {
+      delete process.env.IMAGE_PLACEMENT_AI_MODEL;
+    } else {
+      process.env.IMAGE_PLACEMENT_AI_MODEL = originalPlannerModel;
+    }
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Pin the planner model so local .env values don't change the expected costs.
+    process.env.IMAGE_PLACEMENT_AI_MODEL = "gpt-6.1-terra";
 
     mockedPrisma.photo.findUnique.mockResolvedValue(basePhoto);
     mockedPrisma.photo.update.mockResolvedValue({});
@@ -578,10 +600,10 @@ describe("processAccessibilityImageGenerationJob", () => {
             applied: true,
             rawResponse: plannerResponse,
             usage: { promptTokens: 900, completionTokens: 120 },
-            costUsd: 0.0002,
+            costUsd: 0.0015,
             plan: expect.objectContaining({ visibleElements: ["toilet"] }),
           }),
-          costBreakdownUsd: { planning: 0.0002, editing: 0 },
+          costBreakdownUsd: { planning: 0.0015, editing: 0 },
           // IMAGE_EDIT_MASK_ENABLED is off by default.
           placementMask: { applied: false, reason: "DISABLED" },
         }),
