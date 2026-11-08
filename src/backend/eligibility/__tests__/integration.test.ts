@@ -146,6 +146,10 @@ describe("FR-3.1 Eligibility Integration Tests", () => {
 
   describe("Full eligibility evaluation flow", () => {
     it("assembles input, evaluates, persists an assessment, and logs an audit event", async () => {
+      // No OPENAI_API_KEY -> heuristic-only discovery. Otherwise a local .env key
+      // makes a live, paid web-search call that can outlast the test timeout.
+      delete process.env.OPENAI_API_KEY;
+
       const user = await createTestUser();
       createdUserIds.push(user.id);
       const project = await createTestProject(user.id);

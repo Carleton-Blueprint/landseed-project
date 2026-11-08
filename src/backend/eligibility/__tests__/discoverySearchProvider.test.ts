@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import {
+  OPENAI_DISCOVERY_TIMEOUT_MS,
   discoverAndEvaluateGrants,
   resolveGrantDiscoveryMetadata,
   detectCatalogContradictions,
@@ -348,14 +349,15 @@ describe('discoverAndEvaluateGrants', () => {
       return requestBody;
     }
 
-    it('sends no reasoning field when GRANT_DISCOVERY_AI_REASONING_EFFORT is unset', async () => {
+    it('sends the default model at low effort when nothing is configured', async () => {
       const savedEnv = saveDiscoveryEnv();
       configureLiveAiEnv();
       delete process.env.GRANT_DISCOVERY_AI_REASONING_EFFORT;
 
       try {
         const body = await captureResponsesRequestBody();
-        expect(body).not.toHaveProperty('reasoning');
+        expect(body.model).toBe('gpt-6-luna');
+        expect(body.reasoning).toEqual({ effort: 'low' });
         expect(body.tools).toEqual([{ type: 'web_search', search_context_size: 'medium' }]);
       } finally {
         restoreDiscoveryEnv(savedEnv);
@@ -390,6 +392,38 @@ describe('discoverAndEvaluateGrants', () => {
         restoreDiscoveryEnv(savedEnv);
       }
     });
+  });
+
+  it('falls back to heuristic when the OpenAI request times out', async () => {
+    const savedEnv = saveDiscoveryEnv();
+    configureLiveAiEnv();
+    jest.useFakeTimers();
+
+    try {
+      const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('api.openai.com/v1/responses')) {
+          // Never answers; rejects only when the request is aborted.
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          });
+        }
+        return Promise.resolve(catalogFetchFallback());
+      });
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      const pending = discoverAndEvaluateGrants(baseEligibilityInput);
+      await jest.advanceTimersByTimeAsync(OPENAI_DISCOVERY_TIMEOUT_MS);
+      const result = await pending;
+
+      expect(result.discoveryMetadata.provider).toBe('HEURISTIC');
+      expect(result.discoveryMetadata.aiFailureReason).toBe(
+        `OpenAI request timed out after ${OPENAI_DISCOVERY_TIMEOUT_MS / 1000}s`
+      );
+      expect(result.discoveredGrants.length).toBeGreaterThan(0);
+    } finally {
+      jest.useRealTimers();
+      restoreDiscoveryEnv(savedEnv);
+    }
   });
 
   it('carries the AI-supplied estimatedFundingAmount through to the discovered grant', async () => {

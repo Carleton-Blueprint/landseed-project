@@ -590,6 +590,13 @@ export function scoreCandidate(
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
+/**
+ * Maximum ms to wait for the Responses API (headers and body). Without this,
+ * a hung request sat for Node fetch's 5-minute header timeout or longer before
+ * the heuristic fallback ran. gpt-6-luna at low effort answers in ~20–30s.
+ */
+export const OPENAI_DISCOVERY_TIMEOUT_MS = 120_000;
+
 interface OpenAiResponsesBody {
   output?: Array<{
     type?: string;
@@ -739,9 +746,36 @@ async function tryOpenAiWebSearch(
 
   debug('AI', `Calling OpenAI Responses API — model: ${DISCOVERY_MODEL_NAME}`, { reasoningEffort });
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OPENAI_DISCOVERY_TIMEOUT_MS);
+  const timedOut = (): OpenAiWebSearchOutcome => {
+    debug('AI', `OpenAI request timed out after ${OPENAI_DISCOVERY_TIMEOUT_MS}ms`);
+    return { decisions: null, failureReason: `OpenAI request timed out after ${OPENAI_DISCOVERY_TIMEOUT_MS / 1000}s` };
+  };
+  try {
+    const outcome = await sendOpenAiDiscoveryRequest(apiKey, userMessage, reasoningEffort, controller.signal);
+    // An abort during the body read surfaces as unreadable JSON, not a throw.
+    return controller.signal.aborted ? timedOut() : outcome;
+  } catch (err) {
+    if (controller.signal.aborted) {
+      return timedOut();
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function sendOpenAiDiscoveryRequest(
+  apiKey: string,
+  userMessage: string,
+  reasoningEffort: ReturnType<typeof getDiscoveryReasoningEffort>,
+  signal: AbortSignal
+): Promise<OpenAiWebSearchOutcome> {
   const orgId = process.env.OPENAI_ORG_ID?.trim();
 
   const response = await fetch(OPENAI_RESPONSES_URL, {
+    signal,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
