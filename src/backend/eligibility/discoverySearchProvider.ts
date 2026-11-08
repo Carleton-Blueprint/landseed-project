@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import path from 'path';
-import { DISCOVERY_MODEL_NAME } from './discoveryModelConfig';
+import { DISCOVERY_MODEL_NAME, getDiscoveryReasoningEffort } from './discoveryModelConfig';
 import { DISCOVERY_SYSTEM_PROMPT } from './discoveryPrompt';
 import { DISCOVERY_SCORING_CONFIG } from './discoveryScoringConfig';
 import { DISCOVERY_FALLBACK_SOURCE_CATALOG, GrantDiscoverySourceEntry } from './discoverySourceCatalog';
@@ -735,7 +735,9 @@ async function tryOpenAiWebSearch(
     })),
   });
 
-  debug('AI', `Calling OpenAI Responses API — model: ${DISCOVERY_MODEL_NAME}`);
+  const reasoningEffort = getDiscoveryReasoningEffort();
+
+  debug('AI', `Calling OpenAI Responses API — model: ${DISCOVERY_MODEL_NAME}`, { reasoningEffort });
 
   const orgId = process.env.OPENAI_ORG_ID?.trim();
 
@@ -752,6 +754,7 @@ async function tryOpenAiWebSearch(
       input: userMessage,
       tools: [{ type: 'web_search', search_context_size: 'medium' }],
       tool_choice: 'required',
+      ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     }),
   });
 

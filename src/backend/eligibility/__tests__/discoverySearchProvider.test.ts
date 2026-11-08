@@ -56,6 +56,7 @@ function saveDiscoveryEnv() {
   return {
     openAiKey: process.env.OPENAI_API_KEY,
     aiModel: process.env.GRANT_DISCOVERY_AI_MODEL,
+    reasoningEffort: process.env.GRANT_DISCOVERY_AI_REASONING_EFFORT,
   };
 }
 
@@ -63,6 +64,7 @@ function restoreDiscoveryEnv(saved: ReturnType<typeof saveDiscoveryEnv>) {
   const entries: Array<[string, string | undefined]> = [
     ['OPENAI_API_KEY', saved.openAiKey],
     ['GRANT_DISCOVERY_AI_MODEL', saved.aiModel],
+    ['GRANT_DISCOVERY_AI_REASONING_EFFORT', saved.reasoningEffort],
   ];
 
   for (const [key, value] of entries) {
@@ -321,6 +323,73 @@ describe('discoverAndEvaluateGrants', () => {
     } finally {
       restoreDiscoveryEnv(savedEnv);
     }
+  });
+
+  describe('reasoning effort', () => {
+    async function captureResponsesRequestBody(): Promise<Record<string, unknown>> {
+      let requestBody: Record<string, unknown> | null = null;
+      const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('api.openai.com/v1/responses')) {
+          requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          return new Response(
+            JSON.stringify({ output_text: JSON.stringify({ decisions: [mockOpenAiDecision()] }) }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+        return catalogFetchFallback();
+      });
+      (globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch;
+
+      await discoverAndEvaluateGrants(baseEligibilityInput);
+
+      if (!requestBody) {
+        throw new Error('OpenAI Responses API was not called');
+      }
+      return requestBody;
+    }
+
+    it('sends no reasoning field when GRANT_DISCOVERY_AI_REASONING_EFFORT is unset', async () => {
+      const savedEnv = saveDiscoveryEnv();
+      configureLiveAiEnv();
+      delete process.env.GRANT_DISCOVERY_AI_REASONING_EFFORT;
+
+      try {
+        const body = await captureResponsesRequestBody();
+        expect(body).not.toHaveProperty('reasoning');
+        expect(body.tools).toEqual([{ type: 'web_search', search_context_size: 'medium' }]);
+      } finally {
+        restoreDiscoveryEnv(savedEnv);
+      }
+    });
+
+    it('sends reasoning.effort from GRANT_DISCOVERY_AI_REASONING_EFFORT', async () => {
+      const savedEnv = saveDiscoveryEnv();
+      configureLiveAiEnv();
+      process.env.GRANT_DISCOVERY_AI_REASONING_EFFORT = 'low';
+
+      try {
+        const body = await captureResponsesRequestBody();
+        expect(body.reasoning).toEqual({ effort: 'low' });
+        expect(body.tool_choice).toBe('required');
+      } finally {
+        restoreDiscoveryEnv(savedEnv);
+      }
+    });
+
+    it('ignores an invalid GRANT_DISCOVERY_AI_REASONING_EFFORT', async () => {
+      const savedEnv = saveDiscoveryEnv();
+      configureLiveAiEnv();
+      process.env.GRANT_DISCOVERY_AI_REASONING_EFFORT = 'turbo';
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      try {
+        const body = await captureResponsesRequestBody();
+        expect(body).not.toHaveProperty('reasoning');
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('GRANT_DISCOVERY_AI_REASONING_EFFORT'));
+      } finally {
+        restoreDiscoveryEnv(savedEnv);
+      }
+    });
   });
 
   it('carries the AI-supplied estimatedFundingAmount through to the discovered grant', async () => {

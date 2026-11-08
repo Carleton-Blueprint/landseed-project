@@ -161,6 +161,54 @@ describe("analyzeProjectPhoto", () => {
       300
     );
   });
+
+  describe("reasoning effort", () => {
+    const emptyResponse = {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({ modificationCodes: [], confidence: "LOW", rationale: "" }),
+          },
+        },
+      ],
+    };
+
+    it("sends no reasoning_effort when PHOTO_ANALYSIS_AI_REASONING_EFFORT is unset", async () => {
+      delete process.env.PHOTO_ANALYSIS_AI_REASONING_EFFORT;
+      mockCreate.mockResolvedValue(emptyResponse);
+
+      await analyzeProjectPhoto("https://example.com/photo.png");
+
+      expect(mockCreate.mock.calls[0][0]).not.toHaveProperty("reasoning_effort");
+    });
+
+    it("sends reasoning_effort from PHOTO_ANALYSIS_AI_REASONING_EFFORT", async () => {
+      process.env.PHOTO_ANALYSIS_AI_REASONING_EFFORT = " Low ";
+      mockCreate.mockResolvedValue(emptyResponse);
+
+      await analyzeProjectPhoto("https://example.com/photo.png");
+
+      expect(mockCreate.mock.calls[0][0]).toMatchObject({
+        reasoning_effort: "low",
+        response_format: { type: "json_object" },
+      });
+    });
+
+    it("ignores an invalid PHOTO_ANALYSIS_AI_REASONING_EFFORT", async () => {
+      process.env.PHOTO_ANALYSIS_AI_REASONING_EFFORT = "turbo";
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+      mockCreate.mockResolvedValue(emptyResponse);
+
+      try {
+        await analyzeProjectPhoto("https://example.com/photo.png");
+
+        expect(mockCreate.mock.calls[0][0]).not.toHaveProperty("reasoning_effort");
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("PHOTO_ANALYSIS_AI_REASONING_EFFORT"));
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  });
 });
 
 describe("processPhotoModificationAnalysisJob", () => {

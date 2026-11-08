@@ -17,7 +17,10 @@ import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { prisma } from "lib/prisma";
 import { MODIFICATION_CODES, ModificationCode } from "@/backend/eligibility/types";
-import { PHOTO_ANALYSIS_MODEL_NAME } from "@/backend/services/photoAnalysisModelConfig";
+import {
+  PHOTO_ANALYSIS_MODEL_NAME,
+  getPhotoAnalysisReasoningEffort,
+} from "@/backend/services/photoAnalysisModelConfig";
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { manualReviewQueue } from "@/backend/queue";
 import type { AiOutputSource, AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
@@ -206,7 +209,9 @@ export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalys
     const client = getOpenAIClient();
     const prompt = buildPhotoAnalysisPrompt();
 
-    debug("MAIN", `Calling OpenAI chat completions — model: ${PHOTO_ANALYSIS_MODEL_NAME}`);
+    const reasoningEffort = getPhotoAnalysisReasoningEffort();
+
+    debug("MAIN", `Calling OpenAI chat completions — model: ${PHOTO_ANALYSIS_MODEL_NAME}`, { reasoningEffort });
 
     const response = await client.chat.completions.create(
       {
@@ -221,6 +226,7 @@ export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalys
           },
         ],
         response_format: { type: "json_object" },
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       },
       { timeout: ANALYSIS_TIMEOUT_MS }
     );
