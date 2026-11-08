@@ -3,8 +3,10 @@ import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import {
   analyzeProjectPhoto,
   buildPhotoAnalysisPrompt,
+  PHOTO_ANALYSIS_PROMPT_VERSION,
   processPhotoModificationAnalysisJob,
 } from "../photoAnalysis";
+import { Prisma } from "@prisma/client";
 
 const mockCreate = jest.fn();
 
@@ -53,6 +55,17 @@ describe("buildPhotoAnalysisPrompt", () => {
       expect(prompt).toContain(code);
     }
   });
+
+  it("asks for no per-code verdicts when nothing was declared", () => {
+    expect(buildPhotoAnalysisPrompt()).not.toContain("declaredCodeVerdicts");
+  });
+
+  it("asks for a YES / NO / CANT_TELL verdict on each declared code", () => {
+    const prompt = buildPhotoAnalysisPrompt(["GRAB_BARS", "RAMP"]);
+    expect(prompt).toContain("requested these modifications for the space in this photo: GRAB_BARS, RAMP");
+    expect(prompt).toContain('"declaredCodeVerdicts"');
+    expect(prompt).toContain("CANT_TELL");
+  });
 });
 
 describe("analyzeProjectPhoto", () => {
@@ -99,6 +112,83 @@ describe("analyzeProjectPhoto", () => {
     expect(result.modificationCodes).toEqual(["GRAB_BARS", "WALK_IN_SHOWER"]);
     expect(result.confidence).toBe("HIGH");
     expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  describe("declared code verdicts", () => {
+    function mockContent(body: Record<string, unknown>) {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: JSON.stringify({ modificationCodes: [], confidence: "HIGH", rationale: "r", ...body }) } }],
+      });
+    }
+
+    function sentPrompt(): string {
+      return mockCreate.mock.calls[0][0].messages[0].content[0].text;
+    }
+
+    it("returns no verdicts and sends the plain prompt when no codes are declared", async () => {
+      mockContent({});
+
+      const result = await analyzeProjectPhoto("https://example.com/photo.png");
+
+      expect(result.declaredCodeVerdicts).toEqual([]);
+      expect(sentPrompt()).not.toContain("declaredCodeVerdicts");
+    });
+
+    it("parses one verdict per declared code, in declared order", async () => {
+      mockContent({
+        declaredCodeVerdicts: [
+          { code: "HANDRAILS", verdict: "CANT_TELL", confidence: "MEDIUM" },
+          { code: "GRAB_BARS", verdict: "NO", confidence: "HIGH" },
+        ],
+      });
+
+      const result = await analyzeProjectPhoto("https://example.com/photo.png", ["GRAB_BARS", "HANDRAILS"]);
+
+      expect(sentPrompt()).toContain("GRAB_BARS, HANDRAILS");
+      expect(result.declaredCodeVerdicts).toEqual([
+        { code: "GRAB_BARS", verdict: "NO", confidence: "HIGH" },
+        { code: "HANDRAILS", verdict: "CANT_TELL", confidence: "MEDIUM" },
+      ]);
+    });
+
+    it("falls back to LOW-confidence CANT_TELL for missing or unrecognized verdicts", async () => {
+      mockContent({
+        declaredCodeVerdicts: [
+          { code: "GRAB_BARS", verdict: "MAYBE", confidence: "HIGH" },
+          { code: "RAMP", verdict: "YES", confidence: "VERY_HIGH" },
+        ],
+      });
+
+      const result = await analyzeProjectPhoto("https://example.com/photo.png", ["GRAB_BARS", "RAMP", "HANDRAILS"]);
+
+      expect(result.declaredCodeVerdicts).toEqual([
+        { code: "GRAB_BARS", verdict: "CANT_TELL", confidence: "LOW" },
+        { code: "RAMP", verdict: "YES", confidence: "LOW" },
+        { code: "HANDRAILS", verdict: "CANT_TELL", confidence: "LOW" },
+      ]);
+    });
+
+    it("treats a non-array declaredCodeVerdicts as CANT_TELL for every declared code", async () => {
+      mockContent({ declaredCodeVerdicts: "none" });
+
+      const result = await analyzeProjectPhoto("https://example.com/photo.png", ["GRAB_BARS"]);
+
+      expect(result.declaredCodeVerdicts).toEqual([{ code: "GRAB_BARS", verdict: "CANT_TELL", confidence: "LOW" }]);
+    });
+
+    it("ignores verdicts for codes that weren't declared and drops unknown declared codes", async () => {
+      mockContent({
+        declaredCodeVerdicts: [
+          { code: "GRAB_BARS", verdict: "YES", confidence: "HIGH" },
+          { code: "STAIR_LIFT", verdict: "NO", confidence: "HIGH" },
+        ],
+      });
+
+      const result = await analyzeProjectPhoto("https://example.com/photo.png", ["GRAB_BARS", "NOT_A_REAL_CODE"]);
+
+      expect(sentPrompt()).not.toContain("NOT_A_REAL_CODE");
+      expect(result.declaredCodeVerdicts).toEqual([{ code: "GRAB_BARS", verdict: "YES", confidence: "HIGH" }]);
+    });
   });
 
   it("drops modification codes outside the known taxonomy", async () => {
@@ -225,12 +315,13 @@ describe("processPhotoModificationAnalysisJob", () => {
     process.env = originalEnv;
   });
 
-  function mockPhoto(analysisStatus = "PENDING") {
+  function mockPhoto(analysisStatus = "PENDING", declaredModificationCodes: string[] = []) {
     mockFindUnique.mockResolvedValue({
       id: "photo-1",
       projectId: "project-1",
       url: "https://example.com/photo.png",
       analysisStatus,
+      declaredModificationCodes,
       project: { id: "project-1", isManualMode: false },
     });
   }
@@ -311,6 +402,53 @@ describe("processPhotoModificationAnalysisJob", () => {
         metadata: expect.objectContaining({ outputSource: "LIVE", isFallback: false }),
       })
     );
+  });
+
+  it("sends the photo's declared codes and stores the verdicts with the prompt version", async () => {
+    mockPhoto("PENDING", ["GRAB_BARS"]);
+    mockCreate.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              modificationCodes: ["GRAB_BARS"],
+              confidence: "HIGH",
+              declaredCodeVerdicts: [{ code: "GRAB_BARS", verdict: "YES", confidence: "HIGH" }],
+              rationale: "test",
+            }),
+          },
+        },
+      ],
+    });
+    mockProjectPhotos([
+      { id: "photo-1", analysisStatus: "READY", declaredModificationCodes: ["GRAB_BARS"], aiModificationCodes: ["GRAB_BARS"], aiConfidence: "HIGH" },
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    const verdicts = [{ code: "GRAB_BARS", verdict: "YES", confidence: "HIGH" }];
+    expect(mockUpdate).toHaveBeenLastCalledWith({
+      where: { id: "photo-1" },
+      data: expect.objectContaining({ aiCodeVerdicts: verdicts }),
+    });
+    expect(mockLogAuditEventNonBlocking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({ declaredCodeVerdicts: verdicts, promptVersion: PHOTO_ANALYSIS_PROMPT_VERSION }),
+      })
+    );
+  });
+
+  it("stores null verdicts (not []) when the analysis produced no signal", async () => {
+    mockPhoto("PENDING", ["GRAB_BARS"]);
+    mockCreate.mockRejectedValue(new Error("network down"));
+    mockProjectPhotos([{ id: "photo-1", analysisStatus: "FAILED" }]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockUpdate).toHaveBeenLastCalledWith({
+      where: { id: "photo-1" },
+      data: expect.objectContaining({ analysisStatus: "FAILED", aiCodeVerdicts: Prisma.DbNull }),
+    });
   });
 
   it("logs outputSource=NONE when the live call fails (no mock fallback is applied)", async () => {

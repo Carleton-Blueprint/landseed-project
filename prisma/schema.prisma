@@ -249,6 +249,9 @@ model Photo {
   analysisStatus      String    @default("PENDING")
   aiModificationCodes String[]  @default([])
   aiConfidence        String?
+  // Per declared code: { code, verdict: YES | NO | CANT_TELL, confidence }. Null
+  // when the photo was analysed before verdicts existed or produced no signal.
+  aiCodeVerdicts      Json?
   analysisModel       String?
   analysisError       String?   @db.Text
   analyzedAt          DateTime?
