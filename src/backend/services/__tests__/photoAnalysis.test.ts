@@ -339,6 +339,7 @@ describe("processPhotoModificationAnalysisJob", () => {
     declaredModificationCodes?: string[];
     aiModificationCodes?: string[];
     aiConfidence?: string | null;
+    aiCodeVerdicts?: unknown;
   }
 
   // Represents the state of ALL of the project's photos (including this job's own photo,
@@ -352,6 +353,7 @@ describe("processPhotoModificationAnalysisJob", () => {
         declaredModificationCodes: p.declaredModificationCodes ?? [],
         aiModificationCodes: p.aiModificationCodes ?? [],
         aiConfidence: p.aiConfidence ?? null,
+        aiCodeVerdicts: p.aiCodeVerdicts ?? null,
       }))
     );
   }
@@ -513,6 +515,7 @@ describe("processPhotoModificationAnalysisJob", () => {
               photoId: "photo-1",
               declaredCodes: ["WIDENED_DOORWAY"],
               aiInferredCodes: ["GRAB_BARS"],
+              aiCodeVerdicts: null,
               missingCodes: ["WIDENED_DOORWAY"],
             },
           ],
@@ -560,6 +563,7 @@ describe("processPhotoModificationAnalysisJob", () => {
               photoId: "photo-2",
               declaredCodes: ["WIDENED_DOORWAY"],
               aiInferredCodes: ["STAIR_LIFT"],
+              aiCodeVerdicts: null,
               missingCodes: ["WIDENED_DOORWAY"],
             },
           ],
@@ -637,6 +641,64 @@ describe("processPhotoModificationAnalysisJob", () => {
       }),
       expect.anything()
     );
+  });
+
+  describe("with stored verdicts", () => {
+    async function reconcileWith(verdicts: unknown, declared = ["GRAB_BARS"], ai: string[] = []) {
+      mockPhoto();
+      mockOpenAiResponse(ai, "HIGH");
+      mockProjectPhotos([
+        { id: "photo-1", analysisStatus: "READY", declaredModificationCodes: declared, aiModificationCodes: ai, aiConfidence: "HIGH", aiCodeVerdicts: verdicts },
+      ]);
+      await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+    }
+
+    it("flags on a HIGH-confidence NO, even when the AI listed the code", async () => {
+      const verdicts = [{ code: "GRAB_BARS", verdict: "NO", confidence: "HIGH" }];
+      await reconcileWith(verdicts, ["GRAB_BARS"], ["GRAB_BARS"]);
+
+      expect(mockManualReviewQueueAdd).toHaveBeenCalledWith(
+        "manual-review",
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            mismatchedPhotos: [expect.objectContaining({ missingCodes: ["GRAB_BARS"], aiCodeVerdicts: verdicts })],
+          }),
+        }),
+        expect.anything()
+      );
+    });
+
+    it.each([
+      ["CANT_TELL", "HIGH"],
+      ["NO", "MEDIUM"],
+      ["NO", "LOW"],
+      ["YES", "HIGH"],
+    ])("does not flag on %s / %s, even when the AI didn't list the code", async (verdict, confidence) => {
+      await reconcileWith([{ code: "GRAB_BARS", verdict, confidence }]);
+
+      expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the missing-code rule for a declared code with no verdict", async () => {
+      // HANDRAILS was added (e.g. by an admin override) after the photo was analysed.
+      await reconcileWith([{ code: "GRAB_BARS", verdict: "YES", confidence: "HIGH" }], ["GRAB_BARS", "HANDRAILS"], ["GRAB_BARS"]);
+
+      expect(mockManualReviewQueueAdd).toHaveBeenCalledWith(
+        "manual-review",
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            mismatchedPhotos: [expect.objectContaining({ missingCodes: ["HANDRAILS"] })],
+          }),
+        }),
+        expect.anything()
+      );
+    });
+
+    it("ignores malformed stored verdicts and falls back to the missing-code rule", async () => {
+      await reconcileWith([{ code: "GRAB_BARS" }, "junk"]);
+
+      expect(mockManualReviewQueueAdd).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("flags a manual review when every analyzed photo is LOW confidence, even if codes match", async () => {

@@ -25,7 +25,7 @@ import {
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { manualReviewQueue } from "@/backend/queue";
 import type { AiOutputSource, AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
-import { compareCodes } from "@/backend/services/photoCodeComparison";
+import { compareCodes, flaggedDeclaredCodes } from "@/backend/services/photoCodeComparison";
 
 export type PhotoAnalysisConfidence = "HIGH" | "MEDIUM" | "LOW";
 export type PhotoAnalysisStatus = "READY" | "FAILED" | "SKIPPED";
@@ -345,10 +345,11 @@ const CONFIDENCE_RANK: Record<PhotoAnalysisConfidence, number> = { LOW: 0, MEDIU
  * AI-inferred codes against that SAME photo's client-declared tags (see
  * IntakeForm.tsx's per-photo tag picker). Per-photo tags
  * are the ground truth (the client said what's in this specific photo); AI inference
- * is the cross-check. Any photo where the AI didn't find a declared code (RAMP and
- * WHEELCHAIR_RAMP count as one) flags the whole project for manual review, same as a
- * project-wide low-confidence result would. Extra AI codes are recorded as
- * suggestions in the flag metadata but never flag on their own.
+ * is the cross-check. Any photo with a declared code the AI confidently said doesn't
+ * fit the photo (see flaggedDeclaredCodes — a HIGH-confidence "NO" verdict, or for
+ * photos without verdicts, a declared code the AI didn't find) flags the whole project
+ * for manual review, same as a project-wide low-confidence result would. Extra AI codes
+ * are recorded as suggestions in the flag metadata but never flag on their own.
  *
  * No-ops (does not overwrite declared codes, ever) when: other photos are still
  * pending analysis, or no photo produced a usable (READY) result to reconcile with.
@@ -362,6 +363,7 @@ async function maybeReconcileProjectModificationCodes(projectId: string): Promis
       analysisStatus: true,
       aiModificationCodes: true,
       aiConfidence: true,
+      aiCodeVerdicts: true,
       declaredModificationCodes: true,
     },
   });
@@ -386,9 +388,10 @@ async function maybeReconcileProjectModificationCodes(projectId: string): Promis
 
   const comparedPhotos = readyPhotos.map((p) => ({
     photo: p,
-    ...compareCodes(p.declaredModificationCodes, p.aiModificationCodes),
+    flaggedCodes: flaggedDeclaredCodes(p.declaredModificationCodes, p.aiModificationCodes, p.aiCodeVerdicts),
+    suggestedCodes: compareCodes(p.declaredModificationCodes, p.aiModificationCodes).suggestedCodes,
   }));
-  const mismatchedPhotos = comparedPhotos.filter((c) => c.missingCodes.length > 0);
+  const mismatchedPhotos = comparedPhotos.filter((c) => c.flaggedCodes.length > 0);
   const isMismatch = mismatchedPhotos.length > 0;
   const allLowConfidence = readyPhotos.every((p) => p.aiConfidence === "LOW");
 
@@ -409,11 +412,12 @@ async function maybeReconcileProjectModificationCodes(projectId: string): Promis
       aiConfidence: aggregateConfidence,
       metadata: {
         analyzedPhotoCount: readyPhotos.length,
-        mismatchedPhotos: mismatchedPhotos.map(({ photo, missingCodes }) => ({
+        mismatchedPhotos: mismatchedPhotos.map(({ photo, flaggedCodes }) => ({
           photoId: photo.id,
           declaredCodes: photo.declaredModificationCodes,
           aiInferredCodes: photo.aiModificationCodes,
-          missingCodes,
+          aiCodeVerdicts: photo.aiCodeVerdicts ?? null,
+          missingCodes: flaggedCodes,
         })),
         suggestedCodes: comparedPhotos
           .filter((c) => c.suggestedCodes.length > 0)

@@ -1,4 +1,4 @@
-import { compareCodes } from "@/backend/services/photoCodeComparison";
+import { compareCodes, flaggedDeclaredCodes } from "@/backend/services/photoCodeComparison";
 
 describe("compareCodes", () => {
   it("reports declared codes the AI didn't find as missing", () => {
@@ -27,5 +27,20 @@ describe("compareCodes", () => {
       missingCodes: ["WALK_IN_TUB"],
       suggestedCodes: ["WALK_IN_SHOWER"],
     });
+  });
+});
+
+describe("flaggedDeclaredCodes", () => {
+  it("uses the missing-code rule when there are no stored verdicts", () => {
+    expect(flaggedDeclaredCodes(["GRAB_BARS", "RAMP"], ["WHEELCHAIR_RAMP"], null)).toEqual(["GRAB_BARS"]);
+  });
+
+  it("flags only HIGH-confidence NO verdicts", () => {
+    const verdicts = [
+      { code: "GRAB_BARS", verdict: "NO", confidence: "HIGH" },
+      { code: "HANDRAILS", verdict: "NO", confidence: "MEDIUM" },
+      { code: "RAMP", verdict: "CANT_TELL", confidence: "HIGH" },
+    ];
+    expect(flaggedDeclaredCodes(["GRAB_BARS", "HANDRAILS", "RAMP"], [], verdicts)).toEqual(["GRAB_BARS"]);
   });
 });

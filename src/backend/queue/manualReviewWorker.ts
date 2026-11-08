@@ -222,8 +222,8 @@ function buildFlagDescription(
       : [];
     parts.push(
       missing.length > 0
-        ? `AI could not find client-declared modification code(s) in the photos: ${missing.join(', ')}`
-        : 'AI did not find a client-declared modification code in the photos, or AI confidence was LOW'
+        ? `AI found the photos inconsistent with client-declared modification code(s): ${missing.join(', ')}`
+        : 'AI found the photos inconsistent with a client-declared modification code, or AI confidence was LOW'
     );
     const suggestedPhotos = metadata?.suggestedCodes;
     const suggested = Array.isArray(suggestedPhotos)

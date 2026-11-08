@@ -113,7 +113,7 @@ describe("manual review worker admin alerting", () => {
     });
 
     const description = mockedPrisma.projectManualReviewFlag.create.mock.calls[0][0].data.description;
-    expect(description).toContain("AI could not find client-declared modification code(s) in the photos: WALK_IN_TUB");
+    expect(description).toContain("AI found the photos inconsistent with client-declared modification code(s): WALK_IN_TUB");
     expect(description).toContain("AI also suggested (not requested): WALK_IN_SHOWER, GRAB_BARS");
   });
 
