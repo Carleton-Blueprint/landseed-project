@@ -371,8 +371,14 @@ describe("processPhotoModificationAnalysisJob", () => {
         metadata: {
           analyzedPhotoCount: 1,
           mismatchedPhotos: [
-            { photoId: "photo-1", declaredCodes: ["WIDENED_DOORWAY"], aiInferredCodes: ["GRAB_BARS"] },
+            {
+              photoId: "photo-1",
+              declaredCodes: ["WIDENED_DOORWAY"],
+              aiInferredCodes: ["GRAB_BARS"],
+              missingCodes: ["WIDENED_DOORWAY"],
+            },
           ],
+          suggestedCodes: [{ photoId: "photo-1", suggestedCodes: ["GRAB_BARS"] }],
         },
       }),
       expect.objectContaining({ jobId: "manual-review-project-1-photo-mismatch" })
@@ -412,8 +418,83 @@ describe("processPhotoModificationAnalysisJob", () => {
         metadata: {
           analyzedPhotoCount: 2,
           mismatchedPhotos: [
-            { photoId: "photo-2", declaredCodes: ["WIDENED_DOORWAY"], aiInferredCodes: ["STAIR_LIFT"] },
+            {
+              photoId: "photo-2",
+              declaredCodes: ["WIDENED_DOORWAY"],
+              aiInferredCodes: ["STAIR_LIFT"],
+              missingCodes: ["WIDENED_DOORWAY"],
+            },
           ],
+          suggestedCodes: [{ photoId: "photo-2", suggestedCodes: ["STAIR_LIFT"] }],
+        },
+      }),
+      expect.anything()
+    );
+  });
+
+  it("does not flag when the AI only adds codes beyond the declared ones", async () => {
+    mockPhoto();
+    mockOpenAiResponse(["GRAB_BARS", "NON_SLIP_FLOORING"], "HIGH");
+    mockProjectPhotos([
+      { id: "photo-1", analysisStatus: "READY", declaredModificationCodes: ["GRAB_BARS"], aiModificationCodes: ["GRAB_BARS", "NON_SLIP_FLOORING"], aiConfidence: "HIGH" },
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [["RAMP"], ["WHEELCHAIR_RAMP"]],
+    [["WHEELCHAIR_RAMP"], ["RAMP"]],
+  ])("treats RAMP and WHEELCHAIR_RAMP as one code (declared %j, AI %j)", async (declared, ai) => {
+    mockPhoto();
+    mockOpenAiResponse(ai, "HIGH");
+    mockProjectPhotos([
+      { id: "photo-1", analysisStatus: "READY", declaredModificationCodes: declared, aiModificationCodes: ai, aiConfidence: "HIGH" },
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("does not treat WALK_IN_TUB and WALK_IN_SHOWER as the same code", async () => {
+    mockPhoto();
+    mockOpenAiResponse(["WALK_IN_SHOWER"], "HIGH");
+    mockProjectPhotos([
+      { id: "photo-1", analysisStatus: "READY", declaredModificationCodes: ["WALK_IN_TUB"], aiModificationCodes: ["WALK_IN_SHOWER"], aiConfidence: "HIGH" },
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).toHaveBeenCalledWith(
+      "manual-review",
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          mismatchedPhotos: [expect.objectContaining({ missingCodes: ["WALK_IN_TUB"] })],
+        }),
+      }),
+      expect.anything()
+    );
+  });
+
+  it("records extra AI codes as suggestions when the project is flagged for LOW confidence", async () => {
+    mockPhoto();
+    mockOpenAiResponse(["GRAB_BARS", "RAISED_TOILET"], "LOW");
+    mockProjectPhotos([
+      { id: "photo-1", analysisStatus: "READY", declaredModificationCodes: ["GRAB_BARS"], aiModificationCodes: ["GRAB_BARS", "RAISED_TOILET"], aiConfidence: "LOW" },
+    ]);
+
+    await processPhotoModificationAnalysisJob({ photoId: "photo-1" });
+
+    expect(mockManualReviewQueueAdd).toHaveBeenCalledWith(
+      "manual-review",
+      expect.objectContaining({
+        metadata: {
+          analyzedPhotoCount: 1,
+          mismatchedPhotos: [],
+          suggestedCodes: [{ photoId: "photo-1", suggestedCodes: ["RAISED_TOILET"] }],
         },
       }),
       expect.anything()

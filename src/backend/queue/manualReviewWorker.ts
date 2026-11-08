@@ -210,13 +210,20 @@ function buildFlagDescription(
   } else if (reason === 'BOTH') {
     parts.push('LOW AI confidence + HIGH complexity');
   } else if (reason === 'PHOTO_MODIFICATION_MISMATCH') {
-    const declared = metadata?.declaredCodes;
-    const aiInferred = metadata?.aiInferredCodes;
+    const mismatchedPhotos = metadata?.mismatchedPhotos;
+    const missing = Array.isArray(mismatchedPhotos)
+      ? [
+          ...new Set(
+            mismatchedPhotos.flatMap((p) =>
+              Array.isArray(p?.missingCodes) ? (p.missingCodes as string[]) : []
+            )
+          ),
+        ]
+      : [];
     parts.push(
-      Array.isArray(declared) && Array.isArray(aiInferred)
-        ? `AI-inferred modification codes (${aiInferred.join(', ') || 'none'}) differ from the ` +
-            `client-declared codes (${declared.join(', ') || 'none'})`
-        : 'AI-inferred modification codes differ from the client-declared codes, or AI confidence was LOW'
+      missing.length > 0
+        ? `AI could not find client-declared modification code(s) in the photos: ${missing.join(', ')}`
+        : 'AI did not find a client-declared modification code in the photos, or AI confidence was LOW'
     );
   } else if (reason === 'DISCOVERY_CATALOG_CONTRADICTION') {
     const contradictingGrantTitles = metadata?.contradictingGrantTitles;

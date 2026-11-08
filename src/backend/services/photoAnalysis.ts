@@ -268,10 +268,31 @@ export interface PhotoModificationAnalysisJobPayload {
   photoId: string;
 }
 
-function sameCodeSet(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const setA = new Set(a);
-  return b.every((code) => setA.has(code));
+// Codes that are the same thing as far as a photo can tell. Comparison-only: the
+// taxonomy, pricing and grant mappings still treat them as separate codes. Don't add
+// codes that are genuinely different products (e.g. WALK_IN_TUB vs WALK_IN_SHOWER).
+const COMPARISON_SYNONYMS: Partial<Record<string, ModificationCode>> = {
+  [MODIFICATION_CODES.WHEELCHAIR_RAMP]: MODIFICATION_CODES.RAMP,
+};
+
+function canonicalCode(code: string): string {
+  return COMPARISON_SYNONYMS[code] ?? code;
+}
+
+/**
+ * Declared codes the AI didn't find (after folding synonyms) — these flag the photo.
+ * Codes the AI found beyond the declared ones are only suggestions and never flag.
+ */
+function compareCodes(
+  declared: string[],
+  aiInferred: string[]
+): { missingCodes: string[]; suggestedCodes: string[] } {
+  const declaredCanonical = new Set(declared.map(canonicalCode));
+  const aiCanonical = new Set(aiInferred.map(canonicalCode));
+  return {
+    missingCodes: declared.filter((code) => !aiCanonical.has(canonicalCode(code))),
+    suggestedCodes: aiInferred.filter((code) => !declaredCanonical.has(canonicalCode(code))),
+  };
 }
 
 const CONFIDENCE_RANK: Record<PhotoAnalysisConfidence, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
@@ -283,8 +304,10 @@ const CONFIDENCE_RANK: Record<PhotoAnalysisConfidence, number> = { LOW: 0, MEDIU
  * AI-inferred codes against that SAME photo's client-declared tags (see
  * IntakeForm.tsx's per-photo tag picker). Per-photo tags
  * are the ground truth (the client said what's in this specific photo); AI inference
- * is the cross-check. Any photo where the two disagree flags the whole project for
- * manual review, same as a project-wide low-confidence result would.
+ * is the cross-check. Any photo where the AI didn't find a declared code (RAMP and
+ * WHEELCHAIR_RAMP count as one) flags the whole project for manual review, same as a
+ * project-wide low-confidence result would. Extra AI codes are recorded as
+ * suggestions in the flag metadata but never flag on their own.
  *
  * No-ops (does not overwrite declared codes, ever) when: other photos are still
  * pending analysis, or no photo produced a usable (READY) result to reconcile with.
@@ -320,9 +343,11 @@ async function maybeReconcileProjectModificationCodes(projectId: string): Promis
     return;
   }
 
-  const mismatchedPhotos = readyPhotos.filter(
-    (p) => !sameCodeSet(p.declaredModificationCodes, p.aiModificationCodes)
-  );
+  const comparedPhotos = readyPhotos.map((p) => ({
+    photo: p,
+    ...compareCodes(p.declaredModificationCodes, p.aiModificationCodes),
+  }));
+  const mismatchedPhotos = comparedPhotos.filter((c) => c.missingCodes.length > 0);
   const isMismatch = mismatchedPhotos.length > 0;
   const allLowConfidence = readyPhotos.every((p) => p.aiConfidence === "LOW");
 
@@ -343,11 +368,15 @@ async function maybeReconcileProjectModificationCodes(projectId: string): Promis
       aiConfidence: aggregateConfidence,
       metadata: {
         analyzedPhotoCount: readyPhotos.length,
-        mismatchedPhotos: mismatchedPhotos.map((p) => ({
-          photoId: p.id,
-          declaredCodes: p.declaredModificationCodes,
-          aiInferredCodes: p.aiModificationCodes,
+        mismatchedPhotos: mismatchedPhotos.map(({ photo, missingCodes }) => ({
+          photoId: photo.id,
+          declaredCodes: photo.declaredModificationCodes,
+          aiInferredCodes: photo.aiModificationCodes,
+          missingCodes,
         })),
+        suggestedCodes: comparedPhotos
+          .filter((c) => c.suggestedCodes.length > 0)
+          .map(({ photo, suggestedCodes }) => ({ photoId: photo.id, suggestedCodes })),
       },
     },
     {
