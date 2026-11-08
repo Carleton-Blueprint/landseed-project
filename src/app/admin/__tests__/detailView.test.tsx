@@ -1,6 +1,6 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { AdminDashboardClient, SerializedProject } from "../AdminDashboardClient";
+import { AdminDashboardClient, MODIFICATION_LABEL_BY_CODE, SerializedProject } from "../AdminDashboardClient";
 import "@testing-library/jest-dom";
 
 jest.mock("next/link", () => {
@@ -123,6 +123,31 @@ describe("Admin Dashboard Detail View", () => {
     const images = screen.getAllByRole("img", { name: "Submitted photo" });
     expect(images).toHaveLength(2);
     expect(images[0]).toHaveAttribute("src", "https://example.com/photo1.jpg");
+  });
+
+  it("shows codes the AI saw but the client didn't tag as suggestions", () => {
+    const project: SerializedProject = {
+      ...mockProjectWithSubmission,
+      photos: [
+        { ...mockProjectWithSubmission.photos![0], aiModificationCodes: ["GRAB_BARS", "RAISED_TOILET"] },
+        // WHEELCHAIR_RAMP counts as RAMP, so it isn't a suggestion.
+        { ...mockProjectWithSubmission.photos![1], declaredModificationCodes: ["RAMP"], aiModificationCodes: ["WHEELCHAIR_RAMP"] },
+      ],
+    };
+    render(<AdminDashboardClient projects={[project]} userName="Advisor" />);
+    fireEvent.click(screen.getByText("100 Senior Way"));
+
+    const suggestions = screen.getByTestId("photo-code-suggestions");
+    expect(suggestions).toHaveTextContent("AI Suggestions (not requested)");
+    expect(suggestions).toHaveTextContent(MODIFICATION_LABEL_BY_CODE.RAISED_TOILET);
+    expect(suggestions).not.toHaveTextContent(MODIFICATION_LABEL_BY_CODE.WHEELCHAIR_RAMP);
+  });
+
+  it("shows no suggestions when the AI codes match the declared ones", () => {
+    render(<AdminDashboardClient projects={[mockProjectWithSubmission]} userName="Advisor" />);
+    fireEvent.click(screen.getByText("100 Senior Way"));
+
+    expect(screen.queryByTestId("photo-code-suggestions")).not.toBeInTheDocument();
   });
 
   it("handles empty or missing submission data gracefully", () => {

@@ -16,6 +16,7 @@ import { getOpenAIClient } from "lib/openai";
 import { getSignedDownloadUrlFromS3Url } from "lib/s3";
 import { isPrivateS3PhotoUrl } from "lib/photoUrls";
 import { prisma } from "lib/prisma";
+import { Prisma } from "@prisma/client";
 import { MODIFICATION_CODES, ModificationCode } from "@/backend/eligibility/types";
 import {
   PHOTO_ANALYSIS_MODEL_NAME,
@@ -24,14 +25,29 @@ import {
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { manualReviewQueue } from "@/backend/queue";
 import type { AiOutputSource, AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
+import { compareCodes, flaggedDeclaredCodes } from "@/backend/services/photoCodeComparison";
 
 export type PhotoAnalysisConfidence = "HIGH" | "MEDIUM" | "LOW";
 export type PhotoAnalysisStatus = "READY" | "FAILED" | "SKIPPED";
+export type DeclaredCodeVerdictValue = "YES" | "NO" | "CANT_TELL";
+
+/** The model's answer to "is this photo consistent with this declared code?" */
+export interface DeclaredCodeVerdict {
+  code: ModificationCode;
+  verdict: DeclaredCodeVerdictValue;
+  confidence: PhotoAnalysisConfidence;
+}
+
+// Bump whenever the prompt wording or response shape changes — it goes into the audit
+// metadata so past results can be tied to the prompt that produced them.
+export const PHOTO_ANALYSIS_PROMPT_VERSION = 2 as const;
 
 export interface PhotoAnalysisResult {
   status: PhotoAnalysisStatus;
   modificationCodes: ModificationCode[];
   confidence: PhotoAnalysisConfidence | null;
+  /** One entry per declared code passed in, in the same order. Empty when none were declared. */
+  declaredCodeVerdicts: DeclaredCodeVerdict[];
   rationale: string | null;
   model: string | null;
   error: string | null;
@@ -63,6 +79,7 @@ function noSignalResult(status: PhotoAnalysisStatus, error: string | null = null
     status,
     modificationCodes: [],
     confidence: null,
+    declaredCodeVerdicts: [],
     rationale: null,
     model: null,
     error,
@@ -73,16 +90,35 @@ function noSignalResult(status: PhotoAnalysisStatus, error: string | null = null
 // Prompt
 // ---------------------------------------------------------------------------
 
-export function buildPhotoAnalysisPrompt(): string {
+export function buildPhotoAnalysisPrompt(declaredCodes: ModificationCode[] = []): string {
   const codes = Object.values(MODIFICATION_CODES).join(", ");
-  return (
+  const base =
     `You are analyzing a photo submitted as part of a home accessibility modification request. ` +
     `Identify which of the following accessibility modification types are visibly relevant to this photo ` +
     `(i.e. the modification appears to already be needed or partially present in the space shown): ${codes}. ` +
     `Only use codes from that exact list — do not invent new ones. If nothing in the photo suggests any of ` +
-    `these modifications, return an empty array. ` +
+    `these modifications, return an empty array. `;
+
+  if (declaredCodes.length === 0) {
+    return (
+      base +
+      `Return ONLY valid JSON in this exact shape: ` +
+      `{ "modificationCodes": string[], "confidence": "HIGH" | "MEDIUM" | "LOW", "rationale": string }.`
+    );
+  }
+
+  return (
+    base +
+    `The client requested these modifications for the space in this photo: ${declaredCodes.join(", ")}. ` +
+    `For EACH requested code, answer whether the photo is consistent with that modification being done ` +
+    `in this space: "YES" if the photo shows a space where it fits, "NO" only if the photo clearly shows it ` +
+    `does not fit (e.g. the wrong room, or the fixture it would go on is clearly absent), or "CANT_TELL" if ` +
+    `the photo doesn't show enough to judge (the relevant area is out of frame, obscured, or the item ` +
+    `isn't something a photo can show). When unsure, answer "CANT_TELL", not "NO". ` +
     `Return ONLY valid JSON in this exact shape: ` +
-    `{ "modificationCodes": string[], "confidence": "HIGH" | "MEDIUM" | "LOW", "rationale": string }.`
+    `{ "modificationCodes": string[], "confidence": "HIGH" | "MEDIUM" | "LOW", ` +
+    `"declaredCodeVerdicts": [{ "code": string, "verdict": "YES" | "NO" | "CANT_TELL", ` +
+    `"confidence": "HIGH" | "MEDIUM" | "LOW" }], "rationale": string }.`
   );
 }
 
@@ -95,6 +131,7 @@ export function buildPhotoAnalysisPrompt(): string {
 interface RawPhotoAnalysisResponse {
   modificationCodes?: unknown;
   confidence?: unknown;
+  declaredCodeVerdicts?: unknown;
   rationale?: unknown;
 }
 
@@ -159,24 +196,47 @@ function parseModelResponse(content: string): RawPhotoAnalysisResponse | null {
   return null;
 }
 
+function normalizeConfidence(value: unknown): PhotoAnalysisConfidence {
+  return value === "HIGH" || value === "MEDIUM" || value === "LOW" ? value : "LOW";
+}
+
+/**
+ * One verdict per declared code. A code the model skipped, or answered with anything
+ * unrecognized, becomes a LOW-confidence CANT_TELL — an unusable answer must never
+ * read as a "NO". Entries for codes that weren't declared are ignored.
+ */
+function normalizeDeclaredCodeVerdicts(
+  raw: unknown,
+  declaredCodes: ModificationCode[]
+): DeclaredCodeVerdict[] {
+  const entries = Array.isArray(raw) ? raw : [];
+  return declaredCodes.map((code) => {
+    const entry = entries.find(
+      (e): e is Record<string, unknown> => typeof e === "object" && e !== null && e.code === code
+    );
+    const verdict = entry?.verdict;
+    if (verdict !== "YES" && verdict !== "NO" && verdict !== "CANT_TELL") {
+      return { code, verdict: "CANT_TELL", confidence: "LOW" };
+    }
+    return { code, verdict, confidence: normalizeConfidence(entry?.confidence) };
+  });
+}
+
 function normalizeParsedResponse(
   parsed: RawPhotoAnalysisResponse,
-  model: string
+  model: string,
+  declaredCodes: ModificationCode[]
 ): PhotoAnalysisResult {
   const rawCodes = Array.isArray(parsed.modificationCodes) ? parsed.modificationCodes : [];
   const modificationCodes = rawCodes
     .filter((code): code is string => typeof code === "string")
     .filter((code) => VALID_MODIFICATION_CODES.has(code)) as ModificationCode[];
 
-  const confidence: PhotoAnalysisConfidence =
-    parsed.confidence === "HIGH" || parsed.confidence === "MEDIUM" || parsed.confidence === "LOW"
-      ? parsed.confidence
-      : "LOW";
-
   return {
     status: "READY",
     modificationCodes: Array.from(new Set(modificationCodes)),
-    confidence,
+    confidence: normalizeConfidence(parsed.confidence),
+    declaredCodeVerdicts: normalizeDeclaredCodeVerdicts(parsed.declaredCodeVerdicts, declaredCodes),
     rationale: typeof parsed.rationale === "string" ? parsed.rationale : null,
     model,
     error: null,
@@ -189,10 +249,14 @@ function normalizeParsedResponse(
 
 /**
  * Analyzes a single project photo and returns the AI-inferred modification
- * codes. `photoUrl` may be a public URL or an S3 object URL (signed
- * automatically). Never throws.
+ * codes, plus a yes / no / can't-tell verdict for each of the photo's
+ * client-declared codes. `photoUrl` may be a public URL or an S3 object URL
+ * (signed automatically). Never throws.
  */
-export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalysisResult> {
+export async function analyzeProjectPhoto(
+  photoUrl: string,
+  declaredCodes: string[] = []
+): Promise<PhotoAnalysisResult> {
   debug("MAIN", "=== analyzeProjectPhoto START ===", { photoUrl });
 
   const apiKey = process.env.OPENAI_API_KEY;
@@ -207,7 +271,10 @@ export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalys
       : photoUrl;
 
     const client = getOpenAIClient();
-    const prompt = buildPhotoAnalysisPrompt();
+    const validDeclaredCodes = Array.from(
+      new Set(declaredCodes.filter((code) => VALID_MODIFICATION_CODES.has(code)))
+    ) as ModificationCode[];
+    const prompt = buildPhotoAnalysisPrompt(validDeclaredCodes);
 
     const reasoningEffort = getPhotoAnalysisReasoningEffort();
 
@@ -245,10 +312,11 @@ export async function analyzeProjectPhoto(photoUrl: string): Promise<PhotoAnalys
       return noSignalResult("FAILED", "Failed to parse OpenAI response as JSON");
     }
 
-    const result = normalizeParsedResponse(parsed, PHOTO_ANALYSIS_MODEL_NAME);
+    const result = normalizeParsedResponse(parsed, PHOTO_ANALYSIS_MODEL_NAME, validDeclaredCodes);
     debug("MAIN", "=== analyzeProjectPhoto END ===", {
       modificationCodes: result.modificationCodes,
       confidence: result.confidence,
+      declaredCodeVerdicts: result.declaredCodeVerdicts,
     });
     return result;
   } catch (error) {
@@ -268,12 +336,6 @@ export interface PhotoModificationAnalysisJobPayload {
   photoId: string;
 }
 
-function sameCodeSet(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const setA = new Set(a);
-  return b.every((code) => setA.has(code));
-}
-
 const CONFIDENCE_RANK: Record<PhotoAnalysisConfidence, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
 
 /**
@@ -283,8 +345,11 @@ const CONFIDENCE_RANK: Record<PhotoAnalysisConfidence, number> = { LOW: 0, MEDIU
  * AI-inferred codes against that SAME photo's client-declared tags (see
  * IntakeForm.tsx's per-photo tag picker). Per-photo tags
  * are the ground truth (the client said what's in this specific photo); AI inference
- * is the cross-check. Any photo where the two disagree flags the whole project for
- * manual review, same as a project-wide low-confidence result would.
+ * is the cross-check. Any photo with a declared code the AI confidently said doesn't
+ * fit the photo (see flaggedDeclaredCodes — a HIGH-confidence "NO" verdict, or for
+ * photos without verdicts, a declared code the AI didn't find) flags the whole project
+ * for manual review, same as a project-wide low-confidence result would. Extra AI codes
+ * are recorded as suggestions in the flag metadata but never flag on their own.
  *
  * No-ops (does not overwrite declared codes, ever) when: other photos are still
  * pending analysis, or no photo produced a usable (READY) result to reconcile with.
@@ -298,6 +363,7 @@ async function maybeReconcileProjectModificationCodes(projectId: string): Promis
       analysisStatus: true,
       aiModificationCodes: true,
       aiConfidence: true,
+      aiCodeVerdicts: true,
       declaredModificationCodes: true,
     },
   });
@@ -320,9 +386,12 @@ async function maybeReconcileProjectModificationCodes(projectId: string): Promis
     return;
   }
 
-  const mismatchedPhotos = readyPhotos.filter(
-    (p) => !sameCodeSet(p.declaredModificationCodes, p.aiModificationCodes)
-  );
+  const comparedPhotos = readyPhotos.map((p) => ({
+    photo: p,
+    flaggedCodes: flaggedDeclaredCodes(p.declaredModificationCodes, p.aiModificationCodes, p.aiCodeVerdicts),
+    suggestedCodes: compareCodes(p.declaredModificationCodes, p.aiModificationCodes).suggestedCodes,
+  }));
+  const mismatchedPhotos = comparedPhotos.filter((c) => c.flaggedCodes.length > 0);
   const isMismatch = mismatchedPhotos.length > 0;
   const allLowConfidence = readyPhotos.every((p) => p.aiConfidence === "LOW");
 
@@ -343,11 +412,16 @@ async function maybeReconcileProjectModificationCodes(projectId: string): Promis
       aiConfidence: aggregateConfidence,
       metadata: {
         analyzedPhotoCount: readyPhotos.length,
-        mismatchedPhotos: mismatchedPhotos.map((p) => ({
-          photoId: p.id,
-          declaredCodes: p.declaredModificationCodes,
-          aiInferredCodes: p.aiModificationCodes,
+        mismatchedPhotos: mismatchedPhotos.map(({ photo, flaggedCodes }) => ({
+          photoId: photo.id,
+          declaredCodes: photo.declaredModificationCodes,
+          aiInferredCodes: photo.aiModificationCodes,
+          aiCodeVerdicts: photo.aiCodeVerdicts ?? null,
+          missingCodes: flaggedCodes,
         })),
+        suggestedCodes: comparedPhotos
+          .filter((c) => c.suggestedCodes.length > 0)
+          .map(({ photo, suggestedCodes }) => ({ photoId: photo.id, suggestedCodes })),
       },
     },
     {
@@ -395,7 +469,7 @@ export async function processPhotoModificationAnalysisJob(
   });
 
   const startedAt = Date.now();
-  const result = await analyzeProjectPhoto(photo.url);
+  const result = await analyzeProjectPhoto(photo.url, photo.declaredModificationCodes);
 
   await prisma.photo.update({
     where: { id: photo.id },
@@ -403,6 +477,9 @@ export async function processPhotoModificationAnalysisJob(
       analysisStatus: result.status,
       aiModificationCodes: result.modificationCodes,
       aiConfidence: result.confidence,
+      // Null (not []) on a no-signal result, so "never asked" stays distinct from "asked".
+      aiCodeVerdicts:
+        result.status === "READY" ? (result.declaredCodeVerdicts as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
       analysisModel: result.model,
       analysisError: result.error,
       analyzedAt: new Date(),
@@ -427,6 +504,8 @@ export async function processPhotoModificationAnalysisJob(
       model: result.model,
       confidence: result.confidence,
       modificationCodes: result.modificationCodes,
+      declaredCodeVerdicts: result.declaredCodeVerdicts,
+      promptVersion: PHOTO_ANALYSIS_PROMPT_VERSION,
       status: result.status,
       error: result.error,
       durationMs: Date.now() - startedAt,

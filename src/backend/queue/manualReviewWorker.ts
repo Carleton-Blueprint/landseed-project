@@ -210,14 +210,34 @@ function buildFlagDescription(
   } else if (reason === 'BOTH') {
     parts.push('LOW AI confidence + HIGH complexity');
   } else if (reason === 'PHOTO_MODIFICATION_MISMATCH') {
-    const declared = metadata?.declaredCodes;
-    const aiInferred = metadata?.aiInferredCodes;
+    const mismatchedPhotos = metadata?.mismatchedPhotos;
+    const missing = Array.isArray(mismatchedPhotos)
+      ? [
+          ...new Set(
+            mismatchedPhotos.flatMap((p) =>
+              Array.isArray(p?.missingCodes) ? (p.missingCodes as string[]) : []
+            )
+          ),
+        ]
+      : [];
     parts.push(
-      Array.isArray(declared) && Array.isArray(aiInferred)
-        ? `AI-inferred modification codes (${aiInferred.join(', ') || 'none'}) differ from the ` +
-            `client-declared codes (${declared.join(', ') || 'none'})`
-        : 'AI-inferred modification codes differ from the client-declared codes, or AI confidence was LOW'
+      missing.length > 0
+        ? `AI found the photos inconsistent with client-declared modification code(s): ${missing.join(', ')}`
+        : 'AI found the photos inconsistent with a client-declared modification code, or AI confidence was LOW'
     );
+    const suggestedPhotos = metadata?.suggestedCodes;
+    const suggested = Array.isArray(suggestedPhotos)
+      ? [
+          ...new Set(
+            suggestedPhotos.flatMap((p) =>
+              Array.isArray(p?.suggestedCodes) ? (p.suggestedCodes as string[]) : []
+            )
+          ),
+        ]
+      : [];
+    if (suggested.length > 0) {
+      parts.push(`AI also suggested (not requested): ${suggested.join(', ')}`);
+    }
   } else if (reason === 'DISCOVERY_CATALOG_CONTRADICTION') {
     const contradictingGrantTitles = metadata?.contradictingGrantTitles;
     parts.push(
