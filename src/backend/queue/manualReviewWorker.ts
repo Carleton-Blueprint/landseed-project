@@ -225,6 +225,19 @@ function buildFlagDescription(
         ? `AI could not find client-declared modification code(s) in the photos: ${missing.join(', ')}`
         : 'AI did not find a client-declared modification code in the photos, or AI confidence was LOW'
     );
+    const suggestedPhotos = metadata?.suggestedCodes;
+    const suggested = Array.isArray(suggestedPhotos)
+      ? [
+          ...new Set(
+            suggestedPhotos.flatMap((p) =>
+              Array.isArray(p?.suggestedCodes) ? (p.suggestedCodes as string[]) : []
+            )
+          ),
+        ]
+      : [];
+    if (suggested.length > 0) {
+      parts.push(`AI also suggested (not requested): ${suggested.join(', ')}`);
+    }
   } else if (reason === 'DISCOVERY_CATALOG_CONTRADICTION') {
     const contradictingGrantTitles = metadata?.contradictingGrantTitles;
     parts.push(

@@ -14,6 +14,7 @@ import { ProjectAdminDocuments } from "@/app/admin/ProjectAdminDocuments";
 import { ProjectEstimateReview } from "@/app/admin/ProjectEstimateReview";
 import { MODIFICATION_CODES } from "@/backend/eligibility/types";
 import { MODIFICATION_COST_CATALOG } from "@/backend/services/modificationCostCatalog";
+import { compareCodes } from "@/backend/services/photoCodeComparison";
 import {
   formatAssessmentAttribution,
   formatPostEstimateOverride,
@@ -341,6 +342,49 @@ export const MODIFICATION_LABEL_BY_CODE: Record<string, string> = Object.fromEnt
 );
 
 /* ================================================================== */
+/*  Photo Code Suggestions                                             */
+/* ================================================================== */
+
+// Codes photo analysis saw that the client didn't tag. Read-only hints for staff;
+// they never flag the project (see compareCodes).
+function PhotoCodeSuggestions({
+  photos,
+}: {
+  photos: { id: string; url: string; declaredModificationCodes: string[]; aiModificationCodes: string[] }[];
+}) {
+  const withSuggestions = photos
+    .map((photo) => ({
+      photo,
+      suggestedCodes: compareCodes(photo.declaredModificationCodes, photo.aiModificationCodes).suggestedCodes,
+    }))
+    .filter(({ suggestedCodes }) => suggestedCodes.length > 0);
+
+  if (withSuggestions.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5 pt-1" data-testid="photo-code-suggestions">
+      <h5 className="font-semibold uppercase tracking-wider text-[10px] text-gray-400">AI Suggestions (not requested)</h5>
+      {withSuggestions.map(({ photo, suggestedCodes }) => (
+        <div key={photo.id} className="flex items-center gap-2 text-xs">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photo.url} alt="" className="h-8 w-8 rounded object-cover border" />
+          <div className="flex flex-wrap gap-1">
+            {suggestedCodes.map((code) => (
+              <span
+                key={code}
+                className="inline-flex items-center rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 font-medium text-amber-800"
+              >
+                {MODIFICATION_LABEL_BY_CODE[code] ?? code}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ================================================================== */
 /*  Stat Card                                                          */
 /* ================================================================== */
 
@@ -568,6 +612,7 @@ function ProjectDetailPanel({ project }: { project: SerializedProject }) {
               ) : (
                 <p className="text-gray-400 italic">No photos uploaded.</p>
               )}
+              <PhotoCodeSuggestions photos={project.photos ?? []} />
             </div>
           </div>
         </div>

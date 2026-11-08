@@ -90,6 +90,33 @@ describe("manual review worker admin alerting", () => {
     );
   });
 
+  it("describes a photo mismatch by its missing codes and lists AI suggestions", async () => {
+    mockedPrisma.projectManualReviewFlag.findUnique.mockResolvedValue(null);
+    mockedPrisma.projectManualReviewFlag.create.mockResolvedValue({ id: "flag-1" });
+
+    await processManualReviewJob({
+      data: {
+        projectId: "project-1",
+        aiConfidence: "HIGH" as const,
+        reason: "PHOTO_MODIFICATION_MISMATCH",
+        metadata: {
+          analyzedPhotoCount: 2,
+          mismatchedPhotos: [
+            { photoId: "photo-1", declaredCodes: ["WALK_IN_TUB"], aiInferredCodes: ["WALK_IN_SHOWER"], missingCodes: ["WALK_IN_TUB"] },
+          ],
+          suggestedCodes: [
+            { photoId: "photo-1", suggestedCodes: ["WALK_IN_SHOWER"] },
+            { photoId: "photo-2", suggestedCodes: ["WALK_IN_SHOWER", "GRAB_BARS"] },
+          ],
+        },
+      },
+    });
+
+    const description = mockedPrisma.projectManualReviewFlag.create.mock.calls[0][0].data.description;
+    expect(description).toContain("AI could not find client-declared modification code(s) in the photos: WALK_IN_TUB");
+    expect(description).toContain("AI also suggested (not requested): WALK_IN_SHOWER, GRAB_BARS");
+  });
+
   it("does not notify admins when an existing flag is only updated", async () => {
     mockedPrisma.projectManualReviewFlag.findUnique.mockResolvedValue({ id: "flag-1" });
     mockedPrisma.projectManualReviewFlag.update.mockResolvedValue({ id: "flag-1" });

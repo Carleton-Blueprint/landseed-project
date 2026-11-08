@@ -24,6 +24,7 @@ import {
 import { logAuditEventNonBlocking } from "@/backend/audit/log";
 import { manualReviewQueue } from "@/backend/queue";
 import type { AiOutputSource, AiProvenanceMetadata } from "@/backend/audit/aiProvenance";
+import { compareCodes } from "@/backend/services/photoCodeComparison";
 
 export type PhotoAnalysisConfidence = "HIGH" | "MEDIUM" | "LOW";
 export type PhotoAnalysisStatus = "READY" | "FAILED" | "SKIPPED";
@@ -266,33 +267,6 @@ export const PHOTO_MODIFICATION_ANALYSIS_JOB_TYPE = "PHOTO_MODIFICATION_ANALYSIS
 
 export interface PhotoModificationAnalysisJobPayload {
   photoId: string;
-}
-
-// Codes that are the same thing as far as a photo can tell. Comparison-only: the
-// taxonomy, pricing and grant mappings still treat them as separate codes. Don't add
-// codes that are genuinely different products (e.g. WALK_IN_TUB vs WALK_IN_SHOWER).
-const COMPARISON_SYNONYMS: Partial<Record<string, ModificationCode>> = {
-  [MODIFICATION_CODES.WHEELCHAIR_RAMP]: MODIFICATION_CODES.RAMP,
-};
-
-function canonicalCode(code: string): string {
-  return COMPARISON_SYNONYMS[code] ?? code;
-}
-
-/**
- * Declared codes the AI didn't find (after folding synonyms) — these flag the photo.
- * Codes the AI found beyond the declared ones are only suggestions and never flag.
- */
-function compareCodes(
-  declared: string[],
-  aiInferred: string[]
-): { missingCodes: string[]; suggestedCodes: string[] } {
-  const declaredCanonical = new Set(declared.map(canonicalCode));
-  const aiCanonical = new Set(aiInferred.map(canonicalCode));
-  return {
-    missingCodes: declared.filter((code) => !aiCanonical.has(canonicalCode(code))),
-    suggestedCodes: aiInferred.filter((code) => !declaredCanonical.has(canonicalCode(code))),
-  };
 }
 
 const CONFIDENCE_RANK: Record<PhotoAnalysisConfidence, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
