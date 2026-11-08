@@ -5,13 +5,15 @@
  *   npx tsx scripts/assess-eligibility.ts <projectId>
  *
  * Env (from .env):
- *   GRANT_DISCOVERY_AI_MODEL=gpt-4o-mini
+ *   GRANT_DISCOVERY_AI_MODEL=gpt-6-luna (default)
+ *   GRANT_DISCOVERY_AI_REASONING_EFFORT=low (default on gpt-6-luna)
  *   OPENAI_API_KEY=sk-...
  */
 import 'dotenv/config';
 import { Prisma } from '@prisma/client';
 import { assembleEligibilityInput } from '@/backend/eligibility/assembler';
 import { discoverAndEvaluateGrants } from '@/backend/eligibility/discoverySearchProvider';
+import { DISCOVERY_MODEL_NAME, getDiscoveryReasoningEffort } from '@/backend/eligibility/discoveryModelConfig';
 import { createEligibilityAssessmentSnapshot } from '@/backend/eligibility/repository';
 import { prisma } from 'lib/prisma';
 
@@ -33,7 +35,7 @@ async function main() {
   }
 
   console.log(`Assessing eligibility for project ${projectId}...`);
-  console.log(`Discovery env: MODEL=${process.env.GRANT_DISCOVERY_AI_MODEL ?? 'gpt-4o-mini'}`);
+  console.log(`Discovery env: MODEL=${DISCOVERY_MODEL_NAME} EFFORT=${getDiscoveryReasoningEffort() ?? '(none)'}`);
 
   const startedAt = Date.now();
   const input = assembleEligibilityInput(project);

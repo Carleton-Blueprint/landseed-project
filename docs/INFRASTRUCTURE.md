@@ -198,8 +198,10 @@ tier and the worker service.
 | --- | --- |
 | `EMAIL_PROVIDER` | defaults to `resend`; leave unset unless changing providers |
 | `ESTIMATE_GENERATION_DELAY_MINUTES` | delay before the preliminary estimate runs after intake, so admins can override first; default 15, max 1440 (production uses 1440). Set on the worker too |
-| `GRANT_DISCOVERY_AI_MODEL` | select the grant-discovery model |
-| `PHOTO_ANALYSIS_AI_MODEL` | select the photo-analysis model |
+| `GRANT_DISCOVERY_AI_MODEL` | select the grant-discovery model; defaults to `gpt-6-luna` |
+| `GRANT_DISCOVERY_AI_REASONING_EFFORT` | `none`/`low`/`medium`/`high`/`xhigh`/`max`. Unset means `low` on the default model and no effort sent on any other model (gpt-4o-mini rejects it); an invalid value warns and sends none |
+| `PHOTO_ANALYSIS_AI_MODEL` | select the photo-analysis model; defaults to `gpt-6.1-terra` |
+| `PHOTO_ANALYSIS_AI_REASONING_EFFORT` | same values; unset sends no effort (the model's default) |
 | `PRICING_DEBUG`, `PHOTO_ANALYSIS_DEBUG`, `GRANT_DISCOVERY_DEBUG` | debug logging; leave unset in production |
 | `*_MOCK_*`, `GRANT_DISCOVERY_DEV_MOCK_GET` | test and mock flags; never set in production |
 
@@ -273,7 +275,7 @@ tasks or timers, and in production the worker is kept separate from the
     runs, but its cost is recorded as unknown (null).
   - `IMAGE_PLACEMENT_AI_MODEL`: the vision model that plans where each
     modification goes before the edit. Falls back to `PHOTO_ANALYSIS_AI_MODEL`
-    (then `gpt-4o-mini`) when unset. Pricing lives in
+    (then `gpt-6.1-terra`) when unset. Pricing lives in
     `imagePlacementModelConfig.ts`.
   - `IMAGE_GENERATION_QUALITY`: `low`, `medium`, `high` or `auto`. Defaults
     to `medium`; an invalid value logs a warning and uses `medium`. Cost
